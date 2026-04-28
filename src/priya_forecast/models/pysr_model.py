@@ -282,10 +282,13 @@ def compile_equation(
     expr = _parse_safely(raw_expression, allowed_symbols)
     expr = expr.subs(alias_map)
 
-    # Substitute fixed inputs.
+    # Substitute fixed inputs. We tolerate `fix:` entries naming variables
+    # not in this equation's variable list — that lets a global YAML fix:
+    # {r: 0.8} apply uniformly across an equation set even when only some
+    # equations actually use `r`.
     for name, value in fix.items():
         if name not in variables:
-            raise ValueError(f"`fix` references {name!r} which is not in variables {variables}.")
+            continue
         expr = expr.subs(sp.Symbol(name), sp.Float(value))
 
     # Verify only (param_name, k) remain.

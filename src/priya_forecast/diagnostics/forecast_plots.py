@@ -160,20 +160,53 @@ def plot_residuals_at_fiducial(
     theta_fid: np.ndarray,
     cov_diag: np.ndarray,
     outpath: str | Path,
+    perturbation_amplitude: float = 0.3,
+    n_perturbations: int = 5,
+    seed: int = 0,
+    perturbed_param_names: list[str] | None = None,
 ) -> Path:
+    """Residual at fid AND at perturbations along the forecast subspace.
+
+    For multiplicative combine, the residual at fid is identically zero
+    (all ratios = 1), so we draw `n_perturbations` random off-fid points
+    in (perturbation_amplitude * prior_width / 2) along `perturbed_param_names`
+    only — keeping non-forecast params at fid.
+    """
     import matplotlib.pyplot as plt
+    from priya_forecast.parameters import PARAMS_11D, PARAM_NAMES
 
     fig, ax = _setup_axes_white()
-    diff = pysr_model.predict(theta_fid, k, z) - gp_model.predict(theta_fid, k, z)
     sigma = np.sqrt(cov_diag)
-    ax.plot(k, diff / sigma, "k.-", lw=1)
+    rng = np.random.default_rng(seed)
+    if perturbed_param_names is None:
+        # Default: perturb the four "well-constrained" params.
+        perturbed_param_names = ["ns", "Ap", "hub", "omegamh2"]
+    perturbed_idx = [PARAM_NAMES.index(n) for n in perturbed_param_names]
+    widths = np.array([PARAMS_11D[i].width() for i in perturbed_idx])
+
+    diff_fid = pysr_model.predict(theta_fid, k, z) - gp_model.predict(theta_fid, k, z)
+    ax.plot(k, diff_fid / sigma, "k-", lw=2, label="θ = fid")
+
+    palette = plt.get_cmap("tab10").colors
+    for i in range(n_perturbations):
+        theta = theta_fid.copy()
+        delta = rng.uniform(-perturbation_amplitude, perturbation_amplitude, size=len(perturbed_idx)) * widths
+        for di, idx in zip(delta, perturbed_idx):
+            theta[idx] = theta_fid[idx] + di
+        try:
+            diff = pysr_model.predict(theta, k, z) - gp_model.predict(theta, k, z)
+            ax.plot(k, diff / sigma, color=palette[i % len(palette)], alpha=0.7, lw=1,
+                    label=f"perturbation {i+1}")
+        except Exception:
+            continue
     ax.axhline(0, color="black", lw=0.5)
     ax.axhline(1, color="grey", lw=0.5, ls="--")
     ax.axhline(-1, color="grey", lw=0.5, ls="--")
     ax.set_xscale("log")
     ax.set_xlabel(r"$k$ [s/km]")
     ax.set_ylabel(r"$(P_{\mathrm{PySR}} - P_{\mathrm{GP}}) / \sigma_{\mathrm{eBOSS}}$")
-    ax.set_title(f"Fiducial residual in eBOSS-sigma units, z={z}")
+    ax.set_title(f"Residual in eBOSS-sigma units (fid + perturbations), z={z}")
+    ax.legend(fontsize=7, loc="best", ncol=2)
     ax.grid(alpha=0.3)
     outpath = Path(outpath)
     outpath.parent.mkdir(parents=True, exist_ok=True)

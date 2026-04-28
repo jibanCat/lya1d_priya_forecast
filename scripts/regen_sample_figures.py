@@ -40,8 +40,26 @@ from priya_forecast.parameters import (
 OUT = Path(__file__).resolve().parent.parent / "docs" / "figures"
 OUT.mkdir(parents=True, exist_ok=True)
 
-FORECAST_NAMES = ("ns", "Ap", "hub", "omegamh2")
+FORECAST_NAMES = ("dtau0", "Ap", "ns", "alphaq")
 FORECAST_PARAMS = tuple(p for p in PARAMS_11D if p.name in FORECAST_NAMES)
+
+
+# The student's actual PySR-learned equations from the InferenceLyaData
+# write-up (one per parameter, trained on a multi-D Sobol sweep where the
+# inputs are normalized to [0,1] and the output is normalized flux:
+#   flux_norm = (P_F - mean_k) / std_k
+# The `r` variable is the multi-fidelity resolution flag (0.4 = LF, 0.8 = HF).
+# We fix r=0.8 since the forecast targets eBOSS (high-fidelity) data.
+STUDENT_EQUATIONS = {
+    # dtau0 1D from the {dtau0, Ap} subset (paper Eq. dtau_2d):
+    "dtau0": "(((1.4061172 - k)**(-0.5989224)) * dtau0) - (r * 1.3422583) + dtau0 - 1.3998809",
+    # Ap 1D from the same subset (paper Eq. ap_2d):
+    "Ap":    "(((2*Ap)**(cos(k))) + ((-0.5290618 - sin(r)) * 1.4107764)) + Ap",
+    # ns 1D from the {ns, hub} subset:
+    "ns":    "((ns * k) - r) * 2.3955164",
+    # alphaq 1D from the {herei, alphaq} subset:
+    "alphaq": "cos(r + 0.7157408 - 1.5351741*k)**4 / 0.47581 - r - 1.04696",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +136,69 @@ def _build_perfect_pysr_set(*, gp, fid, k_eboss, z, label: str):
     for pname in FORECAST_NAMES:
         ce = pysr_model.compiled[pname]
         ce.raw_expression = f"GP({pname}, others=fid, k)  ← idealized 1D slice"
+    return pysr_model, cfg
+
+
+def _build_student_pysr_set(*, gp, fid, k_eboss, z, label: str = "student_paper_eqs"):
+    """Build a PySRModel from the student's quoted paper equations.
+
+    Inputs are normalized to [0,1]; outputs are normalized flux. We use
+    the framework's `mode='auto'` to derive (mean_k, std_k) by sweeping
+    each parameter via the GP at fixed-fiducial-rest — exactly the
+    convention `pysr_mf_given.py` uses on its own training data.
+
+    The `r` (resolution) variable is collapsed to 0.8 (HF / eBOSS-like).
+    """
+    fid_npz = OUT / "fiducial_p1d_z3.6.npz"
+    np.savez(fid_npz, k=k_eboss, p1d=gp.predict(fid, k_eboss, z))
+
+    # Build per-param normalization specs by sweeping the GP.
+    from priya_forecast.models.normalization import derive_from_gp
+
+    parameters: dict[str, EqnParam] = {}
+    norm_specs: dict[str, "NormalizationSpec"] = {}
+    for pname in PARAM_NAMES:
+        if pname in STUDENT_EQUATIONS:
+            parameters[pname] = EqnParam(
+                fiducial=get_param(pname).fid,
+                expression=STUDENT_EQUATIONS[pname],
+                variables=[pname, "k", "r"],
+            )
+            norm_specs[pname] = derive_from_gp(
+                gp_model=gp, param_name=pname, z=z, k_grid=k_eboss,
+                n_samples=64, seed=0,
+            )
+        else:
+            parameters[pname] = EqnParam(
+                fiducial=get_param(pname).fid,
+                expression="1",
+                variables=[pname, "k"],
+            )
+
+    cfg = EqnConfig(
+        name=label, redshift=z, model="pysr", combine="multiplicative",
+        fiducial_p1d=str(fid_npz), parameters=parameters,
+    )
+
+    # Build with a dummy normalization first; we'll patch per-param specs in.
+    from priya_forecast.models.pysr_model import compile_equation
+    from priya_forecast.models.normalization import identity
+
+    pysr_model = PySRModel(
+        eqn_cfg=cfg, k_grid=k_eboss,
+        normalization_block={"mode": "identity", "fix": {"r": 0.8}},
+    )
+    # Recompile only the student-equation parameters with the GP-derived norm.
+    for pname in STUDENT_EQUATIONS:
+        ep = parameters[pname]
+        pysr_model.compiled[pname] = compile_equation(
+            param_name=pname,
+            raw_expression=STUDENT_EQUATIONS[pname],
+            variables=[pname, "k", "r"],
+            fix={"r": 0.8},
+            norm=norm_specs[pname],
+            fiducial=ep.fiducial,
+        )
     return pysr_model, cfg
 
 
@@ -279,10 +360,10 @@ def fig_fisher_dimensions(*, gp, fid, z, outpath):
     import matplotlib.pyplot as plt
 
     setups = [
-        ("1D", [["ns"], ["Ap"], ["hub"], ["omegamh2"]]),
-        ("2D", [["ns", "Ap"]]),
-        ("3D", [["ns", "Ap", "hub"]]),
-        ("4D", [["ns", "Ap", "hub", "omegamh2"]]),
+        ("1D", [[n] for n in FORECAST_NAMES]),
+        ("2D", [list(FORECAST_NAMES[:2])]),
+        ("3D", [list(FORECAST_NAMES[:3])]),
+        ("4D", [list(FORECAST_NAMES)]),
     ]
     # For 1D, run separately per param; for joint, run the joint Fisher.
     sigma_per_param: dict[str, dict[str, float]] = {n: {} for n in FORECAST_NAMES}
@@ -335,25 +416,25 @@ def main():
         gp=gp, fid=fid, z=z, outpath=OUT / "fig03_fisher_1d_to_4d.png",
     )
 
-    # --- Build two demonstration PySR sets:
-    #     - "perfect_1D_slices" : best-case per-param equation (delegates
-    #       to the GP at fid except for the one varying parameter). Shows
-    #       the floor of what a 1D-trained PySR set can achieve.
-    #     - "taylor_quadratic"  : a deliberately approximate polynomial fit.
-    #       Shows what an under-trained equation set costs.
+    # --- Build the two demonstration PySR sets:
+    #     - "perfect_1D_slices" : delegates to the GP per-parameter slice.
+    #       The floor of what a 1D-trained PySR set can achieve.
+    #     - "student_paper_eqs" : the actual equations the student published
+    #       for {dtau0, Ap, ns, alphaq}. The forecast subspace is exactly
+    #       these four params so we can score the equations end-to-end.
     print("Building demonstration PySR equation sets...")
     pysr_perfect, cfg_perfect = _build_perfect_pysr_set(
         gp=gp, fid=fid, k_eboss=k_eboss, z=z, label="perfect_1D_slices",
     )
-    pysr_quad, cfg_quad = _build_taylor_pysr_set(
-        gp=gp, fid=fid, k_eboss=k_eboss, z=z, label="taylor_quadratic", order=2,
+    pysr_student, cfg_student = _build_student_pysr_set(
+        gp=gp, fid=fid, k_eboss=k_eboss, z=z, label="student_paper_eqs",
     )
 
     out = compare_equation_sets(
         gp_model=gp,
         pysr_sets=[
             EqSetEntry(name="perfect_1D_slices", model=pysr_perfect, eqn_cfg=cfg_perfect),
-            EqSetEntry(name="taylor_quadratic",  model=pysr_quad,    eqn_cfg=cfg_quad),
+            EqSetEntry(name="student_paper_eqs", model=pysr_student, eqn_cfg=cfg_student),
         ],
         z=z, k_eboss=k_eboss, cov_eboss=cov,
         forecast_params=FORECAST_PARAMS,

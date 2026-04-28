@@ -142,11 +142,13 @@ def compare_equation_sets(
 
     # --- Residuals at fid (P_PySR - P_GP) / sigma_eBOSS per set ---
     cov_diag = np.diag(cov_eboss)
+    perturbed_names = [p.name for p in forecast_params]
     for entry in pysr_sets:
         plot_residuals_at_fiducial(
             pysr_model=entry.model, gp_model=gp_model, k=k_eboss, z=z,
             theta_fid=fid, cov_diag=cov_diag,
             outpath=outdir / f"residual_{entry.name}.png",
+            perturbed_param_names=perturbed_names,
         )
 
     # --- Fisher per set on the chosen forecast subspace ---

@@ -1,6 +1,6 @@
-| Parameter | GP σ | perfect_1D_slices σ | perfect_1D_slices / GP | taylor_quadratic σ | taylor_quadratic / GP |
+| Parameter | GP σ | perfect_1D_slices σ | perfect_1D_slices / GP | student_paper_eqs σ | student_paper_eqs / GP |
 |---|---|---|---|---|---|
-| ns | 0.0301 | 0.0301 | 1.000 | 18.5 | 614.812 |
-| Ap | 0.467 | 0.467 | 1.000 | 13.5 | 29.023 |
-| hub | 0.0504 | 0.0504 | 1.000 | 3.24e+03 | 64401.721 |
-| omegamh2 | 0.0143 | 0.0143 | 1.000 | 843 | 58731.309 |
+| dtau0 | 0.428 | 0.428 | 1.000 | 2.58 | 6.023 |
+| ns | 0.0618 | 0.0618 | 1.000 | 0.52 | 8.409 |
+| Ap | 0.745 | 0.745 | 1.000 | 1.79 | 2.403 |
+| alphaq | 5.42 | 5.42 | 1.000 | 2.73e+12 | 503413518739.414 |
