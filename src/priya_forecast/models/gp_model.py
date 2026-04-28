@@ -55,30 +55,17 @@ class MockGPModel(P1DModel):
     reference in likelihood/Fisher tests.
     """
 
-    base_amplitude: float = 8.0e-3
+    # Tuned so MockGP P_F(z=3.6) at the eBOSS k-grid sits in a realistic range
+    # (~70 at k≈0.001, ~25 at k≈0.02). Keeps Fisher chi^2 magnitudes sane when
+    # combined with the real DR14 covariance.
+    base_amplitude: float = 2.5
     z_pivot: float = 3.6
-    z_scale: float = 80.0  # damping scale at z_pivot
+    z_scale: float = 8.0  # damping scale at z_pivot (≈ realistic low-k turnover)
     fiducial: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         if self.fiducial is None:
             self.fiducial = np.asarray(fiducial_vector(), dtype=float)
-
-    def _A(self, theta: np.ndarray) -> float:
-        # Sensitivity to a small subset for testability.
-        # Coefficients picked so that 5% changes in `ns/Ap/hub/omegamh2`
-        # give percent-level changes in P_F, mimicking real sensitivities.
-        idx = {n: PARAM_NAMES.index(n) for n in ("ns", "Ap", "hub", "omegamh2")}
-        d_ns = (theta[idx["ns"]] - self.fiducial[idx["ns"]]) / 0.25
-        d_Ap = (theta[idx["Ap"]] - self.fiducial[idx["Ap"]]) / 1.4e-9
-        d_hub = (theta[idx["hub"]] - self.fiducial[idx["hub"]]) / 0.10
-        d_omh2 = (theta[idx["omegamh2"]] - self.fiducial[idx["omegamh2"]]) / 0.006
-        return self.base_amplitude * (1.0 + 0.10 * d_ns + 0.20 * d_Ap + 0.05 * d_hub + 0.05 * d_omh2)
-
-    def _alpha(self, theta: np.ndarray) -> float:
-        idx = PARAM_NAMES.index("ns")
-        d_ns = (theta[idx] - self.fiducial[idx]) / 0.25
-        return -1.0 + 0.05 * d_ns
 
     def predict(self, theta: np.ndarray, k: np.ndarray, z: float) -> np.ndarray:
         theta = np.asarray(theta, dtype=float)
@@ -87,10 +74,30 @@ class MockGPModel(P1DModel):
             raise ValueError(f"theta must be shape (11,), got {theta.shape}.")
         if not np.all(k > 0):
             raise ValueError("k must be strictly positive.")
+
+        # Each parameter perturbs a *distinct* k-shape so the Fisher matrix is
+        # well-conditioned on the parameter subset that actually varies.
+        idx = {n: PARAM_NAMES.index(n) for n in PARAM_NAMES}
+        d = {
+            n: (theta[idx[n]] - self.fiducial[idx[n]]) / max((self.fiducial[idx[n]] or 1.0), 1e-12)
+            for n in PARAM_NAMES
+        }
+        # Use prior-width-normalized perturbations for the four that have
+        # numerical impact in this mock; this keeps Fisher entries balanced.
+        d["ns"]       = (theta[idx["ns"]]       - self.fiducial[idx["ns"]])       / 0.25
+        d["Ap"]       = (theta[idx["Ap"]]       - self.fiducial[idx["Ap"]])       / 1.4e-9
+        d["hub"]      = (theta[idx["hub"]]      - self.fiducial[idx["hub"]])      / 0.10
+        d["omegamh2"] = (theta[idx["omegamh2"]] - self.fiducial[idx["omegamh2"]]) / 0.006
+
         scale = self.z_scale * (z / self.z_pivot)
-        amp = self._A(theta)
-        alpha = self._alpha(theta)
-        return amp * np.power(k, alpha) * np.exp(-k * scale)
+        # Base shape: power-law × exponential damping.
+        base = self.base_amplitude * np.power(k, -0.5) * np.exp(-k * scale)
+        # Distinct k-shape modulations per parameter:
+        amp_shift   = 0.30 * d["ns"]              # broad-in-k amplitude
+        tilt_shift  = 0.50 * d["Ap"] * np.log(k / 0.005)  # k-tilt (negative at low k)
+        damp_shift  = 0.20 * d["hub"] * (k * scale)       # extra small-k power / large-k loss
+        lowk_shift  = 0.20 * d["omegamh2"] * np.exp(-k * scale * 4.0)  # low-k boost
+        return base * (1.0 + amp_shift + tilt_shift + damp_shift + lowk_shift)
 
 
 # ---------------------------------------------------------------------------
@@ -151,19 +158,41 @@ class GPModel(P1DModel):
             raise ValueError(f"a_template must have shape (4,), got {self.a_template.shape}.")
 
     def _ensure_loaded(self):
+        """Build a `GPWrap` directly. We skip `PRIYAEmulatorExplorer` because
+        its constructor instantiates `KSData()` (KODIAQ data) which has an
+        upstream read-only-pf bug; we don't need the KODIAQ side anyway since
+        the forecast uses eBOSS DR14 covariance from our own data loader."""
         if self._explorer is None:
             try:
-                from lyaemu.priya_explorer import PRIYAEmulatorExplorer  # type: ignore[import-not-found]
+                from lyaemu.gp_wrap import GPWrap  # type: ignore[import-not-found]
             except ImportError as e:
                 raise ImportError(
                     "GPModel requires `lyaemu` (sbird/lya_emulator). Install GPy+emukit "
                     "and add the lyaemu repo to PYTHONPATH, or use MockGPModel for tests."
                 ) from e
-            self._explorer = PRIYAEmulatorExplorer(
+
+            # Use the eBOSS DR14 k-grid; matches the forecast's data k.
+            from priya_forecast.data import load_eboss
+
+            k_eboss, _, _ = load_eboss(z=3.6)
+            gp = GPWrap(
                 basedir=str(self.basedir),
-                hires_subdir=self._hires_subdir,
+                emulator_json_file="emulator_params.json",
+                kf=k_eboss,
                 tau_thresh=self._tau_thresh,
+                # Resolution correction interp only spans k >= 0.003 s/km;
+                # eBOSS k extends down to ~0.0011, so disabling avoids an
+                # out-of-bounds error. The forecast applies no separate
+                # resolution correction to the data anyway.
+                use_res_corr=False,
             )
+            hires_basedir = str(self.basedir / self._hires_subdir)
+            traindir = str(self.basedir / "trained_mf")
+            gp.set_emulator(
+                HRbasedir=hires_basedir, max_z=4.6, min_z=2.2, traindir=traindir,
+            )
+            gp.set_mf_param_limits(basedir=str(self.basedir))
+            self._explorer = gp
         return self._explorer
 
     def _theta_15d(self, theta_11d: np.ndarray) -> np.ndarray:
@@ -174,14 +203,8 @@ class GPModel(P1DModel):
         return np.concatenate([theta_11d, self.a_template])
 
     def _z_index(self, z: float) -> int:
-        """Locate the z-slice index in the explorer's prediction list.
-
-        The upstream explorer returns predictions ordered by `redshifts`
-        (decreasing — see `priya_explorer.py`'s `set_data_corr`). We snap to
-        within 1e-3.
-        """
-        explorer = self._ensure_loaded()
-        zs = np.asarray(explorer.zout if hasattr(explorer, "zout") else explorer.redshifts)
+        gp = self._ensure_loaded()
+        zs = np.asarray(gp.zout if hasattr(gp, "zout") else gp.redshifts)
         i = int(np.argmin(np.abs(zs - z)))
         if abs(zs[i] - z) > 1e-3:
             raise ValueError(
@@ -190,14 +213,12 @@ class GPModel(P1DModel):
         return i
 
     def predict(self, theta: np.ndarray, k: np.ndarray, z: float) -> np.ndarray:
-        explorer = self._ensure_loaded()
+        gp = self._ensure_loaded()
         theta_15d = self._theta_15d(theta)
-        # Upstream signature: get_predicted takes the first 11 entries.
-        okf_list, pred_list, _std_list = explorer.emulator_wrap.get_predicted(theta_15d[:11])
+        okf_list, pred_list, _std_list = gp.get_predicted(theta_15d[:11])
         zi = self._z_index(z)
         okf = np.asarray(okf_list[zi], dtype=float)
         pred = np.asarray(pred_list[zi], dtype=float)
-        # Bin to the requested k-grid (top-hat).
         k = np.asarray(k, dtype=float)
         if np.array_equal(k, okf):
             return pred

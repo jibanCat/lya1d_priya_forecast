@@ -4,6 +4,11 @@ PRIYA P1D forecast at a single redshift, with model swappable between the
 PRIYA GP emulator and PySR-derived analytic equations. Includes a multi-D
 PySR diagnostic and a reusable PySR HPO driver.
 
+**Start here**: [`docs/ONBOARDING.md`](docs/ONBOARDING.md) — student-facing
+walkthrough from "I trained PySR" to "I have a forecast." Then
+[`docs/FIGURES.md`](docs/FIGURES.md) for what each diagnostic figure shows
+and how to read it.
+
 ## Quick start (student-facing)
 
 You trained PySR per parameter and have a directory full of
