@@ -115,6 +115,24 @@ class EqnParam:
 
     Either `pareto_csv` (PySR Pareto file + pick rule) or `expression` (direct
     sympy override) must be set. `expression` takes precedence if both are.
+
+    Fields
+    ------
+    fiducial : float
+        Fiducial value of this parameter, in **physical units** (NOT
+        normalized to [0, 1]). The forecast pipeline normalizes internally
+        when it evaluates the equation, using the parameter's prior bounds
+        from `PARAMS_11D` unless overridden in the `normalization:` block.
+        Must match `parameters.get_param(name).fid` for a clean baseline.
+    pareto_csv : str | None
+        Path to a PySR `hall_of_fame_*.csv` Pareto-front file.
+    pick : str
+        Pareto-pick rule (one of best_loss / complexity_le:N / accuracy_at:tol
+        / row:I).
+    variables : list[str] | None
+        Column order PySR was trained on (default `[<param_name>, k]`).
+    expression : str | None
+        Optional direct sympy override; takes precedence over `pareto_csv`.
     """
 
     fiducial: float

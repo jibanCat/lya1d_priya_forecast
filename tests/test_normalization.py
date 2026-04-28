@@ -166,6 +166,56 @@ def test_from_files_loads_student_txt_format(tmp_path: Path):
     np.testing.assert_allclose(spec.mean_flux, np.linspace(2, 3, nk))
 
 
+def test_from_files_loads_real_student_2pvar_file():
+    """Load one of the student's actual 2pvar mean/std files and round-trip."""
+    mean_path = Path(
+        "/home/mfho/student_projects/InferenceLyaData/2pvar/mean_flux_low_ns-hub.txt"
+    )
+    std_path = Path(
+        "/home/mfho/student_projects/InferenceLyaData/2pvar/std_flux_low_ns-hub.txt"
+    )
+    if not mean_path.exists():
+        pytest.skip("Student 2pvar files not present in this environment.")
+    k_grid = np.linspace(DEFAULT_K_MIN, DEFAULT_K_MAX, 35)
+    spec = from_files(
+        param_name="ns",
+        mean_flux_path=mean_path,
+        std_flux_path=std_path,
+        k_grid=k_grid,
+    )
+    assert spec.mean_flux.shape == (35,)
+    assert spec.std_flux.shape == (35,)
+    # Sanity: positive P_F means; non-trivial spread.
+    assert np.all(spec.mean_flux > 0)
+    assert np.all(spec.std_flux > 0)
+    # Round-trip: feed unit flux_norm, recover mean + std.
+    out = spec.denormalize_flux(np.ones(35), k_grid)
+    np.testing.assert_allclose(out, spec.mean_flux + spec.std_flux, rtol=1e-12)
+
+
+def test_derive_from_gp_matches_student_file_format():
+    """`derive_from_gp` must produce the same `(mean, std)` shape the student
+    saves to `mean_flux_low_*.txt` / `std_flux_low_*.txt` — so the two
+    normalization sources are interchangeable in the YAML."""
+    from priya_forecast.models import MockGPModel
+
+    nk = 35
+    k_grid = np.linspace(DEFAULT_K_MIN, DEFAULT_K_MAX, nk)
+    spec = derive_from_gp(
+        gp_model=MockGPModel(),
+        param_name="ns",
+        z=3.6,
+        k_grid=k_grid,
+        n_samples=50,  # student uses npoints=50 in pysr_mf_given.py
+    )
+    assert spec.mean_flux.shape == (nk,)
+    assert spec.std_flux.shape == (nk,)
+    # Mock returns positive P_F, so per-k means must be positive.
+    assert np.all(spec.mean_flux > 0)
+    # Spread must be a small fraction of mean (mock has only 5-20% sensitivity).
+    assert np.all(spec.std_flux < spec.mean_flux)
+
+
 def test_from_files_rejects_unknown_param(tmp_path: Path):
     p = tmp_path / "x.txt"
     np.savetxt(p, np.zeros(5))
