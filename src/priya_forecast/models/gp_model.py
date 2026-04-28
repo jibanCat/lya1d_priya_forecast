@@ -32,7 +32,7 @@ import numpy as np
 
 from priya_forecast.data import bin_model_to_data
 from priya_forecast.models.base import P1DModel
-from priya_forecast.parameters import PARAM_NAMES, fiducial_vector
+from priya_forecast.parameters import PARAM_NAMES, fiducial_vector, to_physical
 
 DEFAULT_GP_BASEDIR = Path("/home/mfho/student_projects/InferenceLyaData/Emulator_Files")
 
@@ -77,15 +77,11 @@ class MockGPModel(P1DModel):
 
         # Each parameter perturbs a *distinct* k-shape so the Fisher matrix is
         # well-conditioned on the parameter subset that actually varies.
+        # Inputs are in internal units (Ap is 1.46, not 1.46e-9).
         idx = {n: PARAM_NAMES.index(n) for n in PARAM_NAMES}
-        d = {
-            n: (theta[idx[n]] - self.fiducial[idx[n]]) / max((self.fiducial[idx[n]] or 1.0), 1e-12)
-            for n in PARAM_NAMES
-        }
-        # Use prior-width-normalized perturbations for the four that have
-        # numerical impact in this mock; this keeps Fisher entries balanced.
+        d = {n: 0.0 for n in PARAM_NAMES}
         d["ns"]       = (theta[idx["ns"]]       - self.fiducial[idx["ns"]])       / 0.25
-        d["Ap"]       = (theta[idx["Ap"]]       - self.fiducial[idx["Ap"]])       / 1.4e-9
+        d["Ap"]       = (theta[idx["Ap"]]       - self.fiducial[idx["Ap"]])       / 1.4
         d["hub"]      = (theta[idx["hub"]]      - self.fiducial[idx["hub"]])      / 0.10
         d["omegamh2"] = (theta[idx["omegamh2"]] - self.fiducial[idx["omegamh2"]]) / 0.006
 
@@ -195,12 +191,15 @@ class GPModel(P1DModel):
             self._explorer = gp
         return self._explorer
 
-    def _theta_15d(self, theta_11d: np.ndarray) -> np.ndarray:
-        """Pad an 11D physics vector to 15D with the configured DLA amplitudes."""
-        theta_11d = np.asarray(theta_11d, dtype=float)
-        if theta_11d.shape != (11,):
-            raise ValueError(f"theta must be shape (11,), got {theta_11d.shape}.")
-        return np.concatenate([theta_11d, self.a_template])
+    def _theta_15d(self, theta_11d_internal: np.ndarray) -> np.ndarray:
+        """Convert an 11D internal-units theta to a 15D physical-units vector
+        for the upstream GP. Internal units carry Ap as 1.46 (× 10^-9);
+        upstream wants 1.46e-9. The DLA template amplitudes are appended."""
+        theta_11d_internal = np.asarray(theta_11d_internal, dtype=float)
+        if theta_11d_internal.shape != (11,):
+            raise ValueError(f"theta must be shape (11,), got {theta_11d_internal.shape}.")
+        theta_11d_physical = to_physical(theta_11d_internal)
+        return np.concatenate([theta_11d_physical, self.a_template])
 
     def _z_index(self, z: float) -> int:
         gp = self._ensure_loaded()

@@ -238,12 +238,15 @@ def plot_fisher_corner(
     fisher_results: dict[str, FisherResult],
     outpath: str | Path,
     param_subset: list[str] | None = None,
+    axis_reference: str | None = None,
 ) -> Path:
     """1D Gaussian posterior overlays + 2D 1σ confidence ellipses.
 
-    Lightweight Fisher-Gaussian corner — no MCMC required. Good first look at
-    parameter degeneracies. Use `param_subset` to focus on a few params; full
-    11D corners are too dense to read.
+    Lightweight Fisher-Gaussian corner — no MCMC required. Use `param_subset`
+    to focus on a few params; full 11D corners are too dense to read.
+    `axis_reference` names which result determines axis limits (default: the
+    *tightest* σ across all results, so GP-like reference contours are
+    visible even when other sets are far looser).
     """
     import matplotlib.pyplot as plt
 
@@ -259,6 +262,13 @@ def plot_fisher_corner(
     fig.patch.set_facecolor("white")
     if n == 1:
         axes = np.array([[axes]])
+
+    # Pick the reference whose σ sets axis bounds — default = tightest.
+    if axis_reference is None:
+        sigmas_total = {label: float(np.sum(fr.sigma)) for label, fr in fisher_results.items()
+                        if np.all(np.isfinite(fr.sigma))}
+        axis_reference = min(sigmas_total, key=sigmas_total.get) if sigmas_total else next(iter(fisher_results))
+    ref_fr = fisher_results[axis_reference]
 
     palette = plt.get_cmap("tab10").colors
     for ai, i in enumerate(idx):
@@ -279,8 +289,17 @@ def plot_fisher_corner(
                 else:
                     sub = np.array([[fr.cov[i, i], fr.cov[i, j]], [fr.cov[j, i], fr.cov[j, j]]])
                     fid_i, fid_j = fr.theta_fid[i], fr.theta_fid[j]
-                    _draw_ellipse(ax, mean=(fid_j, fid_i), cov=sub[::-1, ::-1], color=color)
+                    _draw_ellipse(ax, mean=(fid_j, fid_i), cov=sub[::-1, ::-1], color=color,
+                                  set_limits=False)
                     ax.scatter(fid_j, fid_i, marker="x", color=color, s=20)
+            # Set axis limits from the reference's σ (so GP-tight contours are visible).
+            if ai == aj:
+                s_ref = ref_fr.sigma[i]; mu = ref_fr.theta_fid[i]
+                ax.set_xlim(mu - 4 * s_ref, mu + 4 * s_ref)
+            else:
+                s_i, s_j = ref_fr.sigma[i], ref_fr.sigma[j]
+                ax.set_xlim(ref_fr.theta_fid[j] - 4 * s_j, ref_fr.theta_fid[j] + 4 * s_j)
+                ax.set_ylim(ref_fr.theta_fid[i] - 4 * s_i, ref_fr.theta_fid[i] + 4 * s_i)
             if ai == n - 1:
                 ax.set_xlabel(all_names[j])
             if aj == 0 and ai != aj:
@@ -299,7 +318,9 @@ def plot_fisher_corner(
     return outpath
 
 
-def _draw_ellipse(ax, *, mean: tuple[float, float], cov: np.ndarray, color: str) -> None:
+def _draw_ellipse(
+    ax, *, mean: tuple[float, float], cov: np.ndarray, color: str, set_limits: bool = True
+) -> None:
     """1σ confidence ellipse from a 2x2 cov."""
     import matplotlib.patches as mpatches
 
@@ -315,7 +336,7 @@ def _draw_ellipse(ax, *, mean: tuple[float, float], cov: np.ndarray, color: str)
         edgecolor=color, facecolor="none", lw=1.2,
     )
     ax.add_patch(ell)
-    # Auto-zoom around the ellipse
-    pad = 1.3 * np.sqrt(max(eigvals))
-    ax.set_xlim(mean[0] - pad, mean[0] + pad)
-    ax.set_ylim(mean[1] - pad, mean[1] + pad)
+    if set_limits:
+        pad = 1.3 * np.sqrt(max(eigvals))
+        ax.set_xlim(mean[0] - pad, mean[0] + pad)
+        ax.set_ylim(mean[1] - pad, mean[1] + pad)

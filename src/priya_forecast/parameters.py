@@ -26,17 +26,27 @@ class Param:
         Symbol used in YAML configs and as the sympy variable in PySR equations.
     fid : float
         Fiducial value used as the linearization point for Fisher and as the
-        starting point for MCMC walkers.
+        starting point for MCMC walkers. **In `unit_scale` units** — i.e. the
+        physical value is `fid * unit_scale`.
     prior : tuple[float, float]
-        Uniform prior `(lo, hi)`. `lo < fid < hi` is enforced at load time.
+        Uniform prior `(lo, hi)`, also in `unit_scale` units.
+        `lo < fid < hi` is enforced at load time.
     latex : str
-        LaTeX label, used by plotting helpers (no surrounding ``$``).
+        LaTeX label, used by plotting helpers (no surrounding ``$``). Should
+        already include the unit_scale annotation if non-1 (e.g.
+        ``r"A_P\\,/\\,10^{-9}"``).
+    unit_scale : float
+        Multiplier applied at the GP-adapter boundary to recover the
+        physical value: ``physical = internal * unit_scale``. Default 1.0.
+        For Ap we use ``1e-9`` so the forecast operates on order-1 numbers
+        (fid = 1.46) and only the upstream GP sees the physical value.
     """
 
     name: str
     fid: float
     prior: tuple[float, float]
     latex: str
+    unit_scale: float = 1.0
 
     def width(self) -> float:
         """Prior width `hi - lo`. Used as the natural step scale for Fisher."""
@@ -47,9 +57,11 @@ PARAMS_11D: tuple[Param, ...] = (
     # mean flux — confirmed priors from PRIYA paper / upstream MCMC setup
     Param("dtau0", fid=-0.009, prior=(-0.4, 0.25), latex=r"d\tau_0"),
     Param("tau0", fid=1.090, prior=(0.75, 1.25), latex=r"\tau_0"),
-    # cosmology — from emulator_params.json
+    # cosmology — from emulator_params.json. Ap is stored in units of 10^-9
+    # internally (fid=1.46) so Fisher / MCMC / plots work on order-1 numbers.
+    # GPModel multiplies by `unit_scale` before calling upstream.
     Param("ns", fid=0.983, prior=(0.8, 1.05), latex=r"n_s"),
-    Param("Ap", fid=1.46e-9, prior=(1.2e-9, 2.6e-9), latex=r"A_P"),
+    Param("Ap", fid=1.46, prior=(1.2, 2.6), latex=r"A_P\,/\,10^{-9}", unit_scale=1e-9),
     # IGM thermal history
     Param("herei", fid=4.0, prior=(3.5, 4.5), latex=r"z^{HeII}_i"),
     Param("heref", fid=2.765, prior=(2.2, 3.2), latex=r"z^{HeII}_f"),
@@ -75,13 +87,37 @@ def get_param(name: str) -> Param:
 
 
 def fiducial_vector() -> tuple[float, ...]:
-    """Return the 11D fiducial point in canonical order."""
+    """Return the 11D fiducial point in canonical (`unit_scale`) order."""
     return tuple(p.fid for p in PARAMS_11D)
 
 
 def prior_bounds() -> tuple[tuple[float, float], ...]:
-    """Return the 11 prior tuples in canonical order."""
+    """Return the 11 prior tuples in canonical (`unit_scale`) order."""
     return tuple(p.prior for p in PARAMS_11D)
+
+
+def unit_scales() -> tuple[float, ...]:
+    """Per-parameter unit_scale factors. `physical = internal * unit_scale`."""
+    return tuple(p.unit_scale for p in PARAMS_11D)
+
+
+import numpy as _np  # noqa: E402
+
+
+def to_physical(theta_internal):
+    """Convert a length-11 internal-units theta to physical units.
+
+    Used by `GPModel` when calling the upstream emulator (which expects Ap
+    in physical units). Symmetric inverse: ``from_physical``.
+    """
+    arr = _np.asarray(theta_internal, dtype=float)
+    return arr * _np.array(unit_scales(), dtype=float)
+
+
+def from_physical(theta_physical):
+    """Convert a length-11 physical-units theta to internal units."""
+    arr = _np.asarray(theta_physical, dtype=float)
+    return arr / _np.array(unit_scales(), dtype=float)
 
 
 def validate_priors(params: tuple[Param, ...] = PARAMS_11D) -> None:

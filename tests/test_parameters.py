@@ -42,14 +42,14 @@ def test_fiducial_vector_matches_dataclass():
     fid = fiducial_vector()
     assert fid == tuple(p.fid for p in PARAMS_11D)
     assert fid[2] == pytest.approx(0.983)  # ns
-    assert fid[3] == pytest.approx(1.46e-9)  # Ap
+    assert fid[3] == pytest.approx(1.46)  # Ap (in units of 1e-9)
 
 
 def test_priors_match_known_emulator_limits():
     # From emulator_params.json (the cosmology+IGM 9 params).
     bounds = dict(zip(PARAM_NAMES, prior_bounds()))
     assert bounds["ns"] == (0.8, 1.05)
-    assert bounds["Ap"] == (1.2e-9, 2.6e-9)
+    assert bounds["Ap"] == (1.2, 2.6)  # internal units of 1e-9
     assert bounds["hub"] == (0.65, 0.75)
     assert bounds["omegamh2"] == (0.14, 0.146)
 

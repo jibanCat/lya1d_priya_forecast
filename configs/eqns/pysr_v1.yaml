@@ -35,7 +35,7 @@ parameters:
   Ap:
     pareto_csv: TODO_path_to/hall_of_fame_Ap_z3.6.csv
     pick: best_loss
-    fiducial: 1.46e-9
+    fiducial: 1.46         # internal units of 10^-9
   herei:
     pareto_csv: TODO_path_to/hall_of_fame_herei_z3.6.csv
     pick: best_loss

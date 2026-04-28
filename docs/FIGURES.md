@@ -167,3 +167,64 @@ be regenerated with **both** GP and PySR overlaid. Check:
 - **fig07**: PySR ellipses should overlap GP ellipses. Sharply
   different tilts → the PySR set is inducing a fake correlation, often
   because one parameter's equation is contaminating another's.
+
+---
+
+## The reward-loop comparison set (`docs/figures/compare_loop/`)
+
+Whenever you run `compare_equation_sets()` (or
+`scripts/regen_sample_figures.py` ships a sample), you get a directory
+with these per-comparison artefacts:
+
+### `eq_card_<set_name>.png` — equation card
+
+A LaTeX-rendered listing of every equation in the set, with:
+- The equation set's name, redshift, and combine recipe (rendered).
+- Each per-parameter equation as `f_i(θ_i, k) = …`.
+- Below each, the Pareto-pick metadata: complexity, loss, fiducial.
+
+Use this to audit "what equations am I forecasting on?" at a glance.
+If a particular parameter's equation looks too simple (constant, or
+linear with tiny coefficient), that's why its 1σ blew up in
+`forecast_sigma.png`.
+
+### `forecast_sigma.png` — bar comparison
+
+Log-y bar chart, one bar per (parameter, equation set) combination.
+The GP is the reference; bars taller than GP mean that equation set is
+losing information.
+
+Sample reading from the shipped figures:
+- `GP` and `perfect_1D_slices` bars are bit-for-bit identical → the
+  comparison plumbing is correct (a perfect 1D-trained PySR set with
+  multiplicative combine reproduces the GP Fisher exactly).
+- `taylor_quadratic` is 2-3 orders of magnitude worse → that's what an
+  under-trained equation set costs.
+
+### `forecast_corner.png` — Fisher corner overlay
+
+All equation sets overlaid; axes scaled to the *tightest* result so
+the reference contours are always visible. If a PySR set's ellipse
+runs off the panel as a straight line (as `taylor_quadratic` does in
+the sample), the equations are too loose to constrain that subspace
+at all — go retrain.
+
+### `residual_<set_name>.png` — fiducial residual
+
+`(P_PySR(θ_fid) - P_GP(θ_fid)) / σ_eBOSS` per k bin. If this is bigger
+than ±1 anywhere, the equations don't even reproduce fid; everything
+downstream is suspect.
+
+### `summary.md` — scoreboard markdown
+
+Plain markdown table of σ per parameter and σ_pysr/σ_gp ratio per
+equation set. Drop into a slide or paper summary as-is.
+
+### Iterating
+
+This is your **reward loop**: each time you retrain PySR with new
+hyperparameters / pick rules / combine choice, drop the new YAML in
+`configs/eqns/`, rerun the comparison, and watch the bars + ellipses +
+ratios shrink toward the GP reference. Once `taylor_quadratic`-style
+1000× ratios drop to ~1.1× across all four parameters, your equations
+are publishable.

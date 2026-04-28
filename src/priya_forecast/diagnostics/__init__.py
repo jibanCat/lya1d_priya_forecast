@@ -8,6 +8,7 @@ PNG/PDF figures. Pure matplotlib; no library-internal state. Used by:
   every run, so the README walkthrough stays in sync with the code)
 """
 
+from priya_forecast.diagnostics.equation_card import plot_equation_card
 from priya_forecast.diagnostics.forecast_plots import (
     plot_pysr_vs_gp,
     plot_per_parameter_sensitivity,
@@ -17,6 +18,7 @@ from priya_forecast.diagnostics.forecast_plots import (
 )
 
 __all__ = [
+    "plot_equation_card",
     "plot_pysr_vs_gp",
     "plot_per_parameter_sensitivity",
     "plot_fisher_corner",
