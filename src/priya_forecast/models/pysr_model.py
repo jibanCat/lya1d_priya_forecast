@@ -477,11 +477,72 @@ class PySRModel(P1DModel):
         gp_model: P1DModel | None,
         normalization_block: dict | None,
     ) -> None:
-        """Compile a single joint equation in (theta_1, ..., theta_11, k)."""
-        raise NotImplementedError(
-            "combine='joint' compilation is deferred — phase 5 (multi-D diagnostic) "
-            "exercises this path with a different code path."
-        )
+        """Compile a single joint equation in (theta_subset, k).
+
+        The YAML's `joint_expression` is a sympy string in some subset of the
+        11 forecast parameters plus `k` (and optionally extra fixed
+        variables). The forecast pipeline then evaluates this single
+        equation rather than a product/sum of per-param equations.
+
+        Per-parameter `fiducial` is taken from `parameters[name].fiducial`
+        when present, otherwise from `PARAMS_11D[name].fid`. The variables
+        list defaults to `[<varying params...>, k]` and can be overridden
+        via `parameters['__joint__'].variables` if extra inputs (resolution,
+        etc.) need to be declared and fixed.
+        """
+        if not self.cfg.joint_expression:
+            raise ValueError("combine='joint' requires `joint_expression` in YAML.")
+
+        # Sniff variables: any of the 11 forecast names that appear free in
+        # the parsed expression, plus `k`. Plus anything declared in
+        # parameters['__joint__'].variables / .fix for extra fixed inputs.
+        joint_extra = self.cfg.parameters.get("__joint__", None)
+        declared_vars = (joint_extra.variables if joint_extra is not None else None) or []
+        declared_fix = {}
+        if normalization_block is not None and "fix" in (normalization_block or {}):
+            declared_fix.update(normalization_block["fix"] or {})
+        norm_block = normalization_block or {"mode": "identity"}
+        # Build a NormalizationSpec that uses physical-unit pass-through:
+        # the joint equation should produce P_F directly (after optional
+        # mean/std denorm). For the joint case we don't have a single
+        # parameter to derive normalization from, so default to identity.
+        from priya_forecast.models.normalization import identity as _identity
+        norm = _identity(self.k_grid)
+
+        # First parse to discover which forecast params are referenced.
+        candidate_syms = {n: sp.Symbol(n) for n in PARAM_NAMES}
+        candidate_syms["k"] = sp.Symbol("k")
+        for v in declared_vars:
+            candidate_syms[v] = sp.Symbol(v)
+        # Also allow x0..xN aliases.
+        for i in range(20):
+            candidate_syms[f"x{i}"] = sp.Symbol(f"x{i}")
+        expr = _parse_safely(self.cfg.joint_expression, candidate_syms)
+
+        # If declared_vars is given, alias x0..xN to the declared variables.
+        if declared_vars:
+            alias_pairs = [(sp.Symbol(f"x{i}"), sp.Symbol(name))
+                           for i, name in enumerate(declared_vars)]
+            for old, new in alias_pairs:
+                expr = expr.subs(old, new)
+
+        # Substitute fixed inputs (e.g., resolution).
+        for name, value in declared_fix.items():
+            expr = expr.subs(sp.Symbol(name), sp.Float(value))
+
+        # The remaining free symbols must be a subset of forecast params + 'k'.
+        remaining = {s.name for s in expr.free_symbols}
+        allowed = set(PARAM_NAMES) | {"k"}
+        if not remaining.issubset(allowed):
+            raise ValueError(
+                f"Joint expression references {remaining - allowed} after fix-substitution; "
+                f"only forecast params {PARAM_NAMES} and 'k' may remain free."
+            )
+        # Lock the parameter symbols + k in a stable order matching PARAM_NAMES.
+        param_syms = [sp.Symbol(n) for n in PARAM_NAMES]
+        self._joint_fn = sp.lambdify(param_syms + [sp.Symbol("k")], expr, modules=["numpy"])
+        self._joint_expr = expr
+        self._joint_norm = norm
 
     # ------------------------------------------------------------------
     # Forward model
@@ -501,7 +562,14 @@ class PySRModel(P1DModel):
         td = self._theta_dict(np.asarray(theta, dtype=float))
 
         if self.cfg.combine == "joint":
-            raise NotImplementedError("combine='joint' not implemented yet.")
+            theta_full = np.asarray(theta, dtype=float)
+            # Lambdified with symbols in PARAM_NAMES order + 'k'. Broadcast
+            # the parameter values to k.shape so the call returns a per-k array.
+            args = list(theta_full.tolist()) + [k]
+            flux = np.asarray(self._joint_fn(*args), dtype=float)
+            # If the equation is k-independent (e.g., constant), broadcast.
+            flux = np.broadcast_to(flux, k.shape).copy()
+            return self._joint_norm.denormalize_flux(flux, k)
 
         # Interpolate the cached fiducial P1D onto the requested k-grid.
         assert self.fiducial_p1d_k is not None and self.fiducial_p1d is not None

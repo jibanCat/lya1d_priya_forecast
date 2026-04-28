@@ -279,7 +279,59 @@ both.
 
 ---
 
-## 9. Where to ask for help
+## 9. The reward loop: `scripts/train_and_forecast.py`
+
+This is the script you run after every PySR retraining. It takes your
+equation set and produces a production scorecard with three gauges:
+
+```
+PYTHONPATH=/home/mfho/student_projects/lya_emulator_full:src \
+    python scripts/train_and_forecast.py \
+        --params dtau0 Ap ns alphaq \
+        --equations path/to/your_pysr.yaml \
+        --output results/run_$(date +%Y%m%d)/
+```
+
+The scorecard reports three numbers per parameter, plus geometric means:
+
+| Gauge | What it tells you |
+|---|---|
+| **σ_student / σ_perfect_1D** | how far you are from the 1D-product upper bound. Target < 1.5 (geomean). |
+| σ_perfect_1D / σ_gp | always ≈ 1 at Fisher level by chain rule — sanity check, not actionable. |
+| **off-fid MSE ratio** | residuals vs GP at random off-fid Sobol points, in eBOSS-σ² units. Target < 2. |
+
+Built-in references:
+
+```
+--equations none        # only score the references
+--equations published   # the four equations from the user-quoted paper draft
+--equations <path.yaml> # your YAML
+```
+
+### What the scorecard tells you to do
+
+- If `σ_student / σ_perfect_1D` is large (currently ~6× geomean for the
+  published equations): your PySR runs are under-trained. Try larger
+  `maxsize` (30+), more `niterations` (200+), and `model_selection="accuracy"`
+  with a tight target loss.
+- If `off-fid MSE ratio` is large (currently ~66× for published): even at
+  fid the gradients look OK but extrapolation breaks down. Train on a
+  denser Sobol set covering more of the prior, not just near fid.
+- If both are small: you've saturated 1D-product. Now train *joint*
+  multi-D equations (`combine: joint` with a single equation in all
+  varying params) and rerun. Phase 5's coupling-matrix heatmap will show
+  where the joint approach actually buys you something.
+
+### Why σ_perfect_1D = σ_gp at Fisher level
+
+By the chain rule, at the fiducial point:
+`∂P_pysr/∂θ_i = P_fid · (1/f_i_fid) · df_i/dθ_i = ∂GP/∂θ_i` whenever the
+1D slice f_i matches the GP at fid. So Fisher cannot see the cost of the
+1D-factorization assumption — that cost shows up only at off-fid points
+(in the off-fid MSE gauge above) or in MCMC posteriors with non-Gaussian
+curvature.
+
+## 10. Where to ask for help
 
 - Code questions / bugs → file in this repo's GitHub issues.
 - PySR training pipeline questions → upstream `priya_pysr` repo.
