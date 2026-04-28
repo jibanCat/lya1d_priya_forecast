@@ -1,0 +1,32 @@
+# Multi-D PySR diagnostic config.
+# z=3.6 is the paper benchmark; the rest are sanity checks.
+redshifts: [2.6, 2.8, 3.0, 3.2, 3.4, 3.6, 3.8, 4.0, 4.2]
+benchmark_z: 3.6
+
+regimes: ["1D", "2D_pairs", "full_kD"]
+n_train: 256
+n_test: 1024
+seed: 0
+
+# Subset of params to vary; all-11 makes full_kD expensive.
+param_names:
+  - ns
+  - Ap
+  - hub
+  - omegamh2
+  - alphaq
+  - heref
+  - herei
+  - hireionz
+  - bhfeedback
+  - dtau0
+  - tau0
+
+pysr_kwargs:
+  niterations: 100
+  populations: 30
+  maxsize: 25
+  binary_operators: ["+", "-", "*", "/"]
+  unary_operators: ["log", "exp"]
+
+output_dir: results/multid_diagnostic

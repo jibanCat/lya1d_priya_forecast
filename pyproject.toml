@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "priya-forecast"
+version = "0.1.0"
+description = "PRIYA P1D forecast + PySR equation diagnostics + reusable PySR HPO."
+requires-python = ">=3.11"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "PRIYA Forecast Team" }]
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "sympy>=1.12",
+    "pyyaml>=6.0",
+    "h5py>=3.8",
+    "pandas>=2.0",
+]
+
+[project.optional-dependencies]
+forecast = [
+    "emcee>=3.1",
+    "getdist>=1.4",
+    "matplotlib>=3.7",
+]
+pysr = [
+    "pysr>=0.18",
+]
+gp = [
+    "GPy>=1.10",
+    "emukit>=0.4",
+]
+hpo = [
+    "optuna>=3.4",
+]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+    "hypothesis>=6.92",
+    "ruff>=0.1",
+]
+
+[project.scripts]
+priya-forecast = "priya_forecast.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"priya_forecast" = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

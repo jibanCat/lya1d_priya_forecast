@@ -1,0 +1,20 @@
+# Quick HPO sanity-check config. Small budget; fits in minutes.
+strategy: random
+n_trials: 6
+metric: val_mse
+target_loss: 1.0e-3
+seed: 0
+n_jobs: 1
+cache_dir: results/hpo_cache
+
+space:
+  niterations:        [40, 100]
+  populations:        [15]
+  population_size:    [33]
+  maxsize:            [15, 20]
+  parsimony:          [1.0e-3, 1.0e-2]
+  binary_operators:
+    - ["+", "-", "*", "/"]
+  unary_operators:
+    - []
+    - ["log", "exp"]

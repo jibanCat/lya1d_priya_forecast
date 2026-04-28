@@ -1,0 +1,68 @@
+# Example PySR equation set. Fill in `pareto_csv` paths once trained.
+#
+# Schema:
+#   model:            "pysr" (default) or "gp"
+#   redshift:         z bin to use; must match the GP / data slice.
+#   combine:          multiplicative | additive | joint
+#   fiducial_p1d:     .npz with arrays (k, p1d) at theta_fid. Required for
+#                     multiplicative/additive combine.
+#   parameters[name]:
+#     pareto_csv:     path to PySR hall_of_fame_*.csv
+#     pick:           best_loss | complexity_le:N | accuracy_at:tol | row:I
+#     fiducial:       fiducial value of this parameter
+#     variables:      column order PySR was trained on (default [<name>, k])
+#     expression:     OPTIONAL — direct sympy override; takes precedence over pareto_csv
+#   joint_expression: OPTIONAL — single sympy expression in (theta..., k) when combine=joint
+name: pysr_v1
+model: pysr
+redshift: 3.6
+combine: multiplicative
+fiducial_p1d: data/priya_fiducial/p1d_z3.6.npz
+
+parameters:
+  dtau0:
+    pareto_csv: TODO_path_to/hall_of_fame_dtau0_z3.6.csv
+    pick: best_loss
+    fiducial: -0.009
+  tau0:
+    pareto_csv: TODO_path_to/hall_of_fame_tau0_z3.6.csv
+    pick: best_loss
+    fiducial: 1.090
+  ns:
+    pareto_csv: TODO_path_to/hall_of_fame_ns_z3.6.csv
+    pick: best_loss
+    fiducial: 0.983
+  Ap:
+    pareto_csv: TODO_path_to/hall_of_fame_Ap_z3.6.csv
+    pick: best_loss
+    fiducial: 1.46e-9
+  herei:
+    pareto_csv: TODO_path_to/hall_of_fame_herei_z3.6.csv
+    pick: best_loss
+    fiducial: 4.0
+  heref:
+    pareto_csv: TODO_path_to/hall_of_fame_heref_z3.6.csv
+    pick: best_loss
+    fiducial: 2.765
+  alphaq:
+    pareto_csv: TODO_path_to/hall_of_fame_alphaq_z3.6.csv
+    pick: best_loss
+    fiducial: 1.74
+  hub:
+    pareto_csv: TODO_path_to/hall_of_fame_hub_z3.6.csv
+    pick: best_loss
+    fiducial: 0.688
+  omegamh2:
+    pareto_csv: TODO_path_to/hall_of_fame_omegamh2_z3.6.csv
+    pick: best_loss
+    fiducial: 0.1439
+  hireionz:
+    pareto_csv: TODO_path_to/hall_of_fame_hireionz_z3.6.csv
+    pick: best_loss
+    fiducial: 7.24
+  bhfeedback:
+    pareto_csv: TODO_path_to/hall_of_fame_bhfeedback_z3.6.csv
+    pick: best_loss
+    fiducial: 0.050
+
+joint_expression: null

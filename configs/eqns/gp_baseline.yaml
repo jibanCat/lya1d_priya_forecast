@@ -1,0 +1,6 @@
+# GP-emulator baseline. Special-cased: framework swaps to GPModel when
+# `model: gp` is set, ignoring `parameters` / `combine` / `pareto_csv`.
+name: gp_baseline
+redshift: 3.6
+model: gp
+description: "PRIYA GP emulator baseline (no PySR)."

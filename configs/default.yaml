@@ -1,0 +1,24 @@
+# Default forecast config. Override on the CLI with --config.
+redshift: 3.6
+mode: fisher                # fisher | mcmc
+include_T0_prior: false
+marginalize_dla: false
+cov_scale: 1.0
+mock_data: gp               # gp | eboss
+
+k_range:
+  min: 0.001                # s/km
+  max: 0.02                 # s/km
+
+# Path to the trained PRIYA emulator basedir.
+gp_emulator_basedir: /home/mfho/student_projects/InferenceLyaData/Emulator_Files
+
+mcmc:
+  n_steps: 5000
+  walkers_per_dim: 4
+  burn_in_frac: 0.2
+  backend_path: results/mcmc/chain.h5
+
+fisher:
+  step_frac: 0.01           # initial stencil step as a fraction of prior width
+  rel_tol: 0.01             # halve until |dF_ii / F_ii| < rel_tol
