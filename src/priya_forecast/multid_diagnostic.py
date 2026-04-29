@@ -156,6 +156,50 @@ def _run_poly_for_subset(
 
 
 @dataclass
+class _FittedPySR:
+    model: object  # the trained PySRRegressor
+    pareto: object  # equations_ DataFrame
+    varying: list[str]
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        return np.asarray(self.model.predict(X), dtype=float).ravel()
+
+
+def _run_pysr_for_subset(
+    *, gp, varying: list[str], k_grid, z, n_train: int, pysr_kwargs: dict, seed: int,
+) -> tuple[float, float, "_FittedPySR", float, list[int], list[float]]:
+    """Like `_run_poly_for_subset` but trains a real PySRRegressor."""
+    try:
+        from pysr import PySRRegressor
+    except ImportError as e:
+        raise ImportError("pysr_kwargs= requires PySR. Install pysr or omit it.") from e
+    X, y = _sobol_design_for_fit(gp=gp, varying_names=varying, n=n_train,
+                                 k_grid=k_grid, z=z, seed=seed)
+    Xtr, ytr, Xte, yte = _train_test_split(X, y, frac_test=0.2, seed=seed)
+    defaults = dict(
+        niterations=30, maxsize=20,
+        binary_operators=["+", "-", "*", "/"],
+        unary_operators=["log", "exp", "square"],
+        elementwise_loss="loss(prediction, target) = (prediction - target)^2",
+        random_state=seed, deterministic=True, parallelism="serial", verbosity=0,
+    )
+    defaults.update(pysr_kwargs or {})
+    t0 = time.time()
+    model = PySRRegressor(**defaults)
+    model.fit(Xtr, ytr)
+    elapsed = time.time() - t0
+    pareto = model.equations_
+    train_mse = float(np.mean((np.asarray(model.predict(Xtr)).ravel() - ytr) ** 2))
+    test_mse = float(np.mean((np.asarray(model.predict(Xte)).ravel() - yte) ** 2))
+    fitted = _FittedPySR(model=model, pareto=pareto, varying=varying)
+    return (
+        train_mse, test_mse, fitted, elapsed,
+        pareto["complexity"].astype(int).tolist(),
+        pareto["loss"].astype(float).tolist(),
+    )
+
+
+@dataclass
 class _FittedPoly:
     coeffs: np.ndarray
     terms: list
@@ -188,9 +232,15 @@ def run_diagnostic(
     n_train: int = 128,
     n_test: int = 256,
     poly_order: int = 4,
+    pysr_kwargs: dict | None = None,
     seed: int = 0,
 ) -> list[DiagnosticResult]:
     """Run one regime across the chosen `param_names`.
+
+    Backend: polynomial least-squares by default. Pass
+    ``pysr_kwargs={"niterations": 100, "maxsize": 30, ...}`` to swap in
+    real PySR — slow (minutes per cell) but produces interpretable
+    equations.
 
     Returns one DiagnosticResult per "experiment":
       - 1D       : len(param_names) results, one per parameter.
@@ -200,34 +250,41 @@ def run_diagnostic(
     if regime not in {"1D", "2D_pairs", "full_kD"}:
         raise ValueError(f"Unknown regime {regime!r}.")
 
+    use_pysr = bool(pysr_kwargs)
+
+    def _train(varying):
+        if use_pysr:
+            return _run_pysr_for_subset(
+                gp=gp_model, varying=varying, k_grid=k_grid, z=z,
+                n_train=n_train, pysr_kwargs=pysr_kwargs, seed=seed,
+            )
+        tr, te, fit, dt = _run_poly_for_subset(
+            gp=gp_model, varying=varying, k_grid=k_grid, z=z,
+            n_train=n_train, order=poly_order, seed=seed,
+        )
+        return tr, te, fit, dt, [], []
+
     results: list[DiagnosticResult] = []
 
     if regime == "1D":
         for name in param_names:
-            tr, te, fit, dt = _run_poly_for_subset(
-                gp=gp_model, varying=[name], k_grid=k_grid, z=z,
-                n_train=n_train, order=poly_order, seed=seed,
-            )
+            tr, te, fit, dt, complexities, losses = _train([name])
+            backend = "pysr" if use_pysr else f"poly(order={poly_order})"
             results.append(DiagnosticResult(
                 regime=regime, n_params_varied=1, param_names=[name],
                 train_mse=tr, test_mse=te, wall_time_s=dt,
                 n_train=n_train, n_test=n_test,
-                best_expression=f"poly(order={poly_order}) over [{name}, k]",
+                best_expression=f"{backend} over [{name}, k]",
+                pareto_complexities=complexities, pareto_losses=losses,
             ))
         return results
 
     if regime == "2D_pairs":
-        # Build a separate set of *test* points per pair; train a 2D-joint
-        # polynomial AND look up the corresponding 1D-product fits to
-        # compute coupling.
-        # Cache 1D fits per param.
-        oned: dict[str, _FittedPoly] = {}
+        # Cache 1D fits per param so the 1D-product baseline is reusable.
+        oned: dict[str, object] = {}
         oned_test_mse: dict[str, float] = {}
         for name in param_names:
-            tr, te, fit, dt = _run_poly_for_subset(
-                gp=gp_model, varying=[name], k_grid=k_grid, z=z,
-                n_train=n_train, order=poly_order, seed=seed,
-            )
+            tr, te, fit, dt, *_ = _train([name])
             oned[name] = fit
             oned_test_mse[name] = te
 
@@ -236,11 +293,7 @@ def run_diagnostic(
         p_fid = gp_model.predict(fid, k_grid, z)
 
         for pair in combinations(param_names, 2):
-            # 2D joint fit
-            tr_j, te_j, fit_j, dt_j = _run_poly_for_subset(
-                gp=gp_model, varying=list(pair), k_grid=k_grid, z=z,
-                n_train=n_train, order=poly_order, seed=seed + 11,
-            )
+            tr_j, te_j, fit_j, dt_j, complexities, losses = _train(list(pair))
             # 1D-product MSE on the *same* 2D test set
             X_te, y_te = _expand_pair_to_design(
                 gp=gp_model, pair=pair, k_grid=k_grid, z=z,
@@ -271,11 +324,13 @@ def run_diagnostic(
             mse_2d_joint = float(np.mean((fit_j.predict(X_te) - y_te) ** 2))
             # Coupling metric.
             coupling = (mse_1d_prod - mse_2d_joint) / max(mse_1d_prod, 1e-30)
+            backend = "pysr" if use_pysr else f"poly(order={poly_order})"
             results.append(DiagnosticResult(
                 regime=regime, n_params_varied=2, param_names=list(pair),
                 train_mse=tr_j, test_mse=mse_2d_joint, wall_time_s=dt_j,
                 n_train=n_train, n_test=n_test,
-                best_expression=f"poly(order={poly_order}) over [{i}, {j}, k]",
+                best_expression=f"{backend} over [{i}, {j}, k]",
+                pareto_complexities=complexities, pareto_losses=losses,
                 extra={
                     "mse_1D_product": mse_1d_prod,
                     "mse_2D_joint": mse_2d_joint,
@@ -285,16 +340,15 @@ def run_diagnostic(
         return results
 
     # full_kD
-    tr, te, fit, dt = _run_poly_for_subset(
-        gp=gp_model, varying=param_names, k_grid=k_grid, z=z,
-        n_train=n_train, order=poly_order, seed=seed,
-    )
+    tr, te, fit, dt, complexities, losses = _train(param_names)
+    backend = "pysr" if use_pysr else f"poly(order={poly_order})"
     results.append(DiagnosticResult(
         regime=regime, n_params_varied=len(param_names),
         param_names=list(param_names),
         train_mse=tr, test_mse=te, wall_time_s=dt,
         n_train=n_train, n_test=n_test,
-        best_expression=f"poly(order={poly_order}) over [{','.join(param_names)}, k]",
+        best_expression=f"{backend} over [{','.join(param_names)}, k]",
+        pareto_complexities=complexities, pareto_losses=losses,
     ))
     return results
 
