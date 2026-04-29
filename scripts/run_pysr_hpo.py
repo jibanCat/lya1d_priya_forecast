@@ -102,11 +102,15 @@ def main():
     p.add_argument("--strategy", choices=["grid", "random", "bayesian"], default="random")
     p.add_argument("--n-trials", type=int, default=6)
     p.add_argument("--metric", default="val_mse",
-                   help="val_mse | complexity_at_target | pareto_area | fisher_agreement")
+                   help="val_mse | complexity_at_target | pareto_area | "
+                        "fisher_agreement | sigma_targeted")
     p.add_argument("--target-loss", type=float, default=1e-3)
     p.add_argument("--fisher-aware", action="store_true",
-                   help="Compute df/dθ vs GP at fid for each result. Required if "
-                        "--metric fisher_agreement.")
+                   help="Compute df/dθ vs GP at fid for each result.")
+    p.add_argument("--sigma-targeted", action="store_true",
+                   help="Run the full Fisher forecast per config and store "
+                        "σ_pysr/σ_GP in extra_metrics. Slower (one Fisher "
+                        "solve per config) but directly optimizes σ.")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--output", type=Path, required=True)
     args = p.parse_args()
@@ -140,7 +144,73 @@ def main():
     print(f"Running HPO: strategy={args.strategy}, n_trials={args.n_trials}, "
           f"metric={args.metric}")
     trainer = None
-    if args.fisher_aware or args.metric == "fisher_agreement":
+    if (args.sigma_targeted or args.metric == "sigma_targeted"):
+        if args.param is None:
+            raise SystemExit("--sigma-targeted requires --param so we can run the forecast.")
+        from priya_forecast.pysr_hpo import _default_pysr_trainer, make_sigma_targeted_trainer
+        from priya_forecast.config import EqnConfig, EqnParam
+        from priya_forecast.fisher import fisher_matrix
+        from priya_forecast.likelihood import GaussianLikelihood
+        from priya_forecast.models import PySRModel
+        from priya_forecast.models.base import P1DModel
+        from priya_forecast.parameters import PARAMS_11D, get_param
+
+        p = get_param(args.param)
+        sub = (next(pp for pp in PARAMS_11D if pp.name == args.param),)
+        idx = PARAM_NAMES.index(args.param)
+
+        # GP reference σ (one-time)
+        class _Proj(P1DModel):
+            def __init__(self, base): self.base = base
+            def predict(self, t, k, z):
+                full = fid.copy(); full[idx] = t[0]
+                return self.base.predict(full, k, z)
+        proj_gp = _Proj(gp)
+        lk_gp = GaussianLikelihood(model=proj_gp, z=args.z, mock_data="gp",
+                                   theta_fid=np.array([p.fid]))
+        sigma_gp = float(fisher_matrix(
+            likelihood=lk_gp, theta_fid=np.array([p.fid]), params=sub,
+            step_frac=0.02, rel_tol=0.05, max_halvings=2,
+        ).sigma[0])
+
+        # Fid .npz path for the framework
+        fid_npz = args.output / "_fid.npz"
+        np.savez(fid_npz, k=k_eboss, p1d=gp.predict(fid, k_eboss, args.z))
+
+        def sigma_evaluator(eq_str: str) -> float:
+            """Plug eq_str (in x0/x1 PySR convention) into the multiplicative
+            forecast for the chosen --param, return σ_pysr / σ_GP."""
+            # Translate x0 → ((param - lo)/(hi-lo)), x1 → ((k - kmin)/kspan).
+            kmin, kspan = float(k_eboss.min()), float(k_eboss.max() - k_eboss.min())
+            phys = (eq_str
+                    .replace("x0", f"(({args.param} - {p.prior[0]})/{p.width()})")
+                    .replace("x1", f"((k - {kmin})/{kspan})"))
+            parameters = {
+                n: EqnParam(fiducial=get_param(n).fid, expression="1", variables=[n,"k"])
+                for n in PARAM_NAMES
+            }
+            parameters[args.param] = EqnParam(fiducial=p.fid, expression=phys,
+                                              variables=[args.param, "k"])
+            cfg = EqnConfig(name="sigma_eval", redshift=args.z, model="pysr",
+                            combine="multiplicative", fiducial_p1d=str(fid_npz),
+                            parameters=parameters)
+            m = PySRModel(eqn_cfg=cfg, k_grid=k_eboss,
+                          normalization_block={"mode": "identity"})
+            proj = _Proj(m)
+            lk = GaussianLikelihood(model=proj, z=args.z, mock_data="gp",
+                                    theta_fid=np.array([p.fid]))
+            sigma_pysr = float(fisher_matrix(
+                likelihood=lk, theta_fid=np.array([p.fid]), params=sub,
+                step_frac=0.02, rel_tol=0.05, max_halvings=2,
+            ).sigma[0])
+            return sigma_pysr / sigma_gp
+
+        trainer = make_sigma_targeted_trainer(
+            base_trainer=_default_pysr_trainer,
+            sigma_evaluator=sigma_evaluator,
+        )
+        print(f"  sigma-targeted trainer enabled. σ_GP = {sigma_gp:.4g}")
+    elif args.fisher_aware or args.metric == "fisher_agreement":
         if args.param is None:
             raise SystemExit("--fisher-aware requires --param so we can compute "
                              "the GP gradient at fid.")
@@ -181,9 +251,12 @@ def main():
 
     # Markdown scorecard.
     has_fisher = any("fisher_residual" in r.extra_metrics for r in results)
+    has_sigma = any("sigma_ratio" in r.extra_metrics for r in results)
     headers = ["rank", "val_loss"]
     if has_fisher:
         headers.append("fisher_resid")
+    if has_sigma:
+        headers.append("σ_ratio")
     headers += ["wall_time", "maxsize", "niter", "parsimony", "best_expr"]
     lines = ["| " + " | ".join(headers) + " |", "|" + "|".join(["---"] * len(headers)) + "|"]
     for i, r in enumerate(results[:10]):
@@ -191,6 +264,9 @@ def main():
         if has_fisher:
             fr = r.extra_metrics.get("fisher_residual", float("nan"))
             row.append(f"{fr:.3g}" if np.isfinite(fr) else "inf")
+        if has_sigma:
+            sr = r.extra_metrics.get("sigma_ratio", float("nan"))
+            row.append(f"{sr:.3g}" if np.isfinite(sr) else "inf")
         row += [
             f"{r.wall_time_s:.1f}s",
             str(r.config["maxsize"]), str(r.config["niterations"]),
