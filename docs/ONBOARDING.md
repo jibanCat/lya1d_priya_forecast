@@ -404,7 +404,70 @@ should report those pairs as known limitations. If most cells are
 dark, the 1D approach itself is broken at the chosen z and the paper
 needs a multi-D rerun.
 
-## 12. Where to ask for help
+## 12. PySR hyperparameter tuning — `scripts/run_pysr_hpo.py`
+
+The HPO module is intentionally **independent of the rest of the
+forecast** so you can use it on any future symbolic-regression project,
+not just PRIYA P1D. It takes raw `(X_train, y_train, X_val, y_val)`
+arrays and a search space, and returns the top configurations sorted by
+your chosen metric.
+
+```
+PYTHON_JULIAPKG_PROJECT=$HOME/.julia_env \
+JULIA_DEPOT_PATH=$HOME/.julia \
+PYTHONPATH=/home/mfho/student_projects/lya_emulator_full:src \
+    python scripts/run_pysr_hpo.py \
+        --param ns --n-train 64 --n-val 256 \
+        --space configs/hpo/quick.yaml \
+        --strategy random --n-trials 6 \
+        --metric val_mse \
+        --output results/hpo_ns/
+```
+
+Three metrics:
+
+- `val_mse` — straight MSE on the held-out validation set.
+- `complexity_at_target` — minimum Pareto complexity such that
+  validation loss ≤ `--target-loss`. Best for the paper's
+  "smallest-yet-accurate equation" objective.
+- `pareto_area` — area under the (complexity, log loss) curve.
+  Captures whole-Pareto quality, not just one point.
+
+Three strategies:
+
+- `grid` — exhaustive (capped at 200 configs).
+- `random` — uniform sample of `--n-trials` configs.
+- `bayesian` — optuna-driven if installed; else falls back to random
+  with a warning. Optuna is **not** a hard dependency.
+
+**Caching.** The script writes each trained model to
+`<output>/cache/<hash>.pkl`. Re-running with the same data + config
+hits the cache and skips PySR. Without this, exploratory iteration on
+`niterations / maxsize / parsimony` is unusable because each fit
+takes minutes.
+
+**Output**:
+- `hpo1_top.png` — bar chart of top-10 configs by metric.
+- `hpo2_hyperparam_scatter.png` — metric vs each numeric hyperparam.
+- `hpo3_pareto.png` — Pareto-front overlay of the top-5 configs.
+- `hpo4_walltime.png` — wall-time vs metric (efficiency frontier).
+- `hpo_top10.md` — scoreboard markdown.
+
+**Reading the figures**:
+- If `hpo2_hyperparam_scatter.png` shows a clear trend (metric improves
+  with one hyperparam), you've under-budgeted that parameter — widen
+  the range and rerun.
+- If the Pareto fronts in `hpo3_pareto.png` overlap heavily, your search
+  space is roughly converged. Pick the leftmost (lowest-complexity)
+  curve as your equation.
+- If `hpo4_walltime.png` shows a Pareto frontier (some configs are
+  fast AND good), pick from the lower-left corner.
+
+**Reusing on other projects.** Pass `--data path/to.npz` (with arrays
+`X_train, y_train, X_val, y_val`) instead of `--param`. The script then
+runs the HPO sweep on whatever symbolic-regression target you give it.
+
+## 13. Where to ask for help
 
 - Code questions / bugs → file in this repo's GitHub issues.
 - PySR training pipeline questions → upstream `priya_pysr` repo.
