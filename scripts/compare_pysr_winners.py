@@ -39,6 +39,10 @@ def _best_from_cache(cache_dir: Path, sort_by_field: str):
     def _key(r):
         if sort_by_field == "val_loss":
             return r.val_loss
+        if sort_by_field == "sigma_ratio":
+            # closest to 1 = best
+            v = r.extra_metrics.get("sigma_ratio", float("inf"))
+            return abs(v - 1.0) if np.isfinite(v) else float("inf")
         return r.extra_metrics.get(sort_by_field, float("inf"))
     return sorted(results, key=_key)[0]
 

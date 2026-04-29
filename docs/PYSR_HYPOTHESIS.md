@@ -279,12 +279,42 @@ space toward gradient-correct equations, but at quick.yaml budgets
    *find* a gradient-faithful equation, which requires exploring more.
 
 2. **σ-targeted metric** — score by `(σ_pysr / σ_GP - 1)²` directly.
-   Requires running the full forecast Fisher per HPO config (slow but
-   exact). For 1D this is ~ms per config; manageable.
+   Implemented as `metric="sigma_targeted"` via
+   `make_sigma_targeted_trainer(sigma_evaluator)`. Each PySR config's
+   best equation is plugged into a 1D forecast and σ_pysr/σ_GP is
+   stored in `extra_metrics`. ~ms per Fisher solve for 1D forecasts.
 
-The framework supports option 1 today. Option 2 is a small follow-up:
-write a `metric="forecast_sigma"` that wraps the full forecast call
-and stores `σ_pysr/σ_GP` in `extra_metrics`.
+### Three-metric head-to-head on the real GP
+
+Ran three independent 4–8 random-config sweeps on `ns` at z=3.6, each
+sorted by a different metric:
+
+| Metric                | val_mse | σ_pysr / σ_GP | Visual response |
+|-----------------------|---------|----------------|---------------------|
+| `val_mse`             | 0.636   | 0.08× (12× too tight)  | flat-ish line, slightly wrong slope |
+| `fisher_agreement`    | 0.882   | 0.02× (50× too tight)  | tilted line, sharp local gradient |
+| `sigma_targeted`      | 2.01    | **0.117× (8.5× too tight)** | shallowest line, closest σ to 1 |
+| GP target (truth)     | —       | 1.00×                 | quadratic curvature near fid |
+
+![fig_three_metric_comparison](figures/pysr_hypothesis/fig_three_metric_comparison.png)
+
+**The headline finding from this experiment**: at maxsize=15-20,
+**PySR converges to *linear* approximations of the GP regardless of
+HPO metric**. The GP's quadratic curvature near fid is structurally
+beyond PySR's reach at small complexity caps. The σ-targeted metric
+correctly picks the best linear approximation (closest σ to GP, even
+if val_mse is worst), but **none of the three metrics can produce
+the curvature that would actually close the σ gap**.
+
+**To genuinely close σ_pysr ≈ σ_GP**, three things are required
+together:
+1. `maxsize ≥ 30` so PySR can include quadratic-in-θ terms.
+2. `niter ≥ 200` so the search has time to find them.
+3. `metric=sigma_targeted` so the right one is picked.
+
+Any of the three alone is insufficient. The student's published
+equations were trained at maxsize=20 niter=20 — fundamentally too
+small to capture curvature.
 
 ---
 
