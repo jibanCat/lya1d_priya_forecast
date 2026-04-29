@@ -171,3 +171,48 @@ hyperparameters / pick rules / combine choice, drop the new YAML in
 ratios shrink toward the GP reference. Once `taylor_quadratic`-style
 1000× ratios drop to ~1.1× across all four parameters, your equations
 are publishable.
+
+---
+
+## Multi-D PySR diagnostic (`scripts/run_coupling_matrix.py`)
+
+`docs/figures/coupling_matrix/` (or wherever you point `--output`) holds
+three figures from the multi-D experiment:
+
+### `diag1_scaling.png` — test MSE vs dimensionality
+
+Test MSE for each fitted equation, scattered by `n_params_varied`. 1D
+points are the per-parameter fits (others held at fid); 2D-pairs points
+are the joint two-parameter fits; full_kD is the single point at 11D.
+
+**What to look for**:
+- 1D MSE is the floor for that parameter alone.
+- 2D-pairs MSE varies pair-by-pair; pairs with strong cross-coupling
+  cluster well below the 1D-product baseline (visible in fig3).
+- full_kD MSE jumping above 2D-pairs means symbolic regression
+  struggled to fit the joint 11D structure at the chosen budget.
+
+### `diag2_walltime.png` — training cost vs dimensionality
+
+Wall-time per fit. Polynomial surrogate fits are seconds; real PySR
+is minutes-to-hours. The slope tells you what budget you'll need to
+extend the experiment to higher k.
+
+### `diag3_coupling_matrix.png` — the headline plot
+
+11×11 heatmap. Each off-diagonal cell `(i, j)` shows
+`(MSE_1D_product − MSE_2D_joint) / MSE_1D_product` — i.e. the
+*fractional MSE reduction* you get by fitting (θ_i, θ_j) jointly
+rather than as a product of 1D fits.
+
+**Reading the heatmap**:
+- White cells (≈ 0): pair is approximately separable; 1D-product is fine.
+- Dark cells: pair has cross-coupling that 1D-product misses. The paper
+  should report the affected pairs explicitly, since 1D-trained PySR
+  equations will be biased on them.
+
+**Headline questions for the paper**:
+- Are most cells light? → 1D-factorization assumption holds.
+- A few specific dark cells? → those pairs need joint multi-D PySR.
+- Mostly dark cells? → 1D-factorization is structurally wrong, and the
+  paper's conclusions need a multi-D rerun.

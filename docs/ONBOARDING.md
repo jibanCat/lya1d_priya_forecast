@@ -366,7 +366,45 @@ to confirm the plumbing but produces equations that miss most of the
 parameter dependence (e.g., alphaq dropped by parsimony). For
 publishable runs, expect to spend tens of minutes per equation.
 
-## 11. Where to ask for help
+## 11. The coupling-matrix diagnostic — `scripts/run_coupling_matrix.py`
+
+This is the script that produces the **headline science figure** for
+the paper: a coupling matrix that quantifies how much information the
+1D-factorization assumption is losing for each parameter pair.
+
+```
+PYTHONPATH=/home/mfho/student_projects/lya_emulator_full:src \
+    python scripts/run_coupling_matrix.py \
+        --params dtau0 tau0 ns Ap herei heref alphaq hub omegamh2 hireionz bhfeedback \
+        --order 4 --n-train 96 --n-test 256 \
+        --output results/coupling_matrix/
+```
+
+The script:
+1. Sweeps Sobol points per (θ_i, θ_j) pair on the GP at fid-others.
+2. Fits a 1D polynomial per param (multiplicatively combined into a
+   1D-product baseline).
+3. Fits a 2D polynomial per pair (the joint reference).
+4. Computes `coupling[i,j] = (MSE_1D-product − MSE_2D-joint) / MSE_1D-product`
+   on a held-out 2D Sobol test set.
+5. Renders the 11×11 heatmap.
+
+**Polynomial backend**: total runtime for all 55 pairs at n_train=96,
+order=4 is ~5-10 minutes. Real PySR backend is much slower; see Phase 6
+HPO + `scripts/run_multid_pysr.py` for that path.
+
+**Reading the matrix**: cells near 0 mean "1D-factorization is fine for
+this pair"; dark cells mean "you need joint multi-D PySR for this pair
+to capture the GP's response correctly." The mode of the matrix's
+distribution tells you whether the paper's 1D approach is structurally
+sound or needs a redo.
+
+If a few specific cells are dark (e.g., omegamh2 × hub), the paper
+should report those pairs as known limitations. If most cells are
+dark, the 1D approach itself is broken at the chosen z and the paper
+needs a multi-D rerun.
+
+## 12. Where to ask for help
 
 - Code questions / bugs → file in this repo's GitHub issues.
 - PySR training pipeline questions → upstream `priya_pysr` repo.
