@@ -331,7 +331,42 @@ By the chain rule, at the fiducial point:
 (in the off-fid MSE gauge above) or in MCMC posteriors with non-Gaussian
 curvature.
 
-## 10. Where to ask for help
+## 10. Multi-D PySR — `scripts/run_multid_pysr.py`
+
+When `train_and_forecast.py` says "graduate to multi-D PySR" (i.e. your
+1D equations are converged and you want the cross-term gain), run the
+multi-D trainer. It samples Sobol points in your chosen subspace,
+evaluates the GP, runs **real PySR** to discover a single joint
+equation in (θ_1, ..., θ_k, k), then scores it via the same scorecard:
+
+```
+PYTHON_JULIAPKG_PROJECT=$HOME/.julia_env \
+JULIA_DEPOT_PATH=$HOME/.julia \
+PYTHONPATH=/home/mfho/student_projects/lya_emulator_full:src \
+    python scripts/run_multid_pysr.py \
+        --params dtau0 Ap \
+        --n-train 128 --niter 200 --maxsize 30 \
+        --output results/multid_2d_dtau0_Ap/
+```
+
+- `--params`: forecast subspace (start with 2 or 3 — 4D is hard for
+  PySR at modest budgets).
+- `--n-train`: Sobol training-set size (more = better fit, slower).
+- `--niter`: PySR iterations. 30 is a smoke test; 200+ is real.
+- `--maxsize`: Pareto-front complexity cap. 25 is a reasonable starting
+  point; 40 if you want richer equations.
+
+The script saves the discovered Pareto CSV to `<output>/hall_of_fame.csv`
+and the chosen equation's scorecard to `<output>/scorecard.md`. Iterate
+on (`niter`, `maxsize`, `n_train`) until σ_student / σ_perfect_1D drops
+below ~1.5 across the chosen subspace.
+
+A small budget (n_train=32, niter=30, maxsize=25, params=4) is enough
+to confirm the plumbing but produces equations that miss most of the
+parameter dependence (e.g., alphaq dropped by parsimony). For
+publishable runs, expect to spend tens of minutes per equation.
+
+## 11. Where to ask for help
 
 - Code questions / bugs → file in this repo's GitHub issues.
 - PySR training pipeline questions → upstream `priya_pysr` repo.

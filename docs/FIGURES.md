@@ -63,108 +63,51 @@ to break the degeneracy.
 
 ---
 
-## fig03 — 1D Fisher (one parameter at a time)
+## fig03 — 1D → 4D Fisher progression
 
-![fig03](figures/fig03_fisher_1d.png)
+![fig03](figures/fig03_fisher_1d_to_4d.png)
 
-**What it shows**: For each of (ns, Ap, hub, omegamh2), the 1D Fisher σ
-in units of prior width — i.e. *if everything else were perfectly
-known*, how well would the eBOSS-z=3.6 data alone constrain this
-parameter?
+**What it shows**: σ_marg / prior_width per parameter, grouped by
+forecast dimensionality (1D = only that param floats; 4D = all four
+forecast params float jointly). The growth from 1D to 4D is the cost
+of opening parameter degeneracies.
 
-**Why it matters**: Lower bound on the achievable error. A parameter
-with σ_1D / width = 0.05 is a 5%-of-prior measurement under perfect
-external knowledge; in 4D joint, it'll only get worse.
+**Why it matters**: At 1D, σ is the lower bound — best you can do given
+infinite prior knowledge of everything else. At 4D, σ inflates by the
+ratio between joint and conditional sensitivity along the eigenvectors
+of the full Fisher.
 
-**Sample reading**:
-- ns: ~8% of prior width — well-constrained.
-- Ap: ~5% of prior width — best-constrained of the four.
-- hub, omegamh2: ~33-35% — already weakly constrained at 1D.
-
-**Checklist**:
-- [ ] Bars are positive and finite (NaN/inf means F_ii=0 — your
-      gradient is zero somewhere).
-- [ ] Bars are below 1.0 (otherwise the parameter is unconstrained
-      even with everything else fixed).
-
----
-
-## fig04 / fig05 / fig06 — 2D / 3D / 4D Fisher
-
-![fig04](figures/fig04_fisher_2d.png)
-![fig05](figures/fig05_fisher_3d.png)
-![fig06](figures/fig06_fisher_4d.png)
-
-**What they show**: σ_marg on each parameter when all parameters in the
-named subspace float jointly (the others are still pinned to fid). Each
-new dimension opens a new degeneracy that can only inflate σ.
-
-**Why it matters**: The growth of σ between 1D and 4D is the cost of
-degeneracy. If σ_4D / σ_1D ≈ 1, the parameter is approximately
-independent of the others; if σ_4D / σ_1D ≫ 1, you're fighting a strong
-correlation.
-
-**Sample reading**:
-- ns: 0.084 (1D) → 0.114 (4D) — minor inflation.
-- Ap: 0.052 → 0.327 — moderate.
-- hub: 0.350 → 0.499 — already near-prior-saturated.
-- omegamh2: 0.335 → 2.40 — **the prior is no longer informative**;
-  this parameter is degenerate with one of (Ap, hub) at z=3.6.
+**Sample reading from the shipped figure (forecast subset = ns/Ap/hub/omegamh2)**:
+- ns: small inflation (1D ≈ 4D).
+- Ap, hub: modest inflation.
+- omegamh2: 4D bar > 2 × prior width — **the prior alone gives a
+  tighter constraint than this dataset can in the joint 4D forecast**.
+  That's the hub-omegamh2 degeneracy (visible in the corner) saturating.
 
 **Checklist**:
-- [ ] Each bar in fig06 ≥ the corresponding bar in fig03 (degeneracies
-      can only hurt, never help).
-- [ ] At least one bar in fig06 ≫ 1 → that parameter needs multi-z
-      data to break the degeneracy. That's a real result for the paper,
-      not a bug.
-
----
-
-## fig07 — 4D Fisher-Gaussian corner
-
-![fig07](figures/fig07_fisher_corner.png)
-
-**What it shows**: 1D marginalized Gaussian posteriors on the diagonal;
-1σ confidence ellipses off-diagonal. Each ellipse's tilt = the
-parameter-pair correlation; the elongation = how degenerate.
-
-**Why it matters**: Identifies *which* degeneracies are doing the
-damage in fig06. If hub-omegamh2 ellipse is highly elongated and aligned
-along a tilted axis, those two parameters are degenerate and you need
-external data (Planck CMB, BAO) or multi-z Lya to break it.
-
-**Sample reading**:
-- ns row: tight blob — ns is well-constrained and weakly correlated
-  with everything.
-- Ap appears as a horizontal line in panels with other params
-  because Ap's σ is ~10⁻⁹ (tight on its own), and the auto-zoom on
-  larger-σ neighbors makes it look squashed. **This is a plot-axis
-  artifact, not a real flatness.**
-- hub-omegamh2: visibly elongated ellipse → that's the degeneracy
-  inflating omegamh2 in fig06.
-
-**Checklist**:
-- [ ] Diagonal marginals have a clear single peak (not bimodal).
-- [ ] No NaN-axis panels (means F was singular).
-- [ ] Tilted ellipses correspond to known physics (e.g., σ_8 - h
-      degeneracy in cosmology).
+- [ ] Each 4D bar ≥ the corresponding 1D bar (degeneracies can only hurt).
+- [ ] No NaN/inf bars (F is invertible across all dimensionalities).
+- [ ] At least one 4D bar > 1 → that parameter needs multi-z data or
+      external priors to break the degeneracy. Real result for the
+      paper, not a bug.
 
 ---
 
 ## What to add when you have a PySR equation set
 
-Add `--eqn configs/eqns/my_pysr.yaml` to the run; the same figures will
-be regenerated with **both** GP and PySR overlaid. Check:
+Run `scripts/train_and_forecast.py --equations <your.yaml>` (or
+`--equations published` for the user-quoted equations); a fresh
+`compare_loop/` directory is produced overlaying GP and PySR. Check:
 
-- **fig01**: PySR and GP fiducial lines should overlap to within
-  ±σ_eBOSS. Otherwise the equations aren't reproducing fid.
-- **fig02**: PySR sensitivity should track GP sensitivity for parameters
+- **fig01**: PySR and GP fiducial lines overlap within ±σ_eBOSS.
+  Otherwise the equations aren't reproducing fid.
+- **fig02**: PySR sensitivity tracks GP sensitivity for the parameters
   the equations actually depend on.
-- **fig06**: PySR σ ≈ GP σ → the equations preserve the constraining
-  power of the emulator. PySR σ ≫ GP σ → the equations are losing
-  information; tighten the Pareto pick (use `accuracy_at:` with a
-  smaller tolerance).
-- **fig07**: PySR ellipses should overlap GP ellipses. Sharply
+- **forecast_sigma**: PySR σ ≈ GP σ → equations preserve the GP's
+  constraining power. PySR σ ≫ GP σ → tighten the Pareto pick (use
+  `accuracy_at:` with a smaller tolerance) or retrain with bigger
+  `maxsize` / `niterations`.
+- **forecast_corner**: PySR ellipses overlap GP ellipses. Sharply
   different tilts → the PySR set is inducing a fake correlation, often
   because one parameter's equation is contaminating another's.
 
