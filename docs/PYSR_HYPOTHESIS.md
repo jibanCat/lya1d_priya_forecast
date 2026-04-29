@@ -243,10 +243,48 @@ showed it doesn't matter for *smooth* fits, but real PySR equations
 can have *non-smooth* wiggles between training points that a Fisher
 forecast picks up.
 
-**The fix**: HPO with a **Fisher-aware metric**. Instead of optimizing
-val_mse, optimize `‖∂f/∂θ_fid - ∂GP/∂θ_fid‖²` (gradient agreement at
-fid). The framework's HPO module supports custom metrics via the
-`metric=` argument; adding `"fisher_agreement"` is a small extension.
+**The fix attempted**: HPO with a **Fisher-aware metric** —
+`metric="fisher_agreement"` in `run_hpo`, computed via
+`make_fisher_aware_trainer(gradient_target=GP_gradient_at_fid)`. Each
+PySR fit's Pareto-best equation is parsed through sympy, evaluated by
+finite differences at fid, and scored by mean-squared deviation from
+the GP's gradient.
+
+**Empirical result on 4 random configs of the `quick.yaml` space:**
+
+| Metric                | Rank-1 val_mse | Rank-1 fisher_resid | σ_pysr / σ_GP at 1D forecast |
+|-----------------------|----------------|----------------------|--------------------------------|
+| val_mse (loss-only)   | 0.636          | 5.49                 | **0.08× (12× too tight)**       |
+| fisher_agreement      | 0.882          | 3.75                 | **0.02× (50× too tight)**        |
+| GP target             | —              | 0                    | 1.00×                            |
+
+The Fisher-aware sort **does** rank-correlate with gradient agreement
+(rank-1 by fisher has lower fisher_resid than rank-1 by val_mse — 3.75
+vs 5.49). But neither winner brings σ close to σ_GP, and at 4 trials,
+the Fisher-best is actually **worse** in σ-ratio than the val_mse-best.
+
+Why: `fisher_residual = ‖df_pysr - df_GP‖²` measures gradient
+agreement in *raw* terms. The forecast σ depends on
+`(df_pysr / f_pysr_fid)` — the gradient *normalized by the function value
+at fid*. A small `f_pysr_fid` blows up the multiplicative combine's
+sensitivity even when the raw gradient is reasonable.
+
+**Practical takeaway**: the Fisher-aware metric helps narrow the search
+space toward gradient-correct equations, but at quick.yaml budgets
+(maxsize=15-20, niter=40-100, 4 random configs), it doesn't close the
+σ gap. Two paths forward:
+
+1. **Bigger HPO budget** — 50+ random configs, maxsize=30-50, niter=200+.
+   The Fisher-aware metric guides selection but PySR has to actually
+   *find* a gradient-faithful equation, which requires exploring more.
+
+2. **σ-targeted metric** — score by `(σ_pysr / σ_GP - 1)²` directly.
+   Requires running the full forecast Fisher per HPO config (slow but
+   exact). For 1D this is ~ms per config; manageable.
+
+The framework supports option 1 today. Option 2 is a small follow-up:
+write a `metric="forecast_sigma"` that wraps the full forecast call
+and stores `σ_pysr/σ_GP` in `extra_metrics`.
 
 ---
 

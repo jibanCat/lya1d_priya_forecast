@@ -115,6 +115,9 @@ def main():
     space_cfg = load_hpo_config(args.space)
     space = HPOSearchSpace(**space_cfg.space)
 
+    gp = None
+    fid = None
+    k_eboss = None
     if args.data is not None:
         d = np.load(args.data)
         X_tr, y_tr = d["X_train"], d["y_train"]
@@ -126,6 +129,7 @@ def main():
         print("Loading real PRIYA GP emulator...")
         gp = GPModel()
         k_eboss, _, _ = load_eboss(z=args.z)
+        fid = np.array(fiducial_vector(), dtype=float)
         print(f"Building Sobol training set for {args.param} at z={args.z}...")
         X_tr, y_tr, X_va, y_va = _build_priya_dataset(
             gp=gp, param=args.param, n_train=args.n_train,

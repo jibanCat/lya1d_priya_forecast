@@ -146,6 +146,16 @@ class HPOResult:
                     "kwarg or stored in self.extra_metrics."
                 )
             return float(v)
+        if name == "sigma_targeted":
+            ratio = (self.extra_metrics or {}).get("sigma_ratio")
+            if ratio is None:
+                raise ValueError(
+                    "sigma_targeted requires `sigma_ratio` in extra_metrics. "
+                    "Use make_sigma_targeted_trainer() to populate it."
+                )
+            if not np.isfinite(ratio):
+                return float("inf")
+            return float((ratio - 1.0) ** 2)
         raise ValueError(f"Unknown metric {name!r}.")
 
 
@@ -212,6 +222,46 @@ def _default_pysr_trainer(
     )
 
 
+def make_sigma_targeted_trainer(
+    *,
+    base_trainer: Callable | None = None,
+    sigma_evaluator: Callable[[str], float],
+):
+    """Wrap a base PySR trainer so each fit ALSO computes σ_pysr / σ_GP via
+    a user-supplied evaluator that runs the actual forecast Fisher.
+
+    `sigma_evaluator(equation_str)` should return the σ ratio (1.0 = perfect).
+    Stored in `extra_metrics["sigma_ratio"]` so the metric
+    `"sigma_targeted"` can sort by `(sigma_ratio - 1)²`.
+
+    This is more expensive than `make_fisher_aware_trainer` (one extra
+    Fisher solve per config) but it directly optimizes what the forecast
+    cares about. For 1D forecasts this is ~ms; for higher-D, seconds.
+    """
+    if base_trainer is None:
+        base_trainer = _default_pysr_trainer
+
+    def _trainer(*, X_train, y_train, X_val, y_val, config, seed):
+        out = base_trainer(
+            X_train=X_train, y_train=y_train,
+            X_val=X_val, y_val=y_val, config=config, seed=seed,
+        )
+        if len(out) == 5:
+            train_loss, val_loss, complexities, losses, best_expr = out
+            extra: dict[str, float] = {}
+        else:
+            train_loss, val_loss, complexities, losses, best_expr, extra = out
+        try:
+            ratio = float(sigma_evaluator(best_expr))
+            extra["sigma_ratio"] = ratio
+        except Exception as e:  # noqa: BLE001
+            extra["sigma_ratio"] = float("inf")
+            extra["sigma_eval_error"] = str(e)
+        return train_loss, val_loss, complexities, losses, best_expr, extra
+
+    return _trainer
+
+
 def make_fisher_aware_trainer(
     *,
     base_trainer: Callable | None = None,
@@ -267,28 +317,45 @@ def make_fisher_aware_trainer(
         try:
             import sympy as sp
             expr = sp.sympify(best_expr)
-            # PySR's symbols are x0, x1, ... in column order; sort by suffix.
-            symbols = sorted(expr.free_symbols,
-                             key=lambda s: int(s.name.lstrip("x")) if s.name.startswith("x") else 99)
+            # Map x0, x1, ... to their column indices. Any other free symbols
+            # (e.g. `r` in published equations) are kept as additional inputs
+            # that the caller can fix via `fid_X` extra columns or — if
+            # absent from fid_X — pinned to 0 here.
+            xcols = sorted(
+                [s for s in expr.free_symbols if s.name.startswith("x")],
+                key=lambda s: int(s.name[1:]),
+            )
+            other = sorted(
+                [s for s in expr.free_symbols if not s.name.startswith("x")],
+                key=lambda s: s.name,
+            )
             eval_points = np.asarray(fid_X)
             if eval_points.ndim == 1:
                 eval_points = eval_points[:, None]
             n_in = eval_points.shape[1]
-            if not symbols:
+            if not xcols:
                 extra["fisher_residual"] = float("inf")
             else:
-                # Pad symbols list to match input dimensionality.
-                pad_syms = symbols + [
-                    sp.Symbol(f"_unused_{i}") for i in range(n_in - len(symbols))
-                ]
-                fn = sp.lambdify(pad_syms, expr, modules=["numpy"])
-                # Compute df/dx0 at each row of fid_X.
+                # Build a vectorized callable taking the n_in columns of
+                # fid_X. Any extra `other` symbols default to 0.
+                all_syms = list(xcols) + other
+                fn = sp.lambdify(all_syms, expr, modules=["numpy"])
+
+                def _eval(X):
+                    args = []
+                    for s in xcols:
+                        col = int(s.name[1:])
+                        if col < n_in:
+                            args.append(X[:, col])
+                        else:
+                            args.append(np.zeros(X.shape[0]))
+                    for _ in other:
+                        args.append(np.zeros(X.shape[0]))
+                    return np.asarray(fn(*args)).ravel()
+
                 Xp = eval_points.copy(); Xp[:, 0] += h
                 Xm = eval_points.copy(); Xm[:, 0] -= h
-                fp = np.asarray(fn(*[Xp[:, k] for k in range(n_in)])).ravel()
-                fm = np.asarray(fn(*[Xm[:, k] for k in range(n_in)])).ravel()
-                df = (fp - fm) / (2 * h)
-                # gradient_target shape: (n_eval_points,) — the GP's df/dθ at fid.
+                df = (_eval(Xp) - _eval(Xm)) / (2 * h)
                 target = np.asarray(gradient_target).ravel()
                 if df.shape == target.shape:
                     extra["fisher_residual"] = float(np.mean((df - target) ** 2))

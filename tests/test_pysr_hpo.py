@@ -385,6 +385,40 @@ def test_fisher_aware_trainer_flags_wrong_gradient():
     assert 8.5 < extra["fisher_residual"] < 9.5
 
 
+def test_sigma_targeted_trainer_uses_evaluator_to_score():
+    from priya_forecast.pysr_hpo import (
+        HPOSearchSpace, make_sigma_targeted_trainer, run_hpo,
+    )
+
+    # Trainers return slope = maxsize/4 in their equation;
+    # the evaluator turns "k*S" into σ_ratio = 1/(S/4) so smaller maxsize → larger ratio.
+    def _stub(**kw):
+        slope = kw["config"]["maxsize"] / 4.0
+        return (1.0, 1.0, [3], [1.0], f"{slope}*x0")
+
+    def _evaluator(expr_str):
+        # Parse the leading constant from "S*x0".
+        s = float(expr_str.split("*")[0])
+        return 4.0 / s  # so maxsize=4 → ratio=4, maxsize=20 → ratio=0.8 (closest to 1)
+
+    trainer = make_sigma_targeted_trainer(base_trainer=_stub, sigma_evaluator=_evaluator)
+    space = HPOSearchSpace(
+        maxsize=[4, 20, 40], niterations=[40], populations=[15],
+        population_size=[33], parsimony=[1e-3],
+        binary_operators=[["+"]], unary_operators=[[]],
+    )
+    results = run_hpo(
+        X_train=np.zeros((10, 2)), y_train=np.zeros(10),
+        X_val=np.zeros((10, 2)), y_val=np.zeros(10),
+        space=space, strategy="grid", trainer=trainer,
+        metric="sigma_targeted",
+    )
+    # ratios: maxsize=4 → 4.0 (off by 3), maxsize=20 → 0.8 (closest to 1),
+    # maxsize=40 → 0.4 (off by 0.6). 0.8 ranks first.
+    assert results[0].config["maxsize"] == 20
+    assert abs(results[0].extra_metrics["sigma_ratio"] - 0.8) < 1e-10
+
+
 def test_run_hpo_with_fisher_agreement_metric_picks_best_gradient():
     """run_hpo with metric='fisher_agreement' sorts by gradient residual,
     not val_mse. Verify that the result with the smallest fisher_residual
