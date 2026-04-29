@@ -423,22 +423,35 @@ def plot_diagnostic(results_by_regime: dict[str, list[DiagnosticResult]],
             c = float(r.extra.get("coupling", 0.0))
             C[i, j] = c
             C[j, i] = c
-        # Diagonal: 0 (a parameter doesn't couple with itself in this metric).
-        fig, ax = plt.subplots(figsize=(0.7 * n + 2, 0.7 * n + 1.5), dpi=120)
+        np.fill_diagonal(C, np.nan)
+        # Diverging colormap: positive coupling (joint beats product) → red,
+        # negative (product beats joint at this budget) → blue. Clip at ±2
+        # so a single huge-magnitude cell doesn't compress everything else.
+        vmax = float(np.nanpercentile(np.abs(C), 95))
+        vmax = max(min(vmax, 2.0), 0.3)
+        fig, ax = plt.subplots(figsize=(0.85 * n + 2, 0.85 * n + 1.5), dpi=120)
         fig.patch.set_facecolor("white"); ax.set_facecolor("white")
-        im = ax.imshow(np.clip(C, 0, None), cmap="magma_r", vmin=0,
-                       vmax=max(np.max(C), 0.05))
+        masked = np.ma.masked_invalid(C)
+        im = ax.imshow(masked, cmap="RdBu_r", vmin=-vmax, vmax=vmax)
         ax.set_xticks(range(n)); ax.set_yticks(range(n))
         ax.set_xticklabels(names, rotation=45, ha="right")
         ax.set_yticklabels(names)
-        # Annotate each cell with the coupling number.
         for i in range(n):
             for j in range(n):
-                txt = "—" if i == j else f"{C[i,j]:.2f}"
-                color = "white" if C[i,j] > 0.5 * np.max(C) else "black"
-                ax.text(j, i, txt, ha="center", va="center", fontsize=8, color=color)
-        ax.set_title("Coupling matrix:  (MSE_1D-product − MSE_2D-joint) / MSE_1D-product")
-        plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label="coupling fraction")
+                if i == j:
+                    ax.text(j, i, "—", ha="center", va="center", fontsize=8)
+                    continue
+                v = C[i, j]
+                txt = f"{v:.2f}" if abs(v) < 100 else f"{v:.0f}"
+                color = "white" if abs(v) > 0.7 * vmax else "black"
+                ax.text(j, i, txt, ha="center", va="center", fontsize=7.5, color=color)
+        ax.set_title(
+            "Coupling matrix:  (MSE_1D-product − MSE_2D-joint) / MSE_1D-product\n"
+            "Red = joint helps (cross-coupling); Blue = product wins at this training density",
+            fontsize=10,
+        )
+        cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        cbar.set_label("coupling fraction")
         fig.tight_layout(); fig.savefig(outdir / "diag3_coupling_matrix.png"); plt.close(fig)
 
     return outdir

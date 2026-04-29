@@ -86,10 +86,35 @@ def main():
                 print(f"  {a:>10} × {b:<10}    {cpl:+.3f}     {m1:.3e}     {m2:.3e}")
 
     plot_diagnostic(results_by_regime, outdir=args.output)
+
+    # Save raw coupling numbers for cheap re-rendering or paper tables.
+    pair_results = results_by_regime.get("2D_pairs", [])
+    if pair_results:
+        rows = []
+        for r in pair_results:
+            rows.append({
+                "param_a": r.param_names[0],
+                "param_b": r.param_names[1],
+                "coupling": float(r.extra.get("coupling", 0.0)),
+                "mse_1D_product": float(r.extra.get("mse_1D_product", 0.0)),
+                "mse_2D_joint": float(r.extra.get("mse_2D_joint", 0.0)),
+                "wall_time_s": r.wall_time_s,
+            })
+        try:
+            import pandas as pd
+            pd.DataFrame(rows).to_csv(args.output / "coupling_table.csv", index=False)
+        except ImportError:
+            # Fallback: plain CSV via stdlib
+            import csv
+            with open(args.output / "coupling_table.csv", "w") as f:
+                w = csv.DictWriter(f, fieldnames=list(rows[0]))
+                w.writeheader(); w.writerows(rows)
+
     print(f"\nFigures written to {args.output}/")
-    print(f"  diag1_scaling.png        — test MSE vs n_params")
-    print(f"  diag2_walltime.png       — fit cost vs n_params")
-    print(f"  diag3_coupling_matrix.png — the coupling matrix (the headline)")
+    print(f"  diag1_scaling.png         — test MSE vs n_params")
+    print(f"  diag2_walltime.png        — fit cost vs n_params")
+    print(f"  diag3_coupling_matrix.png  — the coupling matrix (the headline)")
+    print(f"  coupling_table.csv        — raw per-pair numbers")
 
 
 if __name__ == "__main__":
