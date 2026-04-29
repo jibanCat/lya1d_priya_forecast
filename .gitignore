@@ -3,6 +3,12 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+# PySR intermediate state (auto-written to ./outputs/ by PySRRegressor)
+outputs/
+
+# Forecast-run artifacts that aren't checked-in samples
+results/_cache/
+
 # C extensions
 *.so
 
