@@ -79,7 +79,23 @@ def _fisher_for(*, model, fid, k, z, params: tuple[Param, ...]):
 
 
 def _equations_dict_for_card(eq_cfg: EqnConfig, model: PySRModel) -> dict:
-    """Build the parameters mapping for plot_equation_card."""
+    """Build the parameters mapping for plot_equation_card.
+
+    For joint mode (single equation in all params + k), returns a special
+    `__joint__` key whose entry holds the rendered joint expression. The
+    plotter knows to render this as one block instead of a per-param table.
+    """
+    if eq_cfg.combine == "joint":
+        joint_expr = getattr(model, "_joint_expr", None)
+        return {
+            "__joint__": {
+                "raw_expression": str(joint_expr) if joint_expr is not None else eq_cfg.joint_expression,
+                "variables": list(PARAM_NAMES) + ["k"],
+                "complexity": None,
+                "loss": None,
+                "fiducial": None,
+            }
+        }
     out = {}
     for pname, ce in model.compiled.items():
         out[pname] = {
