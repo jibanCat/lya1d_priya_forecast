@@ -105,8 +105,22 @@ class HPOResult:
     wall_time_s: float
     pareto_complexities: list[int] = field(default_factory=list)
     pareto_losses: list[float] = field(default_factory=list)
+    extra_metrics: dict[str, float] = field(default_factory=dict)
 
-    def metric(self, name: str, *, target_loss: float | None = None) -> float:
+    def metric(self, name: str, *, target_loss: float | None = None,
+               fisher_residual: float | None = None) -> float:
+        """Score this trial under the named metric (lower = better).
+
+        Recognised names:
+          - "val_mse"             : raw validation MSE.
+          - "complexity_at_target" : min Pareto complexity with loss ≤ target.
+          - "pareto_area"          : ∫ log10(loss) d(complexity) along Pareto.
+          - "fisher_agreement"     : mean-square error of the equation's
+                                     gradient at fid vs the GP's. Requires
+                                     callers to populate
+                                     ``self.extra_metrics["fisher_residual"]``
+                                     (or pass it explicitly here).
+        """
         if name == "val_mse":
             return float(self.val_loss)
         if name == "complexity_at_target":
@@ -122,6 +136,16 @@ class HPOResult:
             ls = np.log10(np.maximum(np.asarray(self.pareto_losses), 1e-30))
             order = np.argsort(cs)
             return float(np.trapz(ls[order], cs[order]))
+        if name == "fisher_agreement":
+            v = fisher_residual
+            if v is None:
+                v = (self.extra_metrics or {}).get("fisher_residual")
+            if v is None:
+                raise ValueError(
+                    "fisher_agreement requires fisher_residual either as "
+                    "kwarg or stored in self.extra_metrics."
+                )
+            return float(v)
         raise ValueError(f"Unknown metric {name!r}.")
 
 
