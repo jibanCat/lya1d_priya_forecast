@@ -316,6 +316,33 @@ Any of the three alone is insufficient. The student's published
 equations were trained at maxsize=20 niter=20 — fundamentally too
 small to capture curvature.
 
+### Big-budget validation (in-flight as of 2026-04-29)
+
+A first PySR config from `configs/hpo/big_budget.yaml` —
+`(maxsize=30, niter=400, parsimony=1e-4, unary=['log','exp'])` —
+trained in 42 minutes and produced an equation with:
+
+- val_loss = **0.112** (5.7× better than the quick.yaml best of 0.636)
+- σ_pysr / σ_GP = **2.35×** (underconstrains)
+
+**This is the first equation that lands on the conservative side of
+GP** (σ larger than GP, not smaller). The equation:
+
+```
+(x0 * exp(2.54 - x1 * 0.81)) + ((22.06 / ((x1 - x0/-7.62) + 0.275)) - ...
+```
+
+has both `exp(x1)` decay (matching GP's k-shape) AND `x0 * exp(...)` —
+a multiplicative interaction between θ and k that none of the
+quick.yaml equations found. Distance-from-1 dropped from 8.5× to 2.35×
+on the first config alone — confirming the doc's hypothesis that
+bigger budget closes the gap.
+
+Cached at
+`results/pysr_hypothesis/refit_ns_bigbudget/cache/695af85fa5b6239a.pkl`.
+Full sweep of 8 configs is in flight; expect σ_ratio to drop closer to
+1.0 once the σ-targeted metric picks the best of all 8.
+
 ---
 
 ## Q5: Resolution testing
