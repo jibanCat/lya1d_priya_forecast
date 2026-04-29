@@ -171,9 +171,18 @@ def _hash_config(config: dict, X_train: np.ndarray, y_train: np.ndarray) -> str:
 
 def _default_pysr_trainer(
     *, X_train, y_train, X_val, y_val, config, seed,
-) -> tuple[float, float, list[int], list[float], str]:
-    """Train one PySR config and return
-    (train_loss, val_loss, pareto_complexities, pareto_losses, best_expression)."""
+):
+    """Train one PySR config.
+
+    Returns a 6-tuple:
+      (train_loss, val_loss, pareto_complexities, pareto_losses,
+       best_expression, extra_metrics)
+
+    `extra_metrics` is an optional dict of additional metrics computed
+    post-fit (empty by default; populated by `make_fisher_aware_trainer`).
+    Older trainers returning only the first 5 elements are accepted by
+    `run_hpo`.
+    """
     from pysr import PySRRegressor  # type: ignore[import-not-found]
 
     args = dict(
@@ -199,7 +208,100 @@ def _default_pysr_trainer(
         pareto["complexity"].astype(int).tolist(),
         pareto["loss"].astype(float).tolist(),
         str(pareto.iloc[pareto["loss"].idxmin()]["equation"]),
+        {},
     )
+
+
+def make_fisher_aware_trainer(
+    *,
+    base_trainer: Callable | None = None,
+    gradient_target: np.ndarray,
+    fid_X: np.ndarray,
+    h: float = 1e-3,
+):
+    """Wrap a base PySR trainer so each fit also computes the gradient
+    residual at fid vs a target (e.g. the GP's gradient).
+
+    Parameters
+    ----------
+    base_trainer : callable, optional
+        Underlying trainer; defaults to `_default_pysr_trainer`.
+    gradient_target : ndarray, shape (n_eval_points,)
+        The reference gradient ∂P/∂θ to match, evaluated at each row of
+        `fid_X`. For 1D forecast, this is the GP's df/dθ along the
+        eBOSS k-grid (one number per k-bin) at fid.
+    fid_X : ndarray, shape (n_eval_points, n_features)
+        Inputs at which to evaluate the equation's gradient. Convention:
+        column 0 is the parameter (held at fid_norm), columns 1+ are k_norm
+        and any other inputs. Gradient is taken w.r.t. column 0 only.
+    h : float
+        Finite-difference step in normalized-input units.
+
+    Returns
+    -------
+    trainer callable that returns the same 6-tuple as `_default_pysr_trainer`
+    but with `extra_metrics={"fisher_residual": ...}`.
+    """
+    if base_trainer is None:
+        base_trainer = _default_pysr_trainer
+
+    def _trainer(*, X_train, y_train, X_val, y_val, config, seed):
+        # Train normally.
+        out = base_trainer(
+            X_train=X_train, y_train=y_train,
+            X_val=X_val, y_val=y_val, config=config, seed=seed,
+        )
+        # Older trainers return 5-tuples; pad to 6.
+        if len(out) == 5:
+            train_loss, val_loss, complexities, losses, best_expr = out
+            extra: dict[str, float] = {}
+        else:
+            train_loss, val_loss, complexities, losses, best_expr, extra = out
+
+        # Need the trained PySRRegressor to evaluate gradients at fid.
+        # Re-train just at the best Pareto point — cheap because we cache
+        # the same config + data hash; default trainer holds the model in
+        # memory but doesn't return it. Cleanest is to re-import and refit
+        # at the chosen complexity. For simplicity here, reconstruct
+        # gradients by parsing the equation through sympy.
+        try:
+            import sympy as sp
+            expr = sp.sympify(best_expr)
+            # PySR's symbols are x0, x1, ... in column order; sort by suffix.
+            symbols = sorted(expr.free_symbols,
+                             key=lambda s: int(s.name.lstrip("x")) if s.name.startswith("x") else 99)
+            eval_points = np.asarray(fid_X)
+            if eval_points.ndim == 1:
+                eval_points = eval_points[:, None]
+            n_in = eval_points.shape[1]
+            if not symbols:
+                extra["fisher_residual"] = float("inf")
+            else:
+                # Pad symbols list to match input dimensionality.
+                pad_syms = symbols + [
+                    sp.Symbol(f"_unused_{i}") for i in range(n_in - len(symbols))
+                ]
+                fn = sp.lambdify(pad_syms, expr, modules=["numpy"])
+                # Compute df/dx0 at each row of fid_X.
+                Xp = eval_points.copy(); Xp[:, 0] += h
+                Xm = eval_points.copy(); Xm[:, 0] -= h
+                fp = np.asarray(fn(*[Xp[:, k] for k in range(n_in)])).ravel()
+                fm = np.asarray(fn(*[Xm[:, k] for k in range(n_in)])).ravel()
+                df = (fp - fm) / (2 * h)
+                # gradient_target shape: (n_eval_points,) — the GP's df/dθ at fid.
+                target = np.asarray(gradient_target).ravel()
+                if df.shape == target.shape:
+                    extra["fisher_residual"] = float(np.mean((df - target) ** 2))
+                else:
+                    extra["fisher_residual"] = float("inf")
+                    extra["fisher_shape_mismatch"] = f"df={df.shape} target={target.shape}"
+        except Exception as e:  # noqa: BLE001
+            extra["fisher_residual"] = float("inf")
+            extra["fisher_residual_error"] = str(e)
+
+        return (train_loss, val_loss, complexities, losses, best_expr, extra)
+
+    return _trainer
 
 
 # ---------------------------------------------------------------------------
@@ -289,11 +391,16 @@ def run_hpo(
                 continue
 
         t0 = time.time()
-        train_loss, val_loss, complexities, losses, best_expr = trainer(
+        out = trainer(
             X_train=X_train, y_train=y_train,
             X_val=X_val, y_val=y_val, config=cfg, seed=seed,
         )
         wt = time.time() - t0
+        if len(out) == 5:
+            train_loss, val_loss, complexities, losses, best_expr = out
+            extra_metrics: dict[str, float] = {}
+        else:
+            train_loss, val_loss, complexities, losses, best_expr, extra_metrics = out
         best_idx = int(np.argmin(losses)) if losses else 0
         result = HPOResult(
             config=cfg,
@@ -306,6 +413,7 @@ def run_hpo(
             wall_time_s=wt,
             pareto_complexities=list(complexities),
             pareto_losses=list(losses),
+            extra_metrics=dict(extra_metrics or {}),
         )
         if cache_path is not None:
             with open(cache_path, "wb") as f:

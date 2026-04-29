@@ -101,8 +101,12 @@ def main():
                    help="YAML defining the HPOSearchSpace (configs/hpo/{quick,full}.yaml).")
     p.add_argument("--strategy", choices=["grid", "random", "bayesian"], default="random")
     p.add_argument("--n-trials", type=int, default=6)
-    p.add_argument("--metric", default="val_mse")
+    p.add_argument("--metric", default="val_mse",
+                   help="val_mse | complexity_at_target | pareto_area | fisher_agreement")
     p.add_argument("--target-loss", type=float, default=1e-3)
+    p.add_argument("--fisher-aware", action="store_true",
+                   help="Compute df/dθ vs GP at fid for each result. Required if "
+                        "--metric fisher_agreement.")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--output", type=Path, required=True)
     args = p.parse_args()
@@ -131,25 +135,65 @@ def main():
 
     print(f"Running HPO: strategy={args.strategy}, n_trials={args.n_trials}, "
           f"metric={args.metric}")
+    trainer = None
+    if args.fisher_aware or args.metric == "fisher_agreement":
+        if args.param is None:
+            raise SystemExit("--fisher-aware requires --param so we can compute "
+                             "the GP gradient at fid.")
+        from priya_forecast.pysr_hpo import _default_pysr_trainer, make_fisher_aware_trainer
+        from priya_forecast.parameters import get_param
+
+        # Compute the GP's df/dθ at fid evaluated on each k-eval point.
+        p = get_param(args.param)
+        h_phys = 1e-3 * p.width()
+        idx = PARAM_NAMES.index(args.param)
+        t_p = fid.copy(); t_p[idx] += h_phys
+        t_m = fid.copy(); t_m[idx] -= h_phys
+        gp_grad_phys = (gp.predict(t_p, k_eboss, args.z) -
+                        gp.predict(t_m, k_eboss, args.z)) / (2 * h_phys)
+        # Convert to gradient per *normalized* theta unit (the equation's units).
+        gp_grad_norm = gp_grad_phys * p.width()
+        # fid_X: column 0 = theta_norm at fid, column 1 = k_norm.
+        fid_norm = (p.fid - p.prior[0]) / p.width()
+        k_norm_grid = (k_eboss - k_eboss.min()) / (k_eboss.max() - k_eboss.min())
+        fid_X = np.column_stack([np.full_like(k_norm_grid, fid_norm), k_norm_grid])
+        trainer = make_fisher_aware_trainer(
+            base_trainer=_default_pysr_trainer,
+            gradient_target=gp_grad_norm, fid_X=fid_X,
+        )
+        print(f"  fisher-aware trainer enabled. GP df/dθ_norm at fid range = "
+              f"{gp_grad_norm.min():.3g} .. {gp_grad_norm.max():.3g}")
+
     results = run_hpo(
         X_train=X_tr, y_train=y_tr, X_val=X_va, y_val=y_va,
         space=space, strategy=args.strategy, n_trials=args.n_trials,
         metric=args.metric, target_loss=args.target_loss,
         seed=args.seed, cache_dir=args.output / "cache",
+        trainer=trainer,
     )
 
     plot_hpo_results(results, outdir=args.output, metric=args.metric,
                      target_loss=args.target_loss)
 
     # Markdown scorecard.
-    lines = ["| rank | val_loss | wall_time | maxsize | niter | parsimony | best_expr |",
-             "|---|---|---|---|---|---|---|"]
+    has_fisher = any("fisher_residual" in r.extra_metrics for r in results)
+    headers = ["rank", "val_loss"]
+    if has_fisher:
+        headers.append("fisher_resid")
+    headers += ["wall_time", "maxsize", "niter", "parsimony", "best_expr"]
+    lines = ["| " + " | ".join(headers) + " |", "|" + "|".join(["---"] * len(headers)) + "|"]
     for i, r in enumerate(results[:10]):
-        lines.append(
-            f"| {i+1} | {r.val_loss:.3g} | {r.wall_time_s:.1f}s | "
-            f"{r.config['maxsize']} | {r.config['niterations']} | "
-            f"{r.config['parsimony']:.0e} | `{r.best_expression[:50]}...` |"
-        )
+        row = [str(i + 1), f"{r.val_loss:.3g}"]
+        if has_fisher:
+            fr = r.extra_metrics.get("fisher_residual", float("nan"))
+            row.append(f"{fr:.3g}" if np.isfinite(fr) else "inf")
+        row += [
+            f"{r.wall_time_s:.1f}s",
+            str(r.config["maxsize"]), str(r.config["niterations"]),
+            f"{r.config['parsimony']:.0e}",
+            f"`{r.best_expression[:60]}...`",
+        ]
+        lines.append("| " + " | ".join(row) + " |")
     (args.output / "hpo_top10.md").write_text("\n".join(lines))
     print("\n".join(lines))
     print(f"\nFigures + cache + scorecard at {args.output}")
