@@ -253,8 +253,14 @@ class HPOConfig:
     def validate(self) -> None:
         if self.strategy not in {"grid", "random", "bayesian"}:
             raise ValueError(f"strategy must be grid|random|bayesian, got {self.strategy!r}.")
-        if self.metric not in {"val_mse", "complexity_at_target", "pareto_area"}:
-            raise ValueError(f"unknown metric {self.metric!r}.")
+        valid_metrics = {
+            "val_mse", "complexity_at_target", "pareto_area",
+            "fisher_agreement", "sigma_targeted",
+        }
+        if self.metric not in valid_metrics:
+            raise ValueError(
+                f"unknown metric {self.metric!r}. Valid: {sorted(valid_metrics)}."
+            )
         if self.n_trials < 1:
             raise ValueError(f"n_trials must be >= 1, got {self.n_trials}.")
 
