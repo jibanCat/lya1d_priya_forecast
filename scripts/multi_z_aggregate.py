@@ -147,14 +147,27 @@ def main():
     if args.use_ksdata:
         from priya_forecast.fisher import fisher_matrix
         from priya_forecast.ksdata_likelihood import KSDataLikelihood
-        print("\nRunning multi-z Fisher with KSData covariance "
-              "(single fisher call, NOT per-z aggregation — KSData has cross-z).")
+        # KSData uses its own k-binning (11 of 13 bins ≤ k_max=0.064).
+        # Rebuild the hybrid on the kodiaq k-grid so predict() can serve
+        # k-arrays drawn from the kodiaq grid.
+        from lyaemu.lyman_data import KSData
+        _ks_for_kgrid = KSData(conservative=True)
+        ks_k_grid = np.sort(np.unique(
+            _ks_for_kgrid.kf[_ks_for_kgrid.kf <= args.k_max + 1e-6]
+        ))
+        print(f"\nRunning multi-z Fisher with KSData covariance: "
+              f"single fisher call, kodiaq k-grid ({len(ks_k_grid)} bins ≤ {args.k_max}).")
+        # Rebuild hybrid on kodiaq k-grid.
+        hybrid_ks = MultiZAdditiveTaylorModel(
+            gp=gp_hf, fid=fid, refits=refits_loaded,
+            k_grid=ks_k_grid, z_grid=z_grid_use,
+        )
         lk_gp_ks = KSDataLikelihood(
             model=gp_hf, z_min=z_min, z_max=z_max, k_max=args.k_max,
             mock_data="gp", theta_fid=fid,
         )
         lk_hy_ks = KSDataLikelihood(
-            model=hybrid, z_min=z_min, z_max=z_max, k_max=args.k_max,
+            model=hybrid_ks, z_min=z_min, z_max=z_max, k_max=args.k_max,
             mock_data="gp", theta_fid=fid,
         )
         fr_gp = fisher_matrix(
