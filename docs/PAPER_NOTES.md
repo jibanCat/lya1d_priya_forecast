@@ -281,6 +281,83 @@ params), reweighting rows by `1/var_kzr` boosts θ-driven residuals.
 
 ---
 
+## Related work (for the references section)
+
+Two recent papers explicitly relevant to our preprocessing and
+emulator-design choices.
+
+### Cabayol-Garcia et al. 2023 — arXiv:2305.19064
+
+> *"A neural network emulator for the Lyman-α forest 1D flux power spectrum"*
+
+- **Key parametrization**: emulate P1D as a function of the linear-power
+  amplitude/slope `(Δ²_p, n_p)` at a pivot scale + IGM nuisance params
+  (F̄, σ_T, γ, k_F), **not** the raw cosmological parameters. Cosmology
+  dependence is compressed into 2 numbers.
+- **Target preprocessing**: fit **`log₁₀ P1D` as a polynomial in
+  `log₁₀ k_∥`** (4th–6th order). The NN outputs polynomial coefficients,
+  not per-k flux values. Loss is in `log₁₀ P1D` space.
+- **Input normalization**: inputs min-max scaled then shifted to
+  `[-0.5, 0.5]`; output P1D divided by the median of training P1D
+  before log.
+- **Multi-z**: a *single* network across redshifts; z enters via
+  `(Δ²_p(z), n_p(z))`, no per-z heads.
+- **Polynomial vs. PCA**: their Appendix C tests both — polynomial
+  coefficients in log-log space win on accuracy and robustness.
+
+**Implication for our pipeline**: our flux_norm target
+`(P_F − P_GP_LF(fid, k, z)) / std_per_z(k)` is in linear P_F space.
+Cabayol-Garcia's `log₁₀ P_F` vs `log₁₀ k` representation might give
+PySR cleaner equations — `(k/k_pivot)^(n_s − 1)` becomes
+`(n_s − 1) · log(k/k_pivot)` in log-log, a polynomial PySR finds
+trivially. **Worth testing as a future experiment**; for this paper
+we stick with linear-P_F to keep continuity with the student's
+pipeline.
+
+### Yang, Bird, Ho, Qezlou 2025 — arXiv:2507.07184 (GokuNEmu)
+
+> *"Design and optimization of neural networks for multifidelity cosmological emulation"*
+
+- **Architecture**: FCNN + SiLU + AdamW + Bayesian HPO. Replaces
+  GP-based MF-Box because GP cost scales cubically and degrades in
+  10D parameter space.
+- **The critique of "2-step" multi-fidelity NNs**: the original
+  design concatenates LF output with input (dim = `d_in + d_out`) for
+  the LF→HF correction; **this blows up when `d_out ≫ d_in`**. They
+  propose a **modified 2-step** where the second NN learns the
+  ratio `r = y_H / y_L` as a function of x only (dim = `d_in`), and
+  HF = `y_L · r`.
+- **Per-z PCA**: output compression by PCA — but **local (per-z) PCA
+  outperforms global PCA**, because nonlinear redshift evolution gets
+  absorbed into z-specific eigenbases. One NN; per-z structure lives in
+  the PCA basis.
+- **Multiplicative ratio is in *linear* (not log) space** for matter
+  power spectrum (their setting).
+
+**Implication for our pipeline**: the user's explicit preference is
+**not** a two-separate-emulator design. Our current architecture
+satisfies that — we use **one** MF emulator (`GPModel(fidelity="lf")`
+and `GPModel(fidelity="hf")` are different views of the same upstream
+`lyaemu.GPWrap`), and **one** PySR equation per parameter (or per
+sub-block) that takes the resolution as a feature `r ∈ {0.4, 0.8}`.
+The LF→HF lift is encoded in the equation's `r` dependence — single
+unified flow, no second NN/equation.
+
+The multiplicative ratio idea (`HF = LF · ratio(x)`) is interesting:
+our `resolution_correction.md` already exports `R_i(k) = P_F^HF / P_F^LF`,
+which is *implicitly* the same ratio. We could in principle re-derive
+the per-param equations to fit `log(P_F^HF / P_F^LF)` directly rather
+than the additive deviation; for this paper we report the additive
+form (option B local-anchored) and the multiplicative ratio side-by-side.
+
+The per-z PCA finding *parallels* our per-z normalization
+(`compute_local_normalization_multiz`): we already have per-z `(mean,
+std)` arrays absorbing the smooth z-evolution, leaving the PySR fit
+to focus on residual shape. We're doing it without the PCA basis,
+but the spirit is identical.
+
+---
+
 ## Pipeline summary (for the methods section)
 
 For each of the 11 PRIYA cosmological + IGM parameters, we train a 1D
