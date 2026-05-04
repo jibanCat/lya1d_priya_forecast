@@ -73,15 +73,171 @@ class FisherResult:
 
 
 def _stencil_derivative(
-    likelihood: GaussianLikelihood, theta: np.ndarray, i: int, h: float
+    likelihood: GaussianLikelihood,
+    theta: np.ndarray,
+    i: int,
+    h: float,
+    global_index: int | None = None,
 ) -> np.ndarray:
-    """5-point stencil for dm/dtheta_i at `theta`, returning a length-Nk array."""
+    """5-point stencil for dm/dtheta_i at `theta`, returning a length-Nk array.
+
+    `theta` is the full-length vector the model expects; `i` is the index
+    within the *varying* params list; `global_index` (default `i`) is the
+    position to perturb in `theta`. Pass `global_index` when running a
+    partial Fisher — i.e. some params held fixed at fid.
+    """
+    j = i if global_index is None else global_index
     pts = []
     for w in (-2, -1, 1, 2):
         t = theta.copy()
-        t[i] = theta[i] + w * h
+        t[j] = theta[j] + w * h
         pts.append(likelihood.model_at(t))
     return (-pts[3] + 8 * pts[2] - 8 * pts[1] + pts[0]) / (12 * h)
+
+
+def compute_fisher_F_phys(
+    *,
+    likelihood: GaussianLikelihood,
+    theta_fid: np.ndarray,
+    params: tuple[Param, ...],
+    param_indices: list[int],
+    step_frac: float = 0.02,
+    rel_tol: float = 0.05,
+    max_halvings: int = 2,
+) -> np.ndarray:
+    """Return `F_phys = Y^T Y` without trying to invert.
+
+    Used by the multi-z aggregator: at any single z some parameters may
+    have zero gradient, producing a singular per-z Fisher. We only need
+    F_phys per z; inversion happens once after summing across z.
+    """
+    n = len(params)
+    widths = np.array([p.width() for p in params], dtype=float)
+    L = likelihood.inputs.cov_chol
+    init_steps = np.array([step_frac * w for w in widths], dtype=float)
+    derivs: list[np.ndarray] = []
+    for i in range(n):
+        gi = param_indices[i]
+        h = float(init_steps[i])
+        d_prev = _stencil_derivative(likelihood, theta_fid, i, h, global_index=gi)
+        y_prev = la.solve_triangular(L, d_prev, lower=True)
+        f_ii_prev = float(y_prev @ y_prev)
+        for _ in range(max_halvings):
+            h_new = h / 2.0
+            d_new = _stencil_derivative(likelihood, theta_fid, i, h_new, global_index=gi)
+            y_new = la.solve_triangular(L, d_new, lower=True)
+            f_ii_new = float(y_new @ y_new)
+            if f_ii_new == 0:
+                break
+            rel = abs(f_ii_new - f_ii_prev) / abs(f_ii_new)
+            if rel < rel_tol:
+                d_prev, h, f_ii_prev = d_new, h_new, f_ii_new
+                break
+            d_prev, h, f_ii_prev = d_new, h_new, f_ii_new
+        derivs.append(d_prev)
+    Y = np.stack(
+        [la.solve_triangular(L, d, lower=True) for d in derivs], axis=1
+    )
+    return Y.T @ Y
+
+
+def combine_fisher_phys_arrays(
+    F_phys_list: list[np.ndarray],
+    *,
+    params: tuple[Param, ...],
+    theta_fid: np.ndarray,
+    priors_sigma: dict[str, float] | None = None,
+) -> FisherResult:
+    """Sum a list of F_phys matrices, add priors, invert in dim-less coords."""
+    n = len(params)
+    F_phys = np.zeros((n, n), dtype=float)
+    for F in F_phys_list:
+        if F.shape != (n, n):
+            raise ValueError(f"F_phys shape {F.shape} != ({n}, {n}).")
+        F_phys = F_phys + np.asarray(F, dtype=float)
+    if priors_sigma:
+        for pname, sigma_p in priors_sigma.items():
+            if pname not in {p.name for p in params}:
+                raise KeyError(f"prior on unknown param {pname!r}.")
+            i = next(j for j, p in enumerate(params) if p.name == pname)
+            F_phys[i, i] += 1.0 / float(sigma_p) ** 2
+    widths = np.array([p.width() for p in params], dtype=float)
+    W = np.outer(widths, widths)
+    F_hat = F_phys * W
+    try:
+        cov_hat = la.inv(F_hat)
+    except la.LinAlgError as e:
+        raise ValueError(f"Combined Fisher not invertible: {e}") from e
+    cov = cov_hat * W
+    sigma = np.sqrt(np.diag(cov))
+    with np.errstate(invalid="ignore"):
+        corr = cov / np.outer(sigma, sigma)
+    return FisherResult(
+        F=F_phys, cov=cov, sigma=sigma, corr=corr,
+        steps=np.zeros(n),
+        param_names=tuple(p.name for p in params),
+        theta_fid=theta_fid,
+    )
+
+
+def combine_fisher_phys(
+    fishers: list[FisherResult],
+    *,
+    params: tuple[Param, ...],
+    priors_sigma: dict[str, float] | None = None,
+) -> FisherResult:
+    """Sum per-z Fisher matrices (z-independent covariance) and re-invert.
+
+    Multi-z setup: at each z bin, run `fisher_matrix(...)` WITHOUT priors,
+    then pass the list of FisherResults here. We sum `F_phys` across z
+    (z-bins are independent in the eBOSS / KODIAQ covariance), add the
+    priors ONCE (so they're not double-counted), and invert in
+    dimensionless coords for stability.
+
+    Parameters
+    ----------
+    fishers : list of FisherResult
+        Per-z results; each must share the same `params` ordering.
+    params : tuple of Param
+        Same params used in each per-z Fisher (for widths and names).
+    priors_sigma : dict | None
+        Gaussian priors applied ONCE after summation.
+    """
+    if not fishers:
+        raise ValueError("combine_fisher_phys: no FisherResults provided.")
+    n = len(params)
+    F_phys = np.zeros((n, n), dtype=float)
+    for fr in fishers:
+        if fr.F.shape != (n, n):
+            raise ValueError(
+                f"FisherResult F shape {fr.F.shape} != ({n}, {n})."
+            )
+        F_phys = F_phys + fr.F
+    if priors_sigma:
+        for pname, sigma_p in priors_sigma.items():
+            if pname not in {p.name for p in params}:
+                raise KeyError(f"prior on unknown param {pname!r}.")
+            i = next(j for j, p in enumerate(params) if p.name == pname)
+            F_phys[i, i] += 1.0 / float(sigma_p) ** 2
+    widths = np.array([p.width() for p in params], dtype=float)
+    W = np.outer(widths, widths)
+    F_hat = F_phys * W
+    try:
+        cov_hat = la.inv(F_hat)
+    except la.LinAlgError as e:
+        raise ValueError(f"Combined Fisher not invertible: {e}") from e
+    cov = cov_hat * W
+    sigma = np.sqrt(np.diag(cov))
+    with np.errstate(invalid="ignore"):
+        corr = cov / np.outer(sigma, sigma)
+    # converged_steps are per-z; pick the first as a placeholder (the
+    # diagnostic isn't very meaningful when summing across z anyway).
+    return FisherResult(
+        F=F_phys, cov=cov, sigma=sigma, corr=corr,
+        steps=fishers[0].steps,
+        param_names=tuple(p.name for p in params),
+        theta_fid=fishers[0].theta_fid,
+    )
 
 
 def fisher_matrix(
@@ -92,6 +248,8 @@ def fisher_matrix(
     step_frac: float = 0.01,
     rel_tol: float = 0.01,
     max_halvings: int = 8,
+    priors_sigma: dict[str, float] | None = None,
+    param_indices: list[int] | None = None,
 ) -> FisherResult:
     """Compute the Fisher matrix at `theta_fid` with adaptive step halving.
 
@@ -114,8 +272,24 @@ def fisher_matrix(
         theta_fid = np.array([p.fid for p in params], dtype=float)
     theta_fid = np.asarray(theta_fid, dtype=float)
     n = len(params)
-    if theta_fid.shape != (n,):
-        raise ValueError(f"theta_fid must be ({n},), got {theta_fid.shape}.")
+    # Two valid shapes for theta_fid: (n,) — same length as params (model
+    # expects exactly this), or longer if running a partial Fisher with
+    # fixed-at-fid params. In the longer case, `param_indices` must give
+    # the global position of each varying param in `theta_fid`.
+    if theta_fid.shape == (n,):
+        global_indices = list(range(n)) if param_indices is None else list(param_indices)
+    else:
+        if param_indices is None:
+            raise ValueError(
+                f"theta_fid length {theta_fid.shape[0]} != n={n} params; "
+                f"pass `param_indices` mapping each varying param to its "
+                f"global index in theta_fid."
+            )
+        if len(param_indices) != n:
+            raise ValueError(
+                f"param_indices length {len(param_indices)} != n={n} params."
+            )
+        global_indices = list(param_indices)
 
     # Work in dimensionless `theta_hat = theta / width` so F is well-conditioned
     # regardless of physical-unit spans (Ap ~ 1e-9, ns ~ 0.25, etc.). At the end
@@ -128,13 +302,14 @@ def fisher_matrix(
     derivs: list[np.ndarray] = []
 
     for i in range(n):
+        gi = global_indices[i]
         h = float(init_steps[i])
-        d_prev = _stencil_derivative(likelihood, theta_fid, i, h)
+        d_prev = _stencil_derivative(likelihood, theta_fid, i, h, global_index=gi)
         y_prev = la.solve_triangular(L, d_prev, lower=True)
         f_ii_prev = float(y_prev @ y_prev)
         for _ in range(max_halvings):
             h_new = h / 2.0
-            d_new = _stencil_derivative(likelihood, theta_fid, i, h_new)
+            d_new = _stencil_derivative(likelihood, theta_fid, i, h_new, global_index=gi)
             y_new = la.solve_triangular(L, d_new, lower=True)
             f_ii_new = float(y_new @ y_new)
             if f_ii_new == 0:
@@ -152,6 +327,19 @@ def fisher_matrix(
         [la.solve_triangular(L, d, lower=True) for d in derivs], axis=1
     )  # shape (Nk, n)
     F_phys = Y.T @ Y
+    # Add Gaussian priors on selected params: F_phys[i,i] += 1/σ_prior_i².
+    # Used to break degeneracies (e.g. tau0 mean-flux at single z) — see
+    # `lya_emulator_full/lyaemu/likelihood.py::_resolve_tau_prior` for the
+    # production presets (kim, becker, kodiaq, squad).
+    if priors_sigma:
+        for pname, sigma_p in priors_sigma.items():
+            if pname not in {p.name for p in params}:
+                raise KeyError(
+                    f"prior on unknown param {pname!r}; "
+                    f"known: {tuple(p.name for p in params)}"
+                )
+            i = next(j for j, p in enumerate(params) if p.name == pname)
+            F_phys[i, i] += 1.0 / float(sigma_p) ** 2
     # Re-express in dimensionless coords: F_hat_ij = F_phys_ij * width_i * width_j.
     W = np.outer(widths, widths)
     F_hat = F_phys * W
@@ -165,6 +353,14 @@ def fisher_matrix(
     sigma = np.sqrt(np.diag(cov))
     with np.errstate(invalid="ignore"):
         corr = cov / np.outer(sigma, sigma)
+    # theta_fid stored on the result is the per-varying-param view (length n),
+    # extracted from the full vector if needed. Matches `param_names`.
+    if theta_fid.shape == (n,):
+        theta_fid_subset = theta_fid
+    else:
+        theta_fid_subset = np.array(
+            [theta_fid[gi] for gi in global_indices], dtype=float
+        )
     return FisherResult(
         F=F,
         cov=cov,
@@ -172,5 +368,5 @@ def fisher_matrix(
         corr=corr,
         steps=converged_steps,
         param_names=tuple(p.name for p in params),
-        theta_fid=theta_fid,
+        theta_fid=theta_fid_subset,
     )

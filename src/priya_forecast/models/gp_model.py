@@ -128,10 +128,25 @@ class GPModel(P1DModel):
         self,
         basedir: str | Path = DEFAULT_GP_BASEDIR,
         *,
-        hires_subdir: str = "hires",
+        hires_subdir: str | None = "hires",
+        fidelity: str = "hf",
         tau_thresh: float = 1e6,
         a_template: np.ndarray | None = None,
+        kf: np.ndarray | None = None,
     ) -> None:
+        """Construct a single-fidelity (LF) or multi-fidelity (HF) PRIYA emulator.
+
+        Parameters
+        ----------
+        fidelity : {"hf", "lf"}
+            "hf" → multi-fidelity emulator using `hires_subdir` (default).
+            "lf" → low-fidelity (single-fidelity) emulator; equivalent to
+            the notebook's `PRIYAEmulatorExplorer(..., hires_subdir=None)`.
+            Used by the student's `pysr_mf_given.py` to produce LF
+            training data for the resolution-feature MF PySR.
+        """
+        if fidelity not in ("hf", "lf"):
+            raise ValueError(f"fidelity must be 'hf' or 'lf', got {fidelity!r}.")
         self.basedir = Path(basedir)
         if not self.basedir.exists():
             raise FileNotFoundError(
@@ -144,9 +159,13 @@ class GPModel(P1DModel):
                 f"`emulator_params.json` not found under {self.basedir}. "
                 f"Is this the correct PRIYA Emulator_Files dir?"
             )
-        self._hires_subdir = hires_subdir
+        self._fidelity = fidelity
+        self._hires_subdir = hires_subdir if fidelity == "hf" else None
         self._tau_thresh = tau_thresh
         self._explorer = None  # lazy
+        self._kf_override: np.ndarray | None = (
+            None if kf is None else np.asarray(kf, dtype=float)
+        )
         self.a_template = (
             np.zeros(4, dtype=float) if a_template is None else np.asarray(a_template, dtype=float)
         )
@@ -167,26 +186,33 @@ class GPModel(P1DModel):
                     "and add the lyaemu repo to PYTHONPATH, or use MockGPModel for tests."
                 ) from e
 
-            # Use the eBOSS DR14 k-grid; matches the forecast's data k.
-            from priya_forecast.data import load_eboss
-
-            k_eboss, _, _ = load_eboss(z=3.6)
+            # Default to the eBOSS DR14 k-grid; pass `kf=...` at construction
+            # to override (e.g., kodiaq production uses k up to 0.064 s/km).
+            if self._kf_override is None:
+                from priya_forecast.data import load_eboss
+                kf_use, _, _ = load_eboss(z=3.6)
+            else:
+                kf_use = self._kf_override
             gp = GPWrap(
                 basedir=str(self.basedir),
                 emulator_json_file="emulator_params.json",
-                kf=k_eboss,
+                kf=kf_use,
                 tau_thresh=self._tau_thresh,
-                # Resolution correction interp only spans k >= 0.003 s/km;
-                # eBOSS k extends down to ~0.0011, so disabling avoids an
-                # out-of-bounds error. The forecast applies no separate
-                # resolution correction to the data anyway.
                 use_res_corr=False,
             )
-            hires_basedir = str(self.basedir / self._hires_subdir)
             traindir = str(self.basedir / "trained_mf")
-            gp.set_emulator(
-                HRbasedir=hires_basedir, max_z=4.6, min_z=2.2, traindir=traindir,
-            )
+            if self._fidelity == "hf":
+                hires_basedir = str(self.basedir / self._hires_subdir)
+                gp.set_emulator(
+                    HRbasedir=hires_basedir, max_z=4.6, min_z=2.2, traindir=traindir,
+                )
+            else:
+                # LF: single-fidelity — HRbasedir=None matches
+                # PRIYAEmulatorExplorer(..., hires_subdir=None) in the
+                # student's notebook (cell 6 of 14b_fernandez_explorer.ipynb).
+                gp.set_emulator(
+                    HRbasedir=None, max_z=4.6, min_z=2.2, traindir=traindir,
+                )
             gp.set_mf_param_limits(basedir=str(self.basedir))
             self._explorer = gp
         return self._explorer
