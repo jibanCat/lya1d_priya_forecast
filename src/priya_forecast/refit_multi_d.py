@@ -344,42 +344,32 @@ def refit_multi_d(
     elapsed = time.time() - t0
     pareto = model.equations_
 
-    # Prefer the lowest-loss Pareto entry that:
-    #   (a) references the MAXIMUM number of subset θ-features (most
-    #       interpretable — every θ matters; user's preference), and
-    #   (b) does NOT contain pathological literal constants (|c| > 100)
-    #       that would dominate the equation as a fixed offset (the
-    #       observed (x0 - 3.4e11) failure mode).
-    n_sub = len(subset_names)
-    def _theta_count(eq_str: str) -> int:
-        return sum(1 for i in range(n_sub) if f"x{i}" in str(eq_str))
-
-    def _has_pathological_constant(eq_str: str, threshold: float = 100.0) -> bool:
-        """Detect equations like `(x0 - 3.4e11) / (x3 - 0.23)` where a
-        single literal constant is so large that the equation is
-        effectively constant in θ. Scans for any number with |c| >
-        threshold."""
-        import re
-        for m in re.finditer(r"-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?", eq_str):
-            try:
-                if abs(float(m.group())) > threshold:
-                    return True
-            except ValueError:
-                continue
-        return False
-
-    pareto["_theta_count"] = pareto["equation"].astype(str).apply(_theta_count)
-    pareto["_pathological"] = pareto["equation"].astype(str).apply(
-        _has_pathological_constant
+    # Pareto-pick filters (in order):
+    #   1. has_pathological_constant: reject |c| > 100 literals.
+    #   2. is_eq_well_behaved: reject NaN/inf or |pred| > 100×y_range
+    #      across the training X (catches sqrt(sqrt(k/(θ+θ))) blow-ups).
+    #   3. tie-break by max subset-θ feature count, then min loss.
+    from priya_forecast.pareto_filters import (
+        feature_count, has_pathological_constant, is_eq_well_behaved,
     )
-    sane = pareto[~pareto["_pathological"]]
+    n_sub = len(subset_names)
+    n_features = X_act.shape[1]
+    eq_strs = pareto["equation"].astype(str)
+    pareto["_theta_count"] = eq_strs.apply(lambda s: feature_count(s, n_sub))
+    pareto["_pathological"] = eq_strs.apply(has_pathological_constant)
+    pareto["_well_behaved"] = eq_strs.apply(
+        lambda s: is_eq_well_behaved(s, X_act, Y_act, n_features=n_features)
+    )
+    sane = pareto[(~pareto["_pathological"]) & pareto["_well_behaved"]]
     sane_max_count = int(sane["_theta_count"].max()) if len(sane) > 0 else 0
     if sane_max_count > 0:
         cand = sane[sane["_theta_count"] == sane_max_count]
         best_idx = int(cand["loss"].idxmin())
+    elif len(sane) > 0:
+        # No subset-θ in any sane equation; pick lowest-loss sane.
+        best_idx = int(sane["loss"].idxmin())
     elif int(pareto["_theta_count"].max()) > 0:
-        # All max-θ entries are pathological — fall back to the broader
-        # Pareto front (still prefer max θ count).
+        # Last-resort fallback: max-θ entries even if pathological/blowing-up.
         max_count = int(pareto["_theta_count"].max())
         cand = pareto[pareto["_theta_count"] == max_count]
         best_idx = int(cand["loss"].idxmin())

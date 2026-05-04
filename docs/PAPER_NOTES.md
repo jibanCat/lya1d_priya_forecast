@@ -487,6 +487,76 @@ draft; these 6 figures are the results.
 
 ---
 
+## PySR hyperparameter budget — measured cost and rationale
+
+For paper Methods + reproducibility. Wall time scaling matters because
+it determines what equation-search depth is feasible per parameter.
+All numbers are on Greatlakes login node (~16 cores, mamba py3.11
+base, multithreading via `parallelism="multithreading"` + `procs`),
+unless noted.
+
+### Per-1D refit (single param's PySR, multi-z 4-input fit)
+
+| niter | maxsize | procs | n_total Sobol | rows in fit | wall/param | rationale |
+|---|---|---|---|---|---|---|
+| 20 | 20 | 1 (serial, deterministic) | 50 | 6,400 | ~100 s | reproduces student `pysr_mf_given.py` exactly; baseline |
+| 20 | 20 | 4 | 225 | 14,400 | ~30 s | multithreaded — no science change, ~3-4× faster |
+| 50 | 20 | 4 | 225 | 14,400 | ~50–80 s | **default** for production. Closes "x0 dropped" failures: 8 of 11 weak-coupling params recover x0 dependence |
+| 100 | 20 | 4 | 225 | 14,400 | ~3-5 min | retry-with-different-seed for the residual 3 weak params (omegamh2, hireionz, bhfeedback). Even at niter=100 these can drop x0 unless dim-balanced ANOVA loss is enabled |
+
+**Why niter=50 is the default**: at niter=20 we observed 6/11 multi-z
+equations dropping `x0` (the parameter dependence). The genetic
+algorithm needed more time to find x0-using Pareto entries. niter=50
+recovered 8/11; niter=100 didn't significantly improve over 50 except
+for the genuinely-weakly-coupled params (which the **dim-balanced
+ANOVA loss** is the architectural fix for, see § D3).
+
+### Multi-D cross-coupled fit (single 9-input PySR over the subset)
+
+Subset = {ns, Ap, herei, heref, alphaq, hireionz}; inputs are 6 θs +
+k + resolution + z. Larger search space than per-1D.
+
+| niter | maxsize | procs | n_total | rows | wall (login) | wall (SLURM 16-cpu) | rationale |
+|---|---|---|---|---|---|---|---|
+| 50 | 20 | 4 | 128 | 8,192 | ~10 min | ~3–4 min | **smoke test** — fast iteration; equation may be pathological (insufficient genetic search) |
+| 100 | 25 | 4 | 256 | 16,384 | ~25-35 min | ~10 min | login-node production; multi-D needs more iter than per-1D because 9D search is harder |
+| 100 | 25 | 15 | 256 | 16,384 | n/a | ~6–8 min | **SLURM production** — `procs=15` on a 16-CPU node ≈ 2× login-node speedup |
+| 200 | 30 | 15 | 512 | 32,768 | n/a | ~20-30 min | reserved if niter=100 doesn't converge to a stable equation |
+
+**Why budget went up vs per-1D**: per-1D PySR has 3 inputs (θ, k, res),
+multi-D has 9 (6 θs + k + res + z). The genetic search has to explore
+~3× more "feature combinations" per equation. Our observed per-fit
+loss at the same niter is 5-10× higher in multi-D vs per-1D, and the
+Pareto front is sparser (fewer x0..x5-using entries). Doubling niter
+(20 → 50) helped per-1D; we set multi-D default to niter=100 for the
+same fractional improvement.
+
+**Sobol n_total**: 256 (= 25 × ~10 random θ × 9 z-bins after
+snapping) gives ~2× the points of a full grid scan over the 6D θ
+prior. Doubling to 512 doesn't materially improve fit accuracy in our
+tests; 256 is the sweet spot for ~10 min wall.
+
+### Cost ledger for the full forecast pipeline
+
+This is what one **complete forecast iteration** costs (data gen +
+all per-1D refits + multi-D fit + Fisher + paper deliverables):
+
+| Step | Cost | Notes |
+|---|---|---|
+| Phase 1: precompute_payloads.py (11 × 1pvar + per-z norm) | ~3.5 min | one HF + LF emulator load each (60 s + 60 s); 11 × ~20 s payload gen |
+| Phase 2: 11 per-1D refits (SLURM array, parallel) | ~3 min wall | 11 × ~50 s, run as `--array=0-10` |
+| Phase 3a: Multi-z aggregate Fisher (synthetic 5%-of-P_F cov) | ~1 min | per-z Fisher (9 z-bins) + summation + corner |
+| Phase 3b: Multi-z aggregate Fisher (KSData covariance) | ~1 min | single Fisher call with KSData full cov; same scale |
+| Phase 4: Multi-D fit (cross-coupled subset) | ~6–8 min (SLURM 16 cpu) | one PySR call over 9-input space |
+| Phase 5: Multi-D Fisher + scorecard | ~30 s | uses cached multi-D refit + GP-slice for outside-subset |
+| **Total wall (one forecast iteration)** | **~15 min** with SLURM parallelism | vs ~1 hour serial-on-login |
+
+For paper-final, re-run with `deterministic=True, parallelism="serial"`
+to lock in bit-reproducible equations: ~4-5× slower → ~1 hour total.
+Worth doing once at the end.
+
+---
+
 ## Pipeline summary (for the methods section)
 
 For each of the 11 PRIYA cosmological + IGM parameters, we train a 1D

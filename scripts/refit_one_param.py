@@ -68,26 +68,25 @@ def _fit_once(
     model.fit(X_act, Y_act.reshape(-1, 1))
     elapsed = time.time() - t0
     pareto = model.equations_
-    # Prefer the lowest-loss Pareto entry that:
-    #   (a) USES x0 (theta), and
-    #   (b) doesn't contain a pathological literal constant
-    #       (|c| > 100, which signals an effectively-constant-in-θ fit
-    #        like `(x0 - 3.4e11) / (x3 - 0.23)`).
-    import re
-    def _has_pathological_constant(eq_str: str, threshold: float = 100.0) -> bool:
-        for m in re.finditer(r"-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?", eq_str):
-            try:
-                if abs(float(m.group())) > threshold:
-                    return True
-            except ValueError:
-                continue
-        return False
+    # Pareto-pick filters: x0 must be present, no pathological |c|>100
+    # literal constants, eq must evaluate to finite values bounded by
+    # 100×y_range over the training set (catches sqrt(sqrt(k/(θ+θ)))
+    # blow-ups). See `pareto_filters.py` for the helpers.
+    from priya_forecast.pareto_filters import (
+        has_pathological_constant, is_eq_well_behaved,
+    )
+    n_features = X_act.shape[1]
     eq_strs = pareto["equation"].astype(str)
     x0_mask = eq_strs.str.contains("x0")
-    pathological = eq_strs.apply(_has_pathological_constant)
-    sane_x0 = x0_mask & ~pathological
+    pathological = eq_strs.apply(has_pathological_constant)
+    well_behaved = eq_strs.apply(
+        lambda s: is_eq_well_behaved(s, X_act, Y_act.ravel(), n_features=n_features)
+    )
+    sane_x0 = x0_mask & (~pathological) & well_behaved
     if bool(sane_x0.any()):
         best_idx = int(pareto.loc[sane_x0, "loss"].idxmin())
+    elif bool((x0_mask & well_behaved).any()):
+        best_idx = int(pareto.loc[x0_mask & well_behaved, "loss"].idxmin())
     elif bool(x0_mask.any()):
         best_idx = int(pareto.loc[x0_mask, "loss"].idxmin())
     else:
