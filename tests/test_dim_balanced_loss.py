@@ -15,7 +15,10 @@ import pytest
 from priya_forecast.dim_balanced_loss import (
     DEFAULT_ALPHA,
     EPS,
-    dim_balanced_loss,
+    _main_effect_squared,
+    dim_balanced_loss,             # legacy alias = corr² version
+    dim_balanced_loss_anova,
+    dim_balanced_loss_corr,
 )
 
 
@@ -136,6 +139,115 @@ def test_zero_alpha_reduces_to_mse():
     loss = dim_balanced_loss(pred, y, X, alpha=0.0)
     expected_mse = float(np.mean(y ** 2))
     assert abs(loss - expected_mse) < 1e-8
+
+
+# ---------------------------------------------------------------------------
+# ANOVA-version tests
+# ---------------------------------------------------------------------------
+
+
+def test_anova_main_effect_zero_when_residual_is_iid_noise():
+    """Residual independent of x_d → η² ≈ 0 (down to bin-level noise)."""
+    rng = np.random.default_rng(0)
+    n = 5000
+    residual = rng.normal(size=n)
+    x_d = rng.normal(size=n)
+    me = _main_effect_squared(residual, x_d, n_bins=10)
+    # With n=5000, η² floor ≈ n_bins / n (finite-sample bin-mean noise).
+    # 10/5000 = 0.002. Allow generous tolerance.
+    assert me < 0.02, f"iid residual η² should be ≈ 0; got {me}"
+
+
+def test_anova_main_effect_recovers_linear_dependence():
+    """Residual = c · x_d → η²_d ≈ 1 (full residual variance is main effect)."""
+    rng = np.random.default_rng(1)
+    n = 10000
+    x_d = rng.uniform(-1, 1, size=n)
+    residual = 0.3 * x_d
+    me = _main_effect_squared(residual, x_d, n_bins=10)
+    # Normalized: ‖r_d‖² / Var(r) ≈ 1 for r = c·x_d.
+    assert 0.85 < me < 1.05, f"η² should be ≈ 1; got {me}"
+
+
+def test_anova_main_effect_recovers_nonlinear_dependence():
+    """Residual = (x_d - 0.5)² → η² ≈ 1 (mean-of-bin captures the parabola)."""
+    rng = np.random.default_rng(2)
+    n = 10000
+    x_d = rng.uniform(0, 1, size=n)
+    residual = (x_d - 0.5) ** 2 - np.mean((x_d - 0.5) ** 2)
+    me = _main_effect_squared(residual, x_d, n_bins=10)
+    # Normalized η²: most of residual variance comes from the parabolic
+    # main effect of x_d on r. Should be close to 1.
+    assert me > 0.85, (
+        f"nonlinear residual should give η² > 0.85; got {me}. "
+        "(corr² would give ~0 here — this is the ANOVA advantage.)"
+    )
+
+
+def test_anova_perfect_prediction_gives_zero_loss():
+    """f == y → residual = 0 → MSE = 0 AND main effects = 0 → loss = 0."""
+    rng = np.random.default_rng(3)
+    X = rng.normal(size=(200, 3))
+    y = X @ np.array([1.0, 2.0, 3.0])
+    pred = y.copy()
+    loss = dim_balanced_loss_anova(pred, y, X, alpha=DEFAULT_ALPHA)
+    assert abs(loss) < 1e-8, f"perfect-pred ANOVA loss = {loss}"
+
+
+def test_anova_constant_pred_on_x0_dependent_target_strongly_penalized():
+    """Constant pred on `y = x0` → main_effect_x0 = Var(y) (entire signal).
+    Loss = MSE + α · Var(y) → much larger than plain MSE."""
+    rng = np.random.default_rng(4)
+    n = 5000
+    X = rng.uniform(0, 1, size=(n, 4))
+    y = X[:, 0]
+    pred = np.full(n, y.mean())   # constant prediction = best no-x0 fit
+    mse = float(np.mean((pred - y) ** 2))
+    loss_anova = dim_balanced_loss_anova(pred, y, X, alpha=DEFAULT_ALPHA)
+    loss_corr = dim_balanced_loss_corr(pred, y, X, alpha=DEFAULT_ALPHA)
+    # ANOVA: penalty ≈ α · Var(y) = α · 1/12 ≈ 0.42.
+    # Both versions detect this because residual is linearly correlated with x0.
+    # The ANOVA version also catches the same effect via per-bin means.
+    assert loss_anova > 5 * mse, (
+        f"ANOVA loss should be ≫ MSE for constant pred on x0-target; "
+        f"loss={loss_anova}, mse={mse}"
+    )
+    # On a LINEAR target, ANOVA and corr² agree to within bin noise.
+    np.testing.assert_allclose(loss_anova, loss_corr, rtol=0.2)
+
+
+def test_anova_beats_corr_on_nonlinear_residual():
+    """Constant pred on `y = (x0 - 0.5)²`. corr(residual, x0) ≈ 0 (centered
+    quadratic) → corr² penalty ≈ 0 → loss = MSE only.
+    ANOVA's binned mean-residuals DO detect the nonlinear structure →
+    loss > MSE.
+    """
+    rng = np.random.default_rng(5)
+    n = 5000
+    X = rng.uniform(0, 1, size=(n, 4))
+    y = (X[:, 0] - 0.5) ** 2
+    pred = np.full(n, y.mean())
+    mse = float(np.mean((pred - y) ** 2))
+    loss_corr = dim_balanced_loss_corr(pred, y, X, alpha=DEFAULT_ALPHA)
+    loss_anova = dim_balanced_loss_anova(pred, y, X, alpha=DEFAULT_ALPHA)
+    # corr² should miss the symmetric quadratic — loss ≈ MSE.
+    assert abs(loss_corr - mse) < 0.1 * mse + 0.01, (
+        f"corr² should miss quadratic; loss_corr={loss_corr}, mse={mse}"
+    )
+    # ANOVA should catch it.
+    assert loss_anova > 1.5 * mse, (
+        f"ANOVA should catch nonlinear; loss_anova={loss_anova}, mse={mse}"
+    )
+
+
+def test_anova_zero_alpha_reduces_to_mse():
+    rng = np.random.default_rng(6)
+    X = rng.normal(size=(200, 4))
+    y = X[:, 1]
+    pred = np.zeros(200)
+    loss = dim_balanced_loss_anova(pred, y, X, alpha=0.0)
+    expected = float(np.mean(y ** 2))
+    assert abs(loss - expected) < 1e-8
 
 
 def test_handles_wrong_input_shapes():

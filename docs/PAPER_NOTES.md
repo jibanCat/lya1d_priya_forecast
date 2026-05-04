@@ -358,6 +358,135 @@ but the spirit is identical.
 
 ---
 
+## Design decisions (with reasoning)
+
+The user has explicit preferences on these; they're locked in for this
+paper.
+
+### D1. `dtau0` fixed at **0**, NOT at the upstream `best_par` value (-0.009)
+
+`-0.009` is the upstream `best_par[0]` — an earlier MCMC-fit slope
+of the mean-flux evolution against eBOSS DR14 P1D data. **0** is the
+slope from Kim et al.'s observational mean-flux measurement
+(an EXTERNAL anchor).
+
+**Why 0**: our forecast uses eBOSS-equivalent P1D statistics (KSData
+covariance from KODIAQ-SQUAD). Using `dtau0 = -0.009` would re-use
+the same data statistics that informed it (circular — would
+double-count the eBOSS-DR14 mean-flux information). Kim's
+observational slope is from independent quasar absorption observations
+and avoids this circularity.
+
+Implementation: scripts default to `--fix-dtau0-to-zero` (use
+`--no-fix-dtau0-to-zero` to override).
+
+### D2. Multi-D PySR cross-coupled subset = `{ns, Ap, herei, heref, alphaq, hireionz}`
+
+Mixes cosmology (`ns`, `Ap`) and IGM thermal (`herei`, `heref`,
+`alphaq`, `hireionz`). Why mix?
+
+- The **headline coupling-matrix finding** (Phase 5 of the original
+  spec) shows `herei × alphaq` is the only positive cross-coupling in
+  the 11-param prior cube — within the IGM thermal block.
+- Cosmology params (`ns`, `Ap`) interact weakly with IGM thermal in
+  P_F shape, but the per-1D + additive-Taylor combine treats them
+  as fully separable. If there's any subtle cosmology × thermal
+  cross-coupling (e.g., the P_F amplitude shifts with σ₈ are partly
+  degenerate with mean-flux scaling), the multi-D fit captures it.
+- Outside the subset (`tau0`, `hub`, `omegamh2`, `bhfeedback`) we use
+  GP-slice fallback. They're either prior-dominated (hub/Ω/bh) or
+  weakly coupled to anything else (tau0 is approximately a global
+  multiplicative scale). So separating them as 1D-via-GP is safe.
+
+### D3. Custom loss: functional ANOVA main-effect penalty
+
+PySR's standard MSE is **dimension-blind at the batch level**: it can
+fit a target via patterns in (k, z, resolution) without using x₀
+(theta), as long as the per-θ residual variance is small. For weakly
+-coupled params (`omegamh2`, `bhfeedback`, `hireionz`), this exactly
+happens — the genetic search drops x₀ entirely. We saw this ≥ 6/11
+times in the multi-z runs.
+
+**Functional ANOVA decomposition**. Any function `f(x₀, ..., xₙ)` can
+be written as a sum of orthogonal effects:
+
+    f(x) = f₀ + Σᵢ fᵢ(xᵢ) + Σᵢ<ⱼ fᵢⱼ(xᵢ, xⱼ) + ...
+
+For the residual `r(x) = pred − target`:
+
+- `r₀ = mean(r)` over the whole batch.
+- `rᵢ(xᵢ) = E[r(X) | X_i=x_i] − r₀` is the **main effect** in dim i:
+  how much of the residual is *systematically* driven by xᵢ alone
+  (marginalized over the other dimensions).
+- If the equation drops xᵢ, `rᵢ` becomes large because r varies
+  systematically with that input.
+
+We estimate the main-effect L² norm from a Sobol batch by binning xᵢ
+into `n_bins` quantile bins and summing:
+
+    ‖rᵢ‖² ≈ Σ_b (P(b) · (mean(r | X_i ∈ bin b) − r₀)²)
+
+The dim-balanced loss:
+
+    L = MSE  +  α · Σ_d ‖r_d‖²
+
+where d ranges over all input features. α controls the weight of the
+per-dimension main-effect penalty (default α=5).
+
+**Why ANOVA over correlation² (the simpler proxy I had earlier)**: a
+correlation² catches only **linear** residual-vs-feature dependence.
+ANOVA main effects catch **any** dependence — quadratic, sigmoidal,
+piecewise. For weakly-coupled params, the residual may depend on x₀
+nonlinearly (e.g. via an interaction with z that, when marginalized,
+shows a non-monotone main effect). Correlation² misses these.
+
+Implementation in `src/priya_forecast/dim_balanced_loss.py` exposes
+both `dim_balanced_loss_corr` (legacy correlation² ref) and
+`dim_balanced_loss_anova` (recommended). `JULIA_LOSS_FUNCTION` uses
+the ANOVA form by default. Unit tests cover both. ~half-day of work
+implemented in this session.
+
+### D4. Multi-D Pareto pick: **most-θ-used** + sanity guard
+
+The script picks the lowest-loss Pareto entry that
+  (a) uses the maximum number of subset θ-features, and
+  (b) doesn't contain a literal constant with `|c| > 100`
+      (rejects the `(x0 - 3.4e11)/(x3 - 0.23)` failure mode where the
+      eq technically uses x0 but is effectively constant in θ via a
+      huge offset).
+
+Interpretability matters more than minimum loss for the paper —
+every-θ-used is the criterion.
+
+### D5. Resolution correction: **HF/LF multiplicative ratio** (headline)
+
+Paper figure: ratio `R_i(k, z) = P_F^HF / P_F^LF`. Per-panel y-axis
+range tuned to each parameter (NOT sharey), and split into two grids:
+
+- **Cosmology + mean-flux grid**: `dtau0, tau0, ns, Ap, hub, omegamh2`.
+- **IGM thermal / astro grid**: `herei, heref, alphaq, hireionz, bhfeedback`.
+
+Outputs at `resolution_correction_grid_{cosmo,astro}.{png,pdf}`.
+
+Additive form (`Δ = HF − LF`) also exported in
+`resolution_correction.json` for reference.
+
+### D6. Paper figure budget: 6 figures
+
+| # | Figure | Purpose |
+|---|---|---|
+| 1 | Resolution correction grid (cosmo) | per-D HF/LF ratio for cosmology + mean-flux |
+| 2 | Resolution correction grid (astro) | per-D HF/LF ratio for IGM thermal |
+| 3 | Multi-z Fisher corner plot | 10D Fisher overlay: GP truth (black) vs PySR hybrid (red) |
+| 4 | σ-ratio bar chart | per-param hybrid σ / GP σ; shows where the pipeline succeeds vs needs residual-PySR |
+| 5 | Per-param equation table (or panel) | the actual symbolic equations + complexity + flux_norm loss |
+| 6 | Ablation table or panel | single-z vs multi-z; without vs with multi-D PySR; with vs without residual-PySR |
+
+The paper's pipeline-summary paragraph (next section) is the methods
+draft; these 6 figures are the results.
+
+---
+
 ## Pipeline summary (for the methods section)
 
 For each of the 11 PRIYA cosmological + IGM parameters, we train a 1D

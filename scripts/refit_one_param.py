@@ -68,12 +68,27 @@ def _fit_once(
     model.fit(X_act, Y_act.reshape(-1, 1))
     elapsed = time.time() - t0
     pareto = model.equations_
-    # Prefer the lowest-loss Pareto entry that USES x0 (theta) over the
-    # global lowest-loss entry. PySR's MSE often finds no-x0 equations
-    # for weakly-coupled params; the Pareto front usually contains
-    # higher-complexity x0-using equations at slightly higher loss.
-    x0_mask = pareto["equation"].astype(str).str.contains("x0")
-    if bool(x0_mask.any()):
+    # Prefer the lowest-loss Pareto entry that:
+    #   (a) USES x0 (theta), and
+    #   (b) doesn't contain a pathological literal constant
+    #       (|c| > 100, which signals an effectively-constant-in-θ fit
+    #        like `(x0 - 3.4e11) / (x3 - 0.23)`).
+    import re
+    def _has_pathological_constant(eq_str: str, threshold: float = 100.0) -> bool:
+        for m in re.finditer(r"-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?", eq_str):
+            try:
+                if abs(float(m.group())) > threshold:
+                    return True
+            except ValueError:
+                continue
+        return False
+    eq_strs = pareto["equation"].astype(str)
+    x0_mask = eq_strs.str.contains("x0")
+    pathological = eq_strs.apply(_has_pathological_constant)
+    sane_x0 = x0_mask & ~pathological
+    if bool(sane_x0.any()):
+        best_idx = int(pareto.loc[sane_x0, "loss"].idxmin())
+    elif bool(x0_mask.any()):
         best_idx = int(pareto.loc[x0_mask, "loss"].idxmin())
     else:
         best_idx = int(pareto["loss"].idxmin())

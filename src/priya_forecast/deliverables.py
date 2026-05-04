@@ -211,39 +211,65 @@ def write_resolution_correction_outputs(
         "\n".join(md_lines) + "\n"
     )
 
-    # Grid figure (HF/LF ratio per param).
+    # Grid figure (HF/LF ratio per param). Two-block layout:
+    #   - cosmology + mean-flux block: dtau0, tau0, ns, Ap, hub, omegamh2
+    #   - astro / IGM-thermal block:    herei, heref, alphaq, hireionz, bhfeedback
+    # Per-panel y-axis (no sharey) so each ratio's own dynamic range is visible.
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    n = len(res_corr)
-    cols = 4
-    rows = (n + cols - 1) // cols
-    fig, axes = plt.subplots(rows, cols, figsize=(3.0 * cols, 2.4 * rows),
-                             sharex=True, sharey=True, squeeze=False)
-    for ax in axes.flat:
-        ax.set_visible(False)
-    for i, (pname, info) in enumerate(res_corr.items()):
-        ax = axes[i // cols][i % cols]
-        ax.set_visible(True)
-        ratio = np.asarray(info["ratio_hf_over_lf"])
-        ax.plot(k_grid, ratio, color="#d62728", lw=1.5)
-        ax.axhline(1.0, color="gray", lw=0.5, alpha=0.7)
-        ax.set_title(f"{pname}  (θ_fid={info['fid_phys']:.4g})", fontsize=9)
-        ax.set_xlabel("k [s/km]", fontsize=8)
-        ax.set_ylabel(r"$R(k)\,=\,P_F^{HF}/P_F^{LF}$", fontsize=8)
-        ax.set_xscale("log")
-        ax.tick_params(axis="both", which="major", labelsize=7)
-    suptitle = "Per-dim resolution correction at θ=fid (HF/LF ratio)"
-    if z_eval is not None:
-        suptitle += f"\nevaluated at z = {z_eval:.2f}"
-    fig.suptitle(suptitle, fontsize=10)
-    fig.tight_layout(rect=(0, 0, 1, 0.94))
-    fig.savefig(output_dir / "resolution_correction_grid.png", dpi=160,
-                bbox_inches="tight")
-    fig.savefig(output_dir / "resolution_correction_grid.pdf",
-                bbox_inches="tight")
-    plt.close(fig)
+    cosmo_block = ("dtau0", "tau0", "ns", "Ap", "hub", "omegamh2")
+    astro_block = ("herei", "heref", "alphaq", "hireionz", "bhfeedback")
+
+    def _make_grid_figure(block_names: tuple[str, ...], title: str, suffix: str) -> None:
+        present = [(n, res_corr[n]) for n in block_names if n in res_corr]
+        if not present:
+            return
+        cols = min(3, len(present))
+        rows = (len(present) + cols - 1) // cols
+        fig, axes = plt.subplots(
+            rows, cols, figsize=(3.0 * cols, 2.4 * rows),
+            sharex=True, sharey=False, squeeze=False,
+        )
+        for ax in axes.flat:
+            ax.set_visible(False)
+        for i, (pname, info) in enumerate(present):
+            ax = axes[i // cols][i % cols]
+            ax.set_visible(True)
+            ratio = np.asarray(info["ratio_hf_over_lf"])
+            ax.plot(k_grid, ratio, color="#d62728", lw=1.5)
+            ax.axhline(1.0, color="gray", lw=0.5, alpha=0.7)
+            # Per-panel y-axis: tighten around the actual ratio range.
+            finite = np.isfinite(ratio)
+            if finite.any():
+                rmin, rmax = float(ratio[finite].min()), float(ratio[finite].max())
+                pad = max(1e-3, 0.1 * (rmax - rmin))
+                ax.set_ylim(rmin - pad, rmax + pad)
+            ax.set_title(f"{pname}  (θ_fid={info['fid_phys']:.4g})", fontsize=9)
+            if i // cols == rows - 1:
+                ax.set_xlabel("k [s/km]", fontsize=8)
+            if i % cols == 0:
+                ax.set_ylabel(r"$R(k)\,=\,P_F^{HF}/P_F^{LF}$", fontsize=8)
+            ax.set_xscale("log")
+            ax.tick_params(axis="both", which="major", labelsize=7)
+        suptitle = title
+        if z_eval is not None:
+            suptitle += f" — z = {z_eval:.2f}"
+        fig.suptitle(suptitle, fontsize=10)
+        fig.tight_layout(rect=(0, 0, 1, 0.94))
+        fig.savefig(output_dir / f"resolution_correction_grid_{suffix}.png",
+                    dpi=160, bbox_inches="tight")
+        fig.savefig(output_dir / f"resolution_correction_grid_{suffix}.pdf",
+                    bbox_inches="tight")
+        plt.close(fig)
+
+    _make_grid_figure(
+        cosmo_block, "HF/LF resolution correction — cosmology + mean-flux", "cosmo",
+    )
+    _make_grid_figure(
+        astro_block, "HF/LF resolution correction — IGM thermal / astro", "astro",
+    )
 
 
 def write_resolution_correction_equations(

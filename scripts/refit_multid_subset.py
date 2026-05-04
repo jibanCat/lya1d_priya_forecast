@@ -79,6 +79,11 @@ def main():
     p.add_argument("--maxsize", type=int, default=25,
                    help="PySR max equation size (multi-D may need more).")
     p.add_argument("--seed", type=int, default=42)
+    p.add_argument(
+        "--fix-dtau0-to-zero", action=argparse.BooleanOptionalAction, default=True,
+        help="Override dtau0 fid to 0 (Kim's external slope) to avoid "
+             "double-using eBOSS P1D statistics. Default True.",
+    )
     p.add_argument("--basedir", type=Path,
                    default=Path("/nfs/turbo/umor-yueyingn/mfho/birdgroup/"
                                 "lya_xq100/kodiaq_2_2_4_6-48-48"))
@@ -99,6 +104,8 @@ def main():
     args.output.mkdir(parents=True, exist_ok=True)
 
     fid = np.array(fiducial_vector(), dtype=float)
+    if args.fix_dtau0_to_zero:
+        fid[PARAM_NAMES.index("dtau0")] = 0.0
     k_grid = np.linspace(args.k_min, args.k_max, args.n_k)
     z_grid_kodiaq = np.array([2.6, 2.8, 3.0, 3.2, 3.4, 3.6, 3.8, 4.0, 4.2])
     z_grid_use = z_grid_kodiaq[

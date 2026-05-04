@@ -366,9 +366,13 @@ def main():
     )
     p.add_argument(
         "--fix-dtau0-to-zero",
-        action="store_true",
-        help="Also override the dtau0 fid value to 0 (production paper "
-             "convention). Default is to keep upstream best_par fid (-0.009).",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Set dtau0 fid to 0 (Kim's mean-flux slope, an EXTERNAL "
+             "measurement). Default True — avoids using the upstream "
+             "best_par dtau0 = -0.009 which was fit against eBOSS DR14 "
+             "P1D and would re-use the same data statistics in our "
+             "forecast. Pass --no-fix-dtau0-to-zero to keep -0.009.",
     )
     p.add_argument(
         "--priors",

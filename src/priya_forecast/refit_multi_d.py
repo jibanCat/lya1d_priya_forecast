@@ -344,14 +344,43 @@ def refit_multi_d(
     elapsed = time.time() - t0
     pareto = model.equations_
 
-    # Prefer the lowest-loss Pareto entry whose equation references the most
-    # subset θ-features. Each x_i for i < n_subset corresponds to a θ.
+    # Prefer the lowest-loss Pareto entry that:
+    #   (a) references the MAXIMUM number of subset θ-features (most
+    #       interpretable — every θ matters; user's preference), and
+    #   (b) does NOT contain pathological literal constants (|c| > 100)
+    #       that would dominate the equation as a fixed offset (the
+    #       observed (x0 - 3.4e11) failure mode).
     n_sub = len(subset_names)
     def _theta_count(eq_str: str) -> int:
         return sum(1 for i in range(n_sub) if f"x{i}" in str(eq_str))
+
+    def _has_pathological_constant(eq_str: str, threshold: float = 100.0) -> bool:
+        """Detect equations like `(x0 - 3.4e11) / (x3 - 0.23)` where a
+        single literal constant is so large that the equation is
+        effectively constant in θ. Scans for any number with |c| >
+        threshold."""
+        import re
+        for m in re.finditer(r"-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?", eq_str):
+            try:
+                if abs(float(m.group())) > threshold:
+                    return True
+            except ValueError:
+                continue
+        return False
+
     pareto["_theta_count"] = pareto["equation"].astype(str).apply(_theta_count)
-    max_count = int(pareto["_theta_count"].max())
-    if max_count > 0:
+    pareto["_pathological"] = pareto["equation"].astype(str).apply(
+        _has_pathological_constant
+    )
+    sane = pareto[~pareto["_pathological"]]
+    sane_max_count = int(sane["_theta_count"].max()) if len(sane) > 0 else 0
+    if sane_max_count > 0:
+        cand = sane[sane["_theta_count"] == sane_max_count]
+        best_idx = int(cand["loss"].idxmin())
+    elif int(pareto["_theta_count"].max()) > 0:
+        # All max-θ entries are pathological — fall back to the broader
+        # Pareto front (still prefer max θ count).
+        max_count = int(pareto["_theta_count"].max())
         cand = pareto[pareto["_theta_count"] == max_count]
         best_idx = int(cand["loss"].idxmin())
     else:
