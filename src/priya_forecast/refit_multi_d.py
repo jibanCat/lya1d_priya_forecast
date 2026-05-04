@@ -120,7 +120,8 @@ class MultiDRefitResult:
         k = np.asarray(k, dtype=float)
         n_k = k.size
         k_norm = (k - self.k_min) / (self.k_max - self.k_min)
-        z_norm = (z_eval - self.z_min) / (self.z_max - self.z_min)
+        z_range = self.z_max - self.z_min
+        z_norm = 0.0 if z_range == 0 else (z_eval - self.z_min) / z_range
 
         # Lambdify the equation.
         expr = sp.sympify(self.equation_str)
@@ -380,6 +381,106 @@ def refit_multi_d(
     result.lf_train_max_rel_err = diag["lf_max"]
     result.hf_train_max_rel_err = diag["hf_max"]
     return result
+
+
+@dataclass
+class MultiDCrossCoupledModel:
+    """Multi-D PySR cross-coupling combine + GP-slice fallback for outside params.
+
+    For the cross-coupled subset (e.g. {ns, Ap, herei, heref, alphaq,
+    hireionz}), one multi-D PySR equation captures the joint
+    (θ_subset, k, z, resolution) dependence, including cross-coupling
+    terms that per-1D fits cannot express.
+
+    For other params (tau0, hub, omegamh2, bhfeedback, possibly dtau0):
+    use the GP-slice fallback exactly. This is the right call because
+    these are either prior-dominated (hub/Ω/bh) or marginally
+    constrained at single-z (tau0 — Kim prior optional). Their
+    combine contribution is `P_GP(fid except θ_j=θ_j, k, z) −
+    P_GP(fid, k, z)` per param, anchored at fid.
+
+    Combine:
+        P_F(θ, k, z) = P_GP_HF(fid, k, z)
+                     + [r.predict(θ, k, z, 0.8) - r.predict(fid, k, z, 0.8)]
+                     + Σ_{j ∈ non_subset} [P_GP(slice_j) - P_GP(fid)]
+
+    Exact at fid by construction.
+
+    Note: this is a regular Python class with `predict(theta, k, z)` —
+    we don't subclass `P1DModel` because that ABC is in
+    `priya_forecast.models.base` and we want to avoid the import cycle.
+    The Fisher / likelihood layers only require `predict(theta, k, z)`,
+    so duck-typing is sufficient.
+    """
+
+    multi_d_refit: MultiDRefitResult
+    gp: object                                   # HF GP for fid + slice fallback
+    fid: np.ndarray                              # shape (11,)
+    k_grid: np.ndarray
+    z_grid: np.ndarray                           # discrete z bins served
+    fixed_params: tuple[str, ...] = ()           # held at fid; default ('dtau0',)
+
+    def __post_init__(self) -> None:
+        self.fid = np.asarray(self.fid, dtype=float)
+        self.k_grid = np.asarray(self.k_grid, dtype=float)
+        self.z_grid = np.asarray(self.z_grid, dtype=float)
+        # Cache P_GP(fid, k, z) per z.
+        self._p_gp_fid_per_z: dict[float, np.ndarray] = {
+            float(z): np.asarray(self.gp.predict(self.fid, self.k_grid, float(z)),
+                                  dtype=float)
+            for z in self.z_grid
+        }
+        # Cache the multi-D eq evaluated at fid_phys per z (the "anchor"
+        # so the deviation cancels at fid).
+        self._eq_fid_per_z: dict[float, np.ndarray] = {
+            float(z): self.multi_d_refit.predict(
+                theta_phys_full=self.fid, k=self.k_grid,
+                resolution=HF_RESOLUTION, z=float(z),
+            )
+            for z in self.z_grid
+        }
+        # Pre-compute which params take the GP-slice path. Subset params
+        # are handled via the multi-D eq; fixed_params are at fid;
+        # everything else uses GP-slice.
+        self._subset_set = set(self.multi_d_refit.subset_names)
+        self._fixed_set = set(self.fixed_params)
+        self._gp_slice_names = [
+            name for name in PARAM_NAMES
+            if name not in self._subset_set and name not in self._fixed_set
+        ]
+
+    def predict(self, theta: np.ndarray, k: np.ndarray, z: float) -> np.ndarray:
+        theta = np.asarray(theta, dtype=float)
+        k = np.asarray(k, dtype=float)
+        if not np.allclose(k, self.k_grid):
+            raise ValueError("MultiDCrossCoupledModel uses a fixed k_grid.")
+        z_key = float(z)
+        if not np.any(np.isclose(self.z_grid, z_key, atol=1e-3)):
+            raise ValueError(f"z={z_key} not in this model's z_grid: {self.z_grid}.")
+
+        out = self._p_gp_fid_per_z[z_key].copy()
+
+        # Multi-D PySR contribution: deviation from fid via the joint eq.
+        # This handles the subset {ns, Ap, herei, heref, alphaq, hireionz}.
+        p_at_theta = self.multi_d_refit.predict(
+            theta_phys_full=theta, k=self.k_grid,
+            resolution=HF_RESOLUTION, z=z_key,
+        )
+        out = out + (p_at_theta - self._eq_fid_per_z[z_key])
+
+        # GP-slice fallback for non-subset, non-fixed params. Each varies
+        # independently with all other 10 held at fid.
+        for pname in self._gp_slice_names:
+            i = PARAM_NAMES.index(pname)
+            if float(theta[i]) == float(self.fid[i]):
+                continue
+            t_only = self.fid.copy()
+            t_only[i] = theta[i]
+            p_slice = np.asarray(
+                self.gp.predict(t_only, self.k_grid, z_key), dtype=float
+            )
+            out = out + (p_slice - self._p_gp_fid_per_z[z_key])
+        return out
 
 
 def _validate_per_fidelity_multi_d(
