@@ -272,6 +272,222 @@ def write_resolution_correction_outputs(
     )
 
 
+def write_param_variation_resolution_correction(
+    refits: dict,
+    k_grid: np.ndarray,
+    output_dir: Path,
+    *,
+    z_eval: float | None = None,
+    quantile_levels: tuple[float, ...] = (0.1, 0.3, 0.5, 0.7, 0.9),
+) -> None:
+    """For each param: HF/LF ratio R(k) at several θ-quantiles in its prior.
+
+    Same cosmo/astro split as `write_resolution_correction_outputs`. Each
+    panel shows multiple curves — one per chosen quantile of the prior —
+    so the reader can see how the resolution correction depends on θ
+    itself.
+
+    Saves `resolution_correction_param_variation_{cosmo,astro}.{png,pdf}`.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from priya_forecast.parameters import get_param
+
+    cosmo_block = ("dtau0", "tau0", "ns", "Ap", "hub", "omegamh2")
+    astro_block = ("herei", "heref", "alphaq", "hireionz", "bhfeedback")
+
+    if z_eval is None:
+        for r in refits.values():
+            if r is not None and getattr(r, "is_multiz", False):
+                z_eval = float((r.z_min + r.z_max) / 2.0)
+                break
+
+    cmap = plt.get_cmap("plasma")
+    n_q = len(quantile_levels)
+    colors = [cmap(i / max(1, n_q - 1)) for i in range(n_q)]
+
+    def _make_grid(block_names: tuple[str, ...], title: str, suffix: str) -> None:
+        present = [n for n in block_names if n in refits and refits[n] is not None]
+        if not present:
+            return
+        cols = min(3, len(present))
+        rows = (len(present) + cols - 1) // cols
+        fig, axes = plt.subplots(
+            rows, cols, figsize=(3.2 * cols, 2.5 * rows),
+            sharex=True, sharey=False, squeeze=False,
+        )
+        for ax in axes.flat:
+            ax.set_visible(False)
+        for i, pname in enumerate(present):
+            r = refits[pname]
+            ax = axes[i // cols][i % cols]
+            ax.set_visible(True)
+            p = get_param(pname)
+            theta_values = [
+                p.prior[0] + q * (p.prior[1] - p.prior[0])
+                for q in quantile_levels
+            ]
+            for q, theta_phys, color in zip(quantile_levels, theta_values, colors):
+                z_arg = z_eval if (getattr(r, "is_multiz", False) and z_eval is not None) else None
+                p_hf = r.predict(theta_phys=theta_phys, k=k_grid, resolution=HF_RESOLUTION, z=z_arg)
+                p_lf = r.predict(theta_phys=theta_phys, k=k_grid, resolution=LF_RESOLUTION, z=z_arg)
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    ratio = np.where(np.abs(p_lf) > 0, p_hf / p_lf, np.nan)
+                ax.plot(k_grid, ratio, color=color, lw=1.2,
+                        label=f"q={q:.1f} (θ={theta_phys:.3g})")
+            ax.axhline(1.0, color="gray", lw=0.5, alpha=0.7)
+            ax.set_title(f"{pname}", fontsize=9)
+            ax.set_xscale("log")
+            if i // cols == rows - 1:
+                ax.set_xlabel("k [s/km]", fontsize=8)
+            if i % cols == 0:
+                ax.set_ylabel(r"$R(k;\theta)$", fontsize=8)
+            ax.tick_params(axis="both", which="major", labelsize=7)
+            if i == 0:
+                ax.legend(fontsize=6, loc="best")
+        suptitle = title
+        if z_eval is not None:
+            suptitle += f" — z = {z_eval:.2f}"
+        fig.suptitle(suptitle, fontsize=10)
+        fig.tight_layout(rect=(0, 0, 1, 0.94))
+        fig.savefig(
+            output_dir / f"resolution_correction_param_variation_{suffix}.png",
+            dpi=160, bbox_inches="tight",
+        )
+        fig.savefig(
+            output_dir / f"resolution_correction_param_variation_{suffix}.pdf",
+            bbox_inches="tight",
+        )
+        plt.close(fig)
+
+    _make_grid(cosmo_block,
+               "HF/LF ratio vs θ-quantile — cosmology + mean-flux", "cosmo")
+    _make_grid(astro_block,
+               "HF/LF ratio vs θ-quantile — IGM thermal / astro", "astro")
+
+
+def write_holdout_validation(
+    refits: dict,
+    *,
+    gp_lf,
+    gp_hf,
+    k_grid: np.ndarray,
+    output_dir: Path,
+    n_holdout: int = 50,
+    z_eval: float | None = None,
+    seed: int = 9999,
+) -> None:
+    """Per-param hold-out validation: relative error vs k on unseen Sobol θ.
+
+    Generates a fresh Sobol sweep (different seed from training) over
+    each param's prior, evaluates the GP at each θ for both LF and HF,
+    compares to the per-param refit's prediction, and plots mean
+    |pred − truth|/|truth| as a function of k for each fidelity.
+
+    Same cosmo/astro split. Saves
+    `holdout_validation_{cosmo,astro}.{png,pdf}`.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from scipy.stats import qmc
+    from priya_forecast.parameters import (
+        PARAM_NAMES, fiducial_vector, get_param,
+    )
+
+    cosmo_block = ("dtau0", "tau0", "ns", "Ap", "hub", "omegamh2")
+    astro_block = ("herei", "heref", "alphaq", "hireionz", "bhfeedback")
+    fid = np.array(fiducial_vector(), dtype=float)
+    if z_eval is None:
+        for r in refits.values():
+            if r is not None and getattr(r, "is_multiz", False):
+                z_eval = float((r.z_min + r.z_max) / 2.0)
+                break
+        if z_eval is None:
+            z_eval = 3.6
+
+    def _holdout_for_param(pname: str) -> dict[str, np.ndarray] | None:
+        r = refits.get(pname)
+        if r is None:
+            return None
+        p = get_param(pname)
+        # Sobol over [prior_lo, prior_hi]; different seed from training (default 0).
+        sampler = qmc.Sobol(d=1, seed=seed)
+        u = sampler.random(n=n_holdout).ravel()
+        theta_samples = p.prior[0] + u * (p.prior[1] - p.prior[0])
+        idx = PARAM_NAMES.index(pname)
+
+        rel_err_lf = np.empty((n_holdout, len(k_grid)), dtype=float)
+        rel_err_hf = np.empty((n_holdout, len(k_grid)), dtype=float)
+        for i, t in enumerate(theta_samples):
+            theta = fid.copy()
+            theta[idx] = t
+            truth_lf = np.asarray(gp_lf.predict(theta, k_grid, z_eval), dtype=float)
+            truth_hf = np.asarray(gp_hf.predict(theta, k_grid, z_eval), dtype=float)
+            z_arg = z_eval if (getattr(r, "is_multiz", False) and z_eval is not None) else None
+            pred_lf = r.predict(theta_phys=float(t), k=k_grid, resolution=LF_RESOLUTION, z=z_arg)
+            pred_hf = r.predict(theta_phys=float(t), k=k_grid, resolution=HF_RESOLUTION, z=z_arg)
+            rel_err_lf[i] = np.abs(pred_lf - truth_lf) / np.abs(truth_lf)
+            rel_err_hf[i] = np.abs(pred_hf - truth_hf) / np.abs(truth_hf)
+        return dict(
+            mean_lf=rel_err_lf.mean(axis=0),
+            mean_hf=rel_err_hf.mean(axis=0),
+            max_lf=rel_err_lf.max(axis=0),
+            max_hf=rel_err_hf.max(axis=0),
+        )
+
+    def _make_grid(block_names: tuple[str, ...], title: str, suffix: str) -> None:
+        present_pairs = []
+        for pname in block_names:
+            info = _holdout_for_param(pname)
+            if info is not None:
+                present_pairs.append((pname, info))
+        if not present_pairs:
+            return
+        cols = min(3, len(present_pairs))
+        rows = (len(present_pairs) + cols - 1) // cols
+        fig, axes = plt.subplots(
+            rows, cols, figsize=(3.2 * cols, 2.5 * rows),
+            sharex=True, sharey=False, squeeze=False,
+        )
+        for ax in axes.flat:
+            ax.set_visible(False)
+        for i, (pname, info) in enumerate(present_pairs):
+            ax = axes[i // cols][i % cols]
+            ax.set_visible(True)
+            ax.plot(k_grid, info["mean_lf"] * 100, color="#1f77b4", lw=1.5,
+                    label=f"LF mean ({info['mean_lf'].mean()*100:.2f}%)")
+            ax.plot(k_grid, info["mean_hf"] * 100, color="#d62728", lw=1.5,
+                    label=f"HF mean ({info['mean_hf'].mean()*100:.2f}%)")
+            ax.fill_between(k_grid, 0, info["max_lf"] * 100, color="#1f77b4", alpha=0.15)
+            ax.fill_between(k_grid, 0, info["max_hf"] * 100, color="#d62728", alpha=0.15)
+            ax.axhline(1.0, color="gray", lw=0.5, alpha=0.7, ls="--")  # 1% gate
+            ax.set_title(pname, fontsize=9)
+            ax.set_xscale("log")
+            if i // cols == rows - 1:
+                ax.set_xlabel("k [s/km]", fontsize=8)
+            if i % cols == 0:
+                ax.set_ylabel(r"$|\Delta P_F / P_F|$ [%]", fontsize=8)
+            ax.tick_params(axis="both", which="major", labelsize=7)
+            ax.legend(fontsize=6, loc="best")
+        suptitle = title + f" — hold-out n={n_holdout} (seed={seed})"
+        if z_eval is not None:
+            suptitle += f", z = {z_eval:.2f}"
+        fig.suptitle(suptitle, fontsize=10)
+        fig.tight_layout(rect=(0, 0, 1, 0.94))
+        fig.savefig(output_dir / f"holdout_validation_{suffix}.png",
+                    dpi=160, bbox_inches="tight")
+        fig.savefig(output_dir / f"holdout_validation_{suffix}.pdf",
+                    bbox_inches="tight")
+        plt.close(fig)
+
+    _make_grid(cosmo_block,
+               "Hold-out validation — cosmology + mean-flux", "cosmo")
+    _make_grid(astro_block,
+               "Hold-out validation — IGM thermal / astro", "astro")
+
+
 def write_resolution_correction_equations(
     refits: dict, output_dir: Path,
 ) -> None:

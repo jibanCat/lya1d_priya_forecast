@@ -509,6 +509,18 @@ def main():
     refits_loaded = {pn: r for pn, r in refits.items() if r is not None}
     write_resolution_correction_outputs(refits_loaded, k_grid, fid, args.output)
     write_resolution_correction_equations(refits_loaded, args.output)
+    from priya_forecast.deliverables import (
+        write_holdout_validation,
+        write_param_variation_resolution_correction,
+    )
+    write_param_variation_resolution_correction(refits_loaded, k_grid, args.output)
+    try:
+        write_holdout_validation(
+            refits_loaded, gp_lf=gp_lf, gp_hf=gp_hf,
+            k_grid=k_grid, output_dir=args.output, n_holdout=50,
+        )
+    except Exception as e:
+        print(f"  (hold-out validation skipped: {e})")
 
     if args.validate_only:
         print(f"\n--validate-only: stopping after per-param fits. "

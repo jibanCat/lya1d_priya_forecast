@@ -46,6 +46,8 @@ from priya_forecast.parameters import (
 from priya_forecast.refit_taylor import MultiZAdditiveTaylorModel
 from priya_forecast.deliverables import (
     per_param_summary_lines,
+    write_holdout_validation,
+    write_param_variation_resolution_correction,
     write_resolution_correction_equations,
     write_resolution_correction_outputs,
 )
@@ -295,8 +297,27 @@ def main():
         z_eval=float((z_min + z_max) / 2.0),
     )
     write_resolution_correction_equations(refits_loaded_dict, args.output)
+    write_param_variation_resolution_correction(
+        refits_loaded_dict, k_grid, args.output,
+        z_eval=float((z_min + z_max) / 2.0),
+    )
+    # Hold-out validation: requires LF emulator (we already have HF as gp_hf;
+    # build LF on-demand to avoid forcing a load if user passes --no-validation).
+    try:
+        gp_lf = GPModel(basedir=args.basedir, fidelity="lf", kf=k_grid)
+        write_holdout_validation(
+            refits_loaded_dict,
+            gp_lf=gp_lf, gp_hf=gp_hf, k_grid=k_grid,
+            output_dir=args.output, n_holdout=50,
+            z_eval=float((z_min + z_max) / 2.0),
+        )
+        print("  hold-out validation done.")
+    except Exception as e:
+        print(f"  (hold-out validation skipped: {e})")
     print(f"Deliverables: per_param_summary.md, resolution_correction.md/json/grid, "
-          f"resolution_correction_equations.md")
+          f"resolution_correction_equations.md, "
+          f"resolution_correction_param_variation_*.{{png,pdf}}, "
+          f"holdout_validation_*.{{png,pdf}}")
 
 
 if __name__ == "__main__":
