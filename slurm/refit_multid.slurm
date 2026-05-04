@@ -41,11 +41,13 @@ echo "[slurm] cpus_per_task=${SLURM_CPUS_PER_TASK:-?}"
 echo "[slurm] OUTPUT_DIR=${OUTPUT_DIR}"
 echo "[slurm] z range=[${Z_MIN}, ${Z_MAX}], n_total=${N_TOTAL}, niter=${NITER}"
 
-# Conda env (mamba on Greatlakes; matches install_greatlakes.sh).
+# Use the Greatlakes shared mamba py3.11 base where pysr is installed
+# via `pip install --user` (visible from any compute node since
+# ~/.local/lib/... is on the home filesystem). Avoid `conda activate
+# emu-3.9` which has no pysr.
 module purge
 module load gcc/10.3.0 || true
-source /sw/pkgs/arc/mamba/py3.11/etc/profile.d/conda.sh
-conda activate emu-3.9 || true
+PY=/sw/pkgs/arc/mamba/py3.11/bin/python
 
 # PySR / Julia env.
 export PYTHON_JULIAPKG_PROJECT="${HOME}/.julia_env"
@@ -56,7 +58,7 @@ cd "$REPO"
 PROCS=$((${SLURM_CPUS_PER_TASK:-4} - 1))
 [ "$PROCS" -lt 1 ] && PROCS=1
 
-python scripts/refit_multid_subset.py \
+"$PY" scripts/refit_multid_subset.py \
     --z-min "$Z_MIN" --z-max "$Z_MAX" \
     --n-total "$N_TOTAL" --niter "$NITER" --maxsize "$MAXSIZE" \
     --procs "$PROCS" \

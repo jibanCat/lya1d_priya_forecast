@@ -51,11 +51,10 @@ echo "[slurm] task=${SLURM_ARRAY_TASK_ID} param=${PARAM}"
 echo "[slurm] host=$(hostname)"
 echo "[slurm] payload=${PAYLOAD_DIR}/${PARAM}.pkl"
 
-# Conda env (match the user's existing setup; mamba on Greatlakes).
+# Use the Greatlakes shared mamba py3.11 base (pysr via pip --user).
 module purge
-module load gcc/10.3.0 || true   # not strictly needed for PySR-only
-source /sw/pkgs/arc/mamba/py3.11/etc/profile.d/conda.sh
-conda activate emu-3.9 || true
+module load gcc/10.3.0 || true
+PY=/sw/pkgs/arc/mamba/py3.11/bin/python
 
 # PySR / Julia environment paths.
 export PYTHON_JULIAPKG_PROJECT="${HOME}/.julia_env"
@@ -63,7 +62,7 @@ export JULIA_DEPOT_PATH="${HOME}/.julia"
 export PYTHONPATH="/home/mfho/student_projects/lya_emulator_full:${REPO}/src"
 
 cd "$REPO"
-python scripts/refit_one_param.py \
+"$PY" scripts/refit_one_param.py \
     --param "$PARAM" \
     --payload-dir "$PAYLOAD_DIR" \
     --output-dir "$OUTPUT_DIR" \
