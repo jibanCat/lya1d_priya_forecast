@@ -63,8 +63,14 @@ def main():
     p.add_argument("--kim-tau0", action="store_true",
                    help="Add Kim Gaussian prior on tau0: σ ≈ 0.331 (= 0.304 · fid).")
     p.add_argument("--cov-diag-frac", type=float, default=0.05,
-                   help="Synthetic diagonal cov σ_k = frac·P_F(fid, k); placeholder "
-                        "until the KSData covariance is wired in.")
+                   help="Synthetic diagonal cov σ_k = frac·P_F(fid, k). "
+                        "Ignored if --use-ksdata is set.")
+    p.add_argument("--use-ksdata", action="store_true",
+                   help="Use the real KODIAQ-SQUAD covariance (Karacayli+ 2021) "
+                        "via lyaemu.lyman_data.KSData(conservative=True), "
+                        "filtered to the script's z range and k≤k_max.")
+    p.add_argument("--k-max", type=float, default=0.064,
+                   help="Max k for KSData filter (used only with --use-ksdata).")
     p.add_argument("--fix-params", nargs="+", default=["dtau0"],
                    help="Params held fixed at theta_fid in the multi-z Fisher. "
                         "Default ['dtau0'] — production paper's `USE_TAU0_ONLY=true` "
@@ -126,29 +132,7 @@ def main():
         print(f"  fixed at theta_fid: "
               f"{sorted({p: fid[PARAM_NAMES.index(p)] for p in fix_set}.items())}")
 
-    print(f"\nRunning per-z Fisher on HF GP (truth) and hybrid for {len(z_grid_use)} z bins...")
-    F_gp_list, F_hy_list = [], []
-    for z_bin in z_grid_use:
-        lk_gp_z = GaussianLikelihood(
-            model=gp_hf, z=float(z_bin), mock_data="gp", theta_fid=fid,
-            k_grid=k_grid, cov_diag_frac=args.cov_diag_frac,
-        )
-        F_gp_list.append(compute_fisher_F_phys(
-            likelihood=lk_gp_z, theta_fid=fid, params=fisher_params,
-            param_indices=param_indices,
-            step_frac=0.02, rel_tol=0.05, max_halvings=2,
-        ))
-        lk_hy_z = GaussianLikelihood(
-            model=hybrid, z=float(z_bin), mock_data="gp", theta_fid=fid,
-            k_grid=k_grid, cov_diag_frac=args.cov_diag_frac,
-        )
-        F_hy_list.append(compute_fisher_F_phys(
-            likelihood=lk_hy_z, theta_fid=fid, params=fisher_params,
-            param_indices=param_indices,
-            step_frac=0.02, rel_tol=0.05, max_halvings=2,
-        ))
-        print(f"  z={z_bin:.1f} done", flush=True)
-
+    # Priors first so both branches can use them.
     priors_sigma = {}
     if args.priors == "production":
         priors_sigma.update({
@@ -158,15 +142,67 @@ def main():
         priors_sigma["tau0"] = 0.304 * 1.090
     if priors_sigma:
         print(f"\nPriors: {priors_sigma}")
+    priors_sigma_arg = priors_sigma if priors_sigma else None
 
-    fr_gp = combine_fisher_phys_arrays(
-        F_gp_list, params=fisher_params, theta_fid=theta_fid_subset,
-        priors_sigma=priors_sigma if priors_sigma else None,
-    )
-    fr_hy = combine_fisher_phys_arrays(
-        F_hy_list, params=fisher_params, theta_fid=theta_fid_subset,
-        priors_sigma=priors_sigma if priors_sigma else None,
-    )
+    if args.use_ksdata:
+        from priya_forecast.fisher import fisher_matrix
+        from priya_forecast.ksdata_likelihood import KSDataLikelihood
+        print("\nRunning multi-z Fisher with KSData covariance "
+              "(single fisher call, NOT per-z aggregation — KSData has cross-z).")
+        lk_gp_ks = KSDataLikelihood(
+            model=gp_hf, z_min=z_min, z_max=z_max, k_max=args.k_max,
+            mock_data="gp", theta_fid=fid,
+        )
+        lk_hy_ks = KSDataLikelihood(
+            model=hybrid, z_min=z_min, z_max=z_max, k_max=args.k_max,
+            mock_data="gp", theta_fid=fid,
+        )
+        fr_gp = fisher_matrix(
+            likelihood=lk_gp_ks, theta_fid=fid, params=fisher_params,
+            param_indices=param_indices,
+            step_frac=0.02, rel_tol=0.05, max_halvings=2,
+            priors_sigma=priors_sigma_arg,
+        )
+        fr_hy = fisher_matrix(
+            likelihood=lk_hy_ks, theta_fid=fid, params=fisher_params,
+            param_indices=param_indices,
+            step_frac=0.02, rel_tol=0.05, max_halvings=2,
+            priors_sigma=priors_sigma_arg,
+        )
+        cov_label = (f"KSData(conservative=True), filtered to "
+                     f"z=[{z_min},{z_max}], k≤{args.k_max}")
+    else:
+        print(f"\nRunning per-z Fisher on HF GP (truth) and hybrid for {len(z_grid_use)} z bins...")
+        cov_label = f"synthetic diagonal, σ_k = {args.cov_diag_frac*100:.1f}%·P_F(fid, k)"
+        F_gp_list, F_hy_list = [], []
+        for z_bin in z_grid_use:
+            lk_gp_z = GaussianLikelihood(
+                model=gp_hf, z=float(z_bin), mock_data="gp", theta_fid=fid,
+                k_grid=k_grid, cov_diag_frac=args.cov_diag_frac,
+            )
+            F_gp_list.append(compute_fisher_F_phys(
+                likelihood=lk_gp_z, theta_fid=fid, params=fisher_params,
+                param_indices=param_indices,
+                step_frac=0.02, rel_tol=0.05, max_halvings=2,
+            ))
+            lk_hy_z = GaussianLikelihood(
+                model=hybrid, z=float(z_bin), mock_data="gp", theta_fid=fid,
+                k_grid=k_grid, cov_diag_frac=args.cov_diag_frac,
+            )
+            F_hy_list.append(compute_fisher_F_phys(
+                likelihood=lk_hy_z, theta_fid=fid, params=fisher_params,
+                param_indices=param_indices,
+                step_frac=0.02, rel_tol=0.05, max_halvings=2,
+            ))
+            print(f"  z={z_bin:.1f} done", flush=True)
+        fr_gp = combine_fisher_phys_arrays(
+            F_gp_list, params=fisher_params, theta_fid=theta_fid_subset,
+            priors_sigma=priors_sigma_arg,
+        )
+        fr_hy = combine_fisher_phys_arrays(
+            F_hy_list, params=fisher_params, theta_fid=theta_fid_subset,
+            priors_sigma=priors_sigma_arg,
+        )
 
     # Scorecard.
     target = ("Ap", "ns", "tau0", "dtau0")
@@ -175,7 +211,7 @@ def main():
         f"emulator: {args.basedir}",
         f"z range: [{z_min}, {z_max}] (z_grid={z_grid_use.tolist()})",
         f"k-grid: linspace({k_grid[0]:.4g}, {k_grid[-1]:.4g}, {len(k_grid)}) s/km",
-        f"cov: synthetic diagonal, σ_k = {args.cov_diag_frac*100:.1f}%·P_F(fid, k) per z.",
+        f"cov: {cov_label}",
         f"priors: {priors_sigma if priors_sigma else 'none'}",
         f"hybrid vs HF GP at fid (max over z): {max_rel*100:.4f}%",
         "",
