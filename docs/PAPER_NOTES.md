@@ -471,19 +471,24 @@ Outputs at `resolution_correction_grid_{cosmo,astro}.{png,pdf}`.
 Additive form (`Δ = HF − LF`) also exported in
 `resolution_correction.json` for reference.
 
-### D6. Paper figure budget: 6 figures
+### D6. Paper figure budget: 6 main figures + 2 appendix grids
+
+**Main figures**:
 
 | # | Figure | Purpose |
 |---|---|---|
-| 1 | Resolution correction grid (cosmo) | per-D HF/LF ratio for cosmology + mean-flux |
-| 2 | Resolution correction grid (astro) | per-D HF/LF ratio for IGM thermal |
-| 3 | Multi-z Fisher corner plot | 10D Fisher overlay: GP truth (black) vs PySR hybrid (red) |
-| 4 | σ-ratio bar chart | per-param hybrid σ / GP σ; shows where the pipeline succeeds vs needs residual-PySR |
-| 5 | Per-param equation table (or panel) | the actual symbolic equations + complexity + flux_norm loss |
-| 6 | Ablation table or panel | single-z vs multi-z; without vs with multi-D PySR; with vs without residual-PySR |
+| 1 | Resolution correction grid (cosmo + astro, side-by-side) | per-D HF/LF ratio at θ=fid, split into cosmology+mean-flux and IGM thermal blocks. Output: `resolution_correction_grid_{cosmo,astro}.pdf` |
+| 2 | Resolution correction param-variation grid (cosmo + astro) | R(k; θ) at 5 quantiles (q=0.1, 0.3, 0.5, 0.7, 0.9) of each parameter's prior; shows where the resolution correction is ≈ θ-flat vs θ-dependent. Empirical observation: only `tau0` shows clear θ-dependence; cosmology/astro params overlap. Output: `resolution_correction_param_variation_{cosmo,astro}.pdf` |
+| 3 | Hold-out validation grid (cosmo + astro) | mean & max `\|pred − truth\| / \|truth\|` vs k for both LF and HF on a fresh n=50 Sobol sweep (seed ≠ training). Demonstrates pipeline accuracy on unseen θ. 1% reference dashed line. Output: `holdout_validation_{cosmo,astro}.pdf` |
+| 4 | Multi-z Fisher corner plot | 10D Fisher overlay: GP (black) vs PySR hybrid (red). Output: `corner.pdf` |
+| 5 | σ-ratio bar chart | per-param hybrid σ / GP σ on the multi-z + KSData scorecard, color-coded by treatment (multi-D PySR / per-1D / GP-slice / fixed). Shows where the pipeline matches GP and where it doesn't |
+| 6 | Ablation table | single-z vs multi-z; per-1D + Taylor vs multi-D + cross-coupled; synthetic vs KSData covariance; without vs with residual-PySR (if needed). Numbers from `scorecard.md` runs |
 
-The paper's pipeline-summary paragraph (next section) is the methods
-draft; these 6 figures are the results.
+**Appendix material**:
+- Per-param equation table (LaTeX, generated from `per_param_summary.md`)
+  with full PySR equations + complexity + flux_norm loss + LF/HF rel-err.
+- Per-D resolution correction symbolic expressions (from
+  `resolution_correction_equations.md`).
 
 ---
 
