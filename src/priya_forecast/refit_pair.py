@@ -101,6 +101,20 @@ class Refit2DPairResult:
             if nm not in PARAM_NAMES:
                 raise ValueError(f"unknown param name {nm!r} in pair_names.")
 
+    # The lambdified callable is rebuilt on first call after unpickling.
+    # Strip it from the pickle state so `pickle.dump(self)` doesn't try to
+    # serialize a sympy `_lambdifygenerated` function (not picklable).
+    def __getstate__(self) -> dict:
+        state = self.__dict__.copy()
+        state["_fn_cache"] = None
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        # Backward-compat: ensure `_fn_cache` is present even if a pre-cache
+        # pickle is loaded.
+        state.setdefault("_fn_cache", None)
+        self.__dict__.update(state)
+
     # --- internal: lambdify cache --------------------------------------
 
     def _ensure_fn(self):
