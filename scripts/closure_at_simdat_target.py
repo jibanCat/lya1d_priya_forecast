@@ -80,6 +80,10 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument("--refits-dir", type=Path, required=True)
+    p.add_argument("--pair-refits-dir", type=Path, default=None,
+                   help="Optional: dir of Phase-2 pair refits (.pkl). If set, "
+                        "wrap the base hybrid with MultiZPairCoupledModel "
+                        "before computing the off-fid Fisher.")
     p.add_argument("--truth", type=Path, required=True,
                    help="NPZ with theta_target, mcmc_sigma, mcmc_corr, param_names.")
     p.add_argument("--output", type=Path, required=True)
@@ -148,10 +152,29 @@ def main():
     _ks = KSData(conservative=True)
     ks_k_grid = np.sort(np.unique(_ks.kf[_ks.kf <= args.k_max + 1e-6]))
     print(f"KSData k-grid: {len(ks_k_grid)} bins ≤ {args.k_max} s/km.")
-    hybrid_ks = MultiZAdditiveTaylorModel(
+    base_hybrid_ks = MultiZAdditiveTaylorModel(
         gp=gp_hf, fid=fid_default, refits=refits,
         k_grid=ks_k_grid, z_grid=z_grid_use,
     )
+    if args.pair_refits_dir is not None:
+        from priya_forecast.refit_pair import (
+            MultiZPairCoupledModel, Refit2DPairResult,  # noqa: F401
+        )
+        pair_refits_loaded = []
+        for path in sorted(args.pair_refits_dir.glob("*.pkl")):
+            with open(path, "rb") as fh:
+                pair_refits_loaded.append(pickle.load(fh))
+        if pair_refits_loaded:
+            hybrid_ks = MultiZPairCoupledModel(
+                base=base_hybrid_ks, pairs=pair_refits_loaded,
+            )
+            print(f"Phase-2 hybrid wraps base with "
+                  f"{len(pair_refits_loaded)} pair(s).")
+        else:
+            hybrid_ks = base_hybrid_ks
+            print("(no pair refits found — using base Phase-1 hybrid.)")
+    else:
+        hybrid_ks = base_hybrid_ks
     # Sanity: at θ=fid the hybrid still matches the GP.
     fid_check = np.max(np.abs(
         hybrid_ks.predict(fid_default, ks_k_grid, float(z_grid_use[len(z_grid_use)//2]))

@@ -1283,7 +1283,9 @@ reference + tests live in `tests/test_dim_balanced_loss.py`.
 
 ### Phase 2 production scorecard (KSData covariance)
 
-`results/refit_phase2_production_ksdata/scorecard.md`. σ at θ=fid.
+`results/refit_phase2_production_v2_ksdata/scorecard.md`. σ at θ=fid.
+(The pre-LF/HF-fix v1 dir `refit_phase2_production_ksdata/` has
+byte-identical Fisher numbers and is kept as a provenance record.)
 
 | param | σ_GP | σ_PySR | σ_PySR / σ_GP | route | x0 in eq? |
 |---|---|---|---|---|---|
