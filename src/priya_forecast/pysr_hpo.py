@@ -144,7 +144,10 @@ class HPOResult:
             cs = np.asarray(self.pareto_complexities, dtype=float)
             ls = np.log10(np.maximum(np.asarray(self.pareto_losses), 1e-30))
             order = np.argsort(cs)
-            return float(np.trapz(ls[order], cs[order]))
+            # np.trapz was removed in NumPy 2.x; scipy.integrate.trapezoid
+            # is identical and available in scipy >= 1.0.
+            from scipy.integrate import trapezoid
+            return float(trapezoid(ls[order], cs[order]))
         if name == "fisher_agreement":
             v = fisher_residual
             if v is None:
