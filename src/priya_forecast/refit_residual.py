@@ -65,19 +65,18 @@ class ResidualFit:
     )
 
     def predict(self, theta_full: np.ndarray, k: np.ndarray) -> np.ndarray:
-        """Full multiplicative-product baseline + residual correction.
+        """Not implemented — see `predict_with_p_fid` instead.
 
-        `theta_full` is a length-11 PRIYA parameter vector in physical units.
-        Output: raw P_F on `k`.
+        The multiplicative-product baseline needs `P_fid(k) = GP(fid, k)`,
+        and we deliberately do NOT pickle the GP emulator inside
+        `ResidualFit` (size + GPy thread-state). Callers compute P_fid
+        externally (from their `GPModel`/`GPWrap` instance) and pass it
+        into `predict_with_p_fid`.
         """
-        # 1D-product baseline
-        fid = np.array(fiducial_vector(), dtype=float)
-        # Need P_fid from the residual training context — caller can store
-        # it or recompute via GP. For self-contained inference, we save the
-        # P_fid array in the residual ResidualFit instance via train.
         raise NotImplementedError(
-            "Use ResidualFit.predict_with_p_fid(theta, k, p_fid) — we don't "
-            "carry P_fid here to avoid pickling the GP. Caller computes it."
+            "Use ResidualFit.predict_with_p_fid(theta, k, p_fid). "
+            "ResidualFit doesn't carry P_fid to avoid pickling the GP; "
+            "the caller is responsible for computing it."
         )
 
     def predict_with_p_fid(
