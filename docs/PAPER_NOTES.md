@@ -298,7 +298,14 @@ parallelism="serial"` to lock in bit-reproducible equations. See
 - **Effect**: rescues 6/11 multi-z params that drop x0 in the
   best-loss selection; no PySR retry needed.
 
-## 6.6 Future improvement: dimension-balanced loss
+## 6.6 Dimension-balanced ANOVA loss (LANDED in production via SMART_REFIT_PYSR_KWARGS)
+
+> **Status update (2026-05-05)**: this section was originally drafted as
+> a "future improvement" before the loss was wired in. It is now
+> production-default — see § D3 for the math and § D8 for the operator
+> policy that uses it. The original "future improvement" framing is
+> kept below (struck through visually) for paper-history reference;
+> the actual loss in production is the ANOVA full-batch form.
 
 **Idea (user-suggested, multi-task ML inspired)**: PySR's `elementwise_loss
 (prediction, target, weight)` and `model.fit(X, y, weights=...)` let
@@ -307,13 +314,35 @@ is dominated by k/z/res and barely depends on θ (weak-coupling
 params), reweighting rows by `1/var_kzr` boosts θ-driven residuals.
 
 - Reference: Kendall et al. 2018, "Multi-Task Learning Using
-  Uncertainty to Weigh Losses" — minimize Σ_t (1/σ_t²)·loss_t +
-  log σ_t² where σ_t is per-task uncertainty.
+  Uncertainty to Weigh Losses".
 - Even simpler version: per-(k, z) bin, compute the empirical θ-spread
   of the target. Use that spread as a per-row weight in PySR's loss.
-- This is a Julia-side change to the `elementwise_loss` definition;
-  more involved than the Pareto-search fix and not landed for this
-  paper (Pareto-search alone is sufficient for our σ-ratio targets).
+
+**What we shipped instead** (and what production uses):
+
+The full-batch **functional ANOVA dim-balanced loss** in
+`src/priya_forecast/dim_balanced_loss.py` (`JULIA_LOSS_FUNCTION_ANOVA`).
+For each feature `d`, the loss penalizes the L² norm of the residual's
+main effect `r_d(x_d) = E[r(X) | X_d = x_d] − r̄`:
+
+```
+L_ANOVA = MSE + α · Σ_d ||r_d||²
+```
+
+with `α = 5` (default). Catches any systematic feature dependence
+(linear, quadratic, sigmoidal, piecewise) the residual still has after
+the eq's contribution — which is the feature-dropping failure mode.
+Wired into `SMART_REFIT_PYSR_KWARGS` as
+`loss_function = JULIA_LOSS_FUNCTION_ANOVA`. **All 14 production fits
+(10 per-1D + 4 pair) used this loss.**
+
+Empirical evidence ANOVA loss is doing real work: `bhfeedback`
+recovered an x0-using eq under ANOVA loss + option B operators where
+the Phase 1 MSE-only search dropped x0. `omegamh2` and `hireionz`
+remain dropped (they're genuinely weakly-coupled at fid; ANOVA loss
+can't manufacture dependence that isn't there).
+
+Full mathematical derivation in **§ D3** below.
 
 
 
@@ -498,8 +527,18 @@ shows a non-monotone main effect). Correlation² misses these.
 Implementation in `src/priya_forecast/dim_balanced_loss.py` exposes
 both `dim_balanced_loss_corr` (legacy correlation² ref) and
 `dim_balanced_loss_anova` (recommended). `JULIA_LOSS_FUNCTION` uses
-the ANOVA form by default. Unit tests cover both. ~half-day of work
-implemented in this session.
+the ANOVA form by default and is **wired into all production fits**
+via `SMART_REFIT_PYSR_KWARGS["loss_function"] = JULIA_LOSS_FUNCTION`
+(see § D9). Unit tests in `tests/test_dim_balanced_loss.py` cover
+both forms.
+
+**Production confirmation** (2026-05-05): all 14 production fits
+(10 per-1D Phase 2 + 4 pair) used `JULIA_LOSS_FUNCTION_ANOVA`. The
+`bhfeedback` recovery (Phase 1 dropped x0 with MSE; Phase 2 has
+x0-using eq with ANOVA + option B operators) is direct empirical
+evidence the loss is active and effective. Cost: ~3× slower than
+MSE per evaluation (full-batch decomposition each generation),
+but worth it for x0-recovery on weakly-coupled params.
 
 ### D4. Multi-D Pareto pick: **most-θ-used** + sanity guard
 
