@@ -369,3 +369,44 @@ def test_property_derive_from_gp_mean_converges(n_samples: int, seed: int):
     # Per-k mean is constant in this mock; tolerance loosens with n_samples
     tol = 5.0 / np.sqrt(n_samples)  # ~few sigma
     np.testing.assert_allclose(spec.mean_flux, expected_mean, atol=tol)
+
+
+# ---------------------------------------------------------------------------
+# compute_local_normalization: previously buggy interp branch (BLOCKER 3)
+# ---------------------------------------------------------------------------
+
+
+def test_compute_local_normalization_uses_global_mean_directly():
+    """`mean_flux_global` must be used as-is, NOT through np.interp on
+    index-coordinates (previous bug clamped to mean_flux_global[0])."""
+    from priya_forecast.refit_1d_pysr import compute_local_normalization
+    n_sims, n_k = 10, 8
+    k_grid = np.linspace(0.005, 0.064, n_k)
+    rng = np.random.default_rng(0)
+    flux_lf = rng.uniform(0.1, 1.0, size=(n_sims, n_k))
+    # A mean profile that varies strongly across k — the buggy interp
+    # branch would have collapsed this to a constant.
+    mean_global = np.linspace(0.2, 0.9, n_k)
+    spec = compute_local_normalization(
+        flux_lf_z=flux_lf, k_grid=k_grid, mean_flux_global=mean_global,
+        param_min=0.0, param_max=1.0,
+    )
+    np.testing.assert_allclose(spec.mean_flux, mean_global, rtol=1e-12)
+    # std comes from local LF spread, not from mean_global.
+    np.testing.assert_allclose(spec.std_flux, flux_lf.std(axis=0, ddof=0))
+
+
+def test_compute_local_normalization_rejects_mismatched_shape():
+    """A mean_flux_global of the wrong shape now raises (was silently
+    clamped before)."""
+    from priya_forecast.refit_1d_pysr import compute_local_normalization
+    n_sims, n_k = 10, 8
+    k_grid = np.linspace(0.005, 0.064, n_k)
+    rng = np.random.default_rng(0)
+    flux_lf = rng.uniform(0.1, 1.0, size=(n_sims, n_k))
+    mean_global_wrong = np.linspace(0.2, 0.9, n_k - 1)  # one element short
+    with pytest.raises(ValueError, match="same k_grid"):
+        compute_local_normalization(
+            flux_lf_z=flux_lf, k_grid=k_grid,
+            mean_flux_global=mean_global_wrong,
+        )

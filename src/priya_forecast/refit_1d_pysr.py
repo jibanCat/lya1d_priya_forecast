@@ -706,10 +706,19 @@ def compute_local_normalization(
     if mean_flux_global is None:
         mean_k = flux_lf_z.mean(axis=0)
     else:
-        mean_k = np.interp(k_grid, np.asarray(np.arange(len(mean_flux_global))), mean_flux_global)
-        # If mean_flux_global was already on the same k_grid, just take it.
-        if len(mean_flux_global) == len(k_grid):
-            mean_k = np.asarray(mean_flux_global, dtype=float)
+        # mean_flux_global must already live on the same k_grid as the
+        # local std. Earlier code attempted np.interp(k_grid,
+        # arange(len(mean_flux_global)), mean_flux_global) which mixes
+        # index-coordinates and physical k-values — that silently clamps
+        # every output to mean_flux_global[0]. We require matching
+        # lengths and assign directly; a length mismatch is a caller bug.
+        mean_flux_global = np.asarray(mean_flux_global, dtype=float)
+        if mean_flux_global.shape != k_grid.shape:
+            raise ValueError(
+                "mean_flux_global must be on the same k_grid as flux_lf_z; "
+                f"got shape {mean_flux_global.shape}, expected {k_grid.shape}."
+            )
+        mean_k = mean_flux_global
     return NormalizationSpec(
         param_min=float(param_min), param_max=float(param_max),
         k_min=float(k_grid.min()), k_max=float(k_grid.max()),
