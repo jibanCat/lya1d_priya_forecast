@@ -482,63 +482,157 @@ Mixes cosmology (`ns`, `Ap`) and IGM thermal (`herei`, `heref`,
   weakly coupled to anything else (tau0 is approximately a global
   multiplicative scale). So separating them as 1D-via-GP is safe.
 
-### D3. Custom loss: functional ANOVA main-effect penalty
+### D3. Custom loss: dimension-balanced ANOVA main-effect penalty
 
-PySR's standard MSE is **dimension-blind at the batch level**: it can
-fit a target via patterns in (k, z, resolution) without using x₀
-(theta), as long as the per-θ residual variance is small. For weakly
--coupled params (`omegamh2`, `bhfeedback`, `hireionz`), this exactly
-happens — the genetic search drops x₀ entirely. We saw this ≥ 6/11
-times in the multi-z runs.
+**The problem MSE alone has.** PySR's standard MSE is dimension-blind
+at the batch level: the search can find an equation that ignores some
+input feature (typically `x₀ = θ`, the cosmological/astrophysical
+parameter we care about) if that feature has low variance contribution
+to the target. For weakly-coupled parameters (e.g., `omegamh2`,
+`hireionz`, `bhfeedback`), the residuals are already small using only
+`(k, z, resolution)` features → MSE is small → the eq survives the
+Pareto front despite being useless for forecasting (Fisher gradient
+w.r.t. θ is zero).
 
-**Functional ANOVA decomposition**. Any function `f(x₀, ..., xₙ)` can
-be written as a sum of orthogonal effects:
+#### Setup (concrete)
 
-    f(x) = f₀ + Σᵢ fᵢ(xᵢ) + Σᵢ<ⱼ fᵢⱼ(xᵢ, xⱼ) + ...
+A training batch is `N` rows. For each row `i ∈ {1, …, N}`:
 
-For the residual `r(x) = pred − target`:
+- `x[i] ∈ R^D` is the feature vector. For per-1D fits `D = 4` and
+  `x[i] = (θ_norm[i], k_norm[i], resolution[i], z_norm[i])` with all
+  components in `[0, 1]`. For pair fits `D = 5` (adds `θ_j_norm[i]`).
+- `y[i]` is the scalar target (normalized residual; see § 4).
+- `f(x)` is PySR's candidate equation (one node-tree per genetic
+  search iteration).
 
-- `r₀ = mean(r)` over the whole batch.
-- `rᵢ(xᵢ) = E[r(X) | X_i=x_i] − r₀` is the **main effect** in dim i:
-  how much of the residual is *systematically* driven by xᵢ alone
-  (marginalized over the other dimensions).
-- If the equation drops xᵢ, `rᵢ` becomes large because r varies
-  systematically with that input.
+Define the **per-row residual**:
+```
+ε[i] = f(x[i]) − y[i]              (i = 1, …, N)
+```
+and the **batch-mean residual**:
+```
+ε̄ = (1/N) · Σᵢ ε[i]
+```
 
-We estimate the main-effect L² norm from a Sobol batch by binning xᵢ
-into `n_bins` quantile bins and summing:
+PySR's standard `elementwise_loss` (MSE) is:
+```
+L_MSE = (1/N) · Σᵢ ε[i]²
+```
 
-    ‖rᵢ‖² ≈ Σ_b (P(b) · (mean(r | X_i ∈ bin b) − r₀)²)
+#### Functional ANOVA penalty (per feature)
 
-The dim-balanced loss:
+For each feature index `d ∈ {0, 1, …, D−1}`:
 
-    L = MSE  +  α · Σ_d ‖r_d‖²
+**Step 1 — quantile binning.** Partition the `N` rows into `B`
+non-overlapping bins (we use `B = 10`) by quantile of the feature:
 
-where d ranges over all input features. α controls the weight of the
-per-dimension main-effect penalty (default α=5).
+```
+bin_boundaries_d = quantile(x[:, d], q = [1/B, 2/B, …, (B−1)/B])
+```
 
-**Why ANOVA over correlation² (the simpler proxy I had earlier)**: a
-correlation² catches only **linear** residual-vs-feature dependence.
-ANOVA main effects catch **any** dependence — quadratic, sigmoidal,
-piecewise. For weakly-coupled params, the residual may depend on x₀
-nonlinearly (e.g. via an interaction with z that, when marginalized,
-shows a non-monotone main effect). Correlation² misses these.
+Let `b_d(i) ∈ {1, 2, …, B}` denote the bin containing row `i` along
+feature `d`. By construction each bin has approximately `N/B` rows.
 
-Implementation in `src/priya_forecast/dim_balanced_loss.py` exposes
-both `dim_balanced_loss_corr` (legacy correlation² ref) and
-`dim_balanced_loss_anova` (recommended). `JULIA_LOSS_FUNCTION` uses
-the ANOVA form by default and is **wired into all production fits**
-via `SMART_REFIT_PYSR_KWARGS["loss_function"] = JULIA_LOSS_FUNCTION`
-(see § D9). Unit tests in `tests/test_dim_balanced_loss.py` cover
-both forms.
+**Step 2 — per-bin residual mean.** For each bin `b ∈ {1, …, B}`:
+```
+n_{d,b}    = number of rows i with b_d(i) = b              (≈ N/B)
+ε̄_{d,b}    = (1/n_{d,b}) · Σ_{i : b_d(i)=b} ε[i]
+```
+
+**Step 3 — main-effect contribution.** The deviation of each bin's
+residual mean from the global mean:
+```
+δ_{d,b} = ε̄_{d,b} − ε̄
+```
+Squaring and probability-weighting gives the main-effect L²-norm
+estimate:
+```
+‖ε_d‖² = Σ_{b=1}^{B} (n_{d,b} / N) · δ_{d,b}²
+```
+
+#### Total loss
+
+```
+L_ANOVA = L_MSE + α · Σ_{d=0}^{D−1} ‖ε_d‖²
+```
+
+with default weight `α = 5`.
+
+#### Why this catches feature-dropping
+
+Consider the failure mode where the eq `f(x)` drops feature `d=0`
+(i.e., `f(x) = g(x[1], …, x[D−1])` independent of `x[0]`). Then:
+
+```
+ε[i] = f(x[i]) − y[i] = g(x[1:D]) − y[i]
+```
+
+If the true target `y` has any θ-dependence, the residual will
+*systematically* track θ. Binning rows by `x[:, 0]` (= `θ_norm`):
+
+- Bin 1 (low θ): residuals `ε[i]` average to a value < ε̄ (negative δ)
+- Bin B (high θ): residuals average to > ε̄ (positive δ)
+
+So `δ_{0,b}` are large in magnitude and consistently signed → `‖ε_0‖²`
+is **large** → the ANOVA penalty kicks in → PySR's Pareto front
+disfavors this candidate.
+
+If, on the other hand, the eq correctly captures the θ-dependence,
+binned residuals are noise-like, `δ_{0,b}` ≈ 0 for all bins, and
+`‖ε_0‖² ≈ 0` (no penalty).
+
+#### Numerical example (illustrative)
+
+Suppose `B = 4` bins, `N = 1000` rows, eq drops feature `d = 0`.
+Empirical residual means per bin (linearly trending with θ):
+
+| bin b | n_{0,b} | ε̄_{0,b} | δ_{0,b} = ε̄_{0,b} − ε̄ |
+|---|---|---|---|
+| 1 (θ ∈ [0.0, 0.25]) | 250 | −0.20 | −0.20 |
+| 2 (θ ∈ [0.25, 0.5]) | 250 | −0.05 | −0.05 |
+| 3 (θ ∈ [0.5, 0.75]) | 250 | +0.05 | +0.05 |
+| 4 (θ ∈ [0.75, 1.0]) | 250 | +0.20 | +0.20 |
+| | total 1000 | ε̄ = 0 | |
+
+Then:
+```
+‖ε_0‖² = (250/1000)·(−0.20)² + (250/1000)·(−0.05)²
+       + (250/1000)·(+0.05)² + (250/1000)·(+0.20)²
+       = 0.25·0.04 + 0.25·0.0025 + 0.25·0.0025 + 0.25·0.04
+       = 0.010 + 0.000625 + 0.000625 + 0.010
+       = 0.02125
+```
+
+That extra 0.02 contribution — multiplied by `α = 5` → 0.10 — gets
+added to the MSE. For a small-residual eq this is enough to demote it
+on the Pareto front in favor of an x0-using alternative.
+
+#### Why ANOVA over a simpler correlation² penalty
+
+A correlation² penalty `(corr(x[:, d], ε))²` only catches **linear**
+residual-vs-feature dependence. The ANOVA bin-mean construction
+catches **any** dependence (quadratic, sigmoidal, piecewise) because
+binning is non-parametric. Important for our use case: the residual's
+dependence on θ can be nonlinear (e.g., U-shaped if the eq fits the
+midpoint correctly but misses the boundaries) — correlation² would let
+those slip through; ANOVA does not.
+
+#### Implementation
+
+`src/priya_forecast/dim_balanced_loss.py` exposes both
+`dim_balanced_loss_corr` (legacy correlation² reference) and
+`dim_balanced_loss_anova` (production). `JULIA_LOSS_FUNCTION` =
+`JULIA_LOSS_FUNCTION_ANOVA` is the Julia full-batch callback that
+PySR receives via the `loss_function` kwarg. Tests in
+`tests/test_dim_balanced_loss.py` cover both forms.
 
 **Production confirmation** (2026-05-05): all 14 production fits
 (10 per-1D Phase 2 + 4 pair) used `JULIA_LOSS_FUNCTION_ANOVA`. The
 `bhfeedback` recovery (Phase 1 dropped x0 with MSE; Phase 2 has
 x0-using eq with ANOVA + option B operators) is direct empirical
-evidence the loss is active and effective. Cost: ~3× slower than
-MSE per evaluation (full-batch decomposition each generation),
-but worth it for x0-recovery on weakly-coupled params.
+evidence the loss is active and effective. Cost: ~3× slower than MSE
+per evaluation (full-batch decomposition each generation), but worth
+it for x0-recovery on weakly-coupled params.
 
 ### D4. Multi-D Pareto pick: **most-θ-used** + sanity guard
 
