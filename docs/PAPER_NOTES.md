@@ -750,6 +750,64 @@ new eq is `((1.41 − 1.54·k_norm) + z_norm²) · ((θ_Ap_norm + 0.333) −
 final option B run will adjust the gradient-at-fid as well; numbers
 land in the Phase 2 final scorecard (see "Headline numbers" below).
 
+## D8.5. PySR retry mechanism and failure modes (operational)
+
+The per-param drivers (`refit_one_param.py`, `refit_one_pair.py`) wrap
+PySR in a Pareto-pick + retry loop. **Retry semantics** (per attempt):
+
+1. Set `seed = base_seed + attempt_index`.
+2. Run a full `PySRRegressor.fit()` with `niter=50` generations.
+3. Apply Pareto-pick filters in priority order:
+   - **x0 in eq** (per-1D) or **x0 AND x1 in eq** (per-pair). Without
+     this, the gradient w.r.t. the relevant θ is 0 → useless for Fisher.
+   - **Three sanity gates** (`pareto_filters.py`):
+     `has_pathological_constant`, `is_eq_well_behaved`,
+     `is_fisher_stencil_safe` — see § D8 for what each guards.
+   - **Mean rel-err < 50%** (`REL_ERR_GUARD` in driver). Catches the
+     `(x0 - 3.4e11)/(x3 - 0.23)` mode where x0 is technically present
+     but with a meaningless huge offset (rel-err ≫ 1).
+4. If all filters pass → save and exit.
+5. Else bump seed, re-run from step 1, up to `max_retries` (default 2 →
+   3 attempts total).
+
+**After max_retries**: the driver saves the **best-so-far** with a
+`WARNING: all N retries failed; saving best-anyway` log line. The
+aggregator's quality gate (`multi_z_aggregate.py`, see scorecard's
+"refits dropped by quality gate" line) will then route the param via
+GP-slice fallback if the saved eq doesn't pass the gate's
+`x0 + LF/HF rel-err < 5%` criterion.
+
+**Common failure modes** (catalogued from production runs):
+
+| failure | cause | example | mitigation |
+|---|---|---|---|
+| **no-x0** | param weakly-sensitive to P_F at fid → MSE/ANOVA can't push it past the (k, z, r)-only minimum | `omegamh2`, `hireionz` (priored, near-flat at fid) | aggregator gate routes via GP-slice (no science cost since priors dominate) |
+| **literal-c bigger than 100** | PySR chose a giant offset to fit the mean | `(x0 - 3.4e11)/(x3 - 0.23)`, mean OK but rel-err 1e13% | `has_pathological_constant` rejects, retry |
+| **boundary blow-up** | `k^θ`-style operator with feature in exponent | Phase 1 Ap eq (max LF rel-err 39.7%) | option B `constraints={"^": (-1, 0)}` (§ D8) |
+| **wrong fid-curvature** | eq fits the mean but gradient at fid disagrees with GP's | Phase 2 Ap (σ_PySR/σ_GP = 2.62× — too shallow) | open problem; possibly add gradient-matching loss term to ANOVA |
+| **no-x1 (pair)** | pair signal too small relative to PySR's exploration → finds θᵢ-only solution | rare; tau0×Ap took 35 min retries | bump max-retries; falls back to graceful 0 cross-diff |
+
+**Wall-time cost per attempt**:
+- Julia warmup (per fresh process): ~1–3 min.
+- niter=50 with MSE elementwise loss: ~3–5 min.
+- niter=50 with ANOVA `loss_function`: ~5–10 min (full-batch
+  decomposition is heavier than per-sample MSE).
+- Per-fidelity validation: ~30–60 s.
+- **Worst case**: 3 attempts × ~10 min = ~30 min. Observed in SLURM
+  trace: `omegamh2`, `hireionz`, `bhfeedback` all hit 35–37 min before
+  saving best-anyway (no-x0 failure for the gated two; bhfeedback found
+  x0 on attempt 1 but was matched by SLURM scheduling to wait).
+
+**Why option B + ANOVA is slow but worth it**: the slowdown is
+quadratic in the per-eval cost. ANOVA loss requires `(prediction, X, y)`
+per batch (vs MSE which is per-sample). Combined with our `procs=4`
+multithreading, throughput is ~30k evals/sec vs ~200k for MSE. But the
+operator restrictions + ANOVA penalty are the architectural fixes for
+the blow-up modes (D8) — paying the wall-time cost is the right
+trade-off for production.
+
+---
+
 ## D9. Default PySR kwargs (production)
 
 Two configs live in `src/priya_forecast/refit_1d_pysr.py`:
