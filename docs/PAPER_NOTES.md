@@ -484,138 +484,261 @@ Mixes cosmology (`ns`, `Ap`) and IGM thermal (`herei`, `heref`,
 
 ### D3. Custom loss: dimension-balanced ANOVA main-effect penalty
 
-**The problem MSE alone has.** PySR's standard MSE is dimension-blind
-at the batch level: the search can find an equation that ignores some
-input feature (typically `x₀ = θ`, the cosmological/astrophysical
-parameter we care about) if that feature has low variance contribution
-to the target. For weakly-coupled parameters (e.g., `omegamh2`,
-`hireionz`, `bhfeedback`), the residuals are already small using only
-`(k, z, resolution)` features → MSE is small → the eq survives the
-Pareto front despite being useless for forecasting (Fisher gradient
-w.r.t. θ is zero).
+#### Background and references
 
-#### Setup (concrete)
+The classical functional ANOVA decomposition (Hoeffding 1948 [1];
+Sobol' 1993 [2]; Owen 2003 [3]) writes any square-integrable function
+`y : [0,1]^D → R` as a sum of orthogonal sub-functions of increasing
+interaction order:
 
-A training batch is `N` rows. For each row `i ∈ {1, …, N}`:
+$$
+y(\mathbf{x}) \;=\; y_0 \;+\; \sum_{d=0}^{D-1} y_d(x_d)
+            \;+\; \sum_{0 \le d < d' \le D-1} y_{d,d'}(x_d, x_{d'})
+            \;+\; \cdots
+$$
 
-- `x[i] ∈ R^D` is the feature vector. For per-1D fits `D = 4` and
-  `x[i] = (θ_norm[i], k_norm[i], resolution[i], z_norm[i])` with all
-  components in `[0, 1]`. For pair fits `D = 5` (adds `θ_j_norm[i]`).
-- `y[i]` is the scalar target (normalized residual; see § 4).
-- `f(x)` is PySR's candidate equation (one node-tree per genetic
-  search iteration).
+where:
 
-Define the **per-row residual**:
-```
-ε[i] = f(x[i]) − y[i]              (i = 1, …, N)
-```
-and the **batch-mean residual**:
-```
-ε̄ = (1/N) · Σᵢ ε[i]
-```
+- $y_0 = \mathbb{E}[y(\mathbf{X})]$ is the constant term (overall
+  mean), with the expectation under a uniform distribution on the
+  prior cube $[0,1]^D$.
+- $y_d(x_d) \;=\; \mathbb{E}[y(\mathbf{X}) \mid X_d = x_d] \;-\; y_0$
+  is the **main effect of feature $d$**: the conditional expectation
+  of $y$ given $X_d = x_d$, minus the global mean. (All other
+  features are integrated out.)
+- $y_{d,d'}(x_d, x_{d'}) \;=\; \mathbb{E}[y \mid X_d = x_d, X_{d'} = x_{d'}]
+  - y_d(x_d) - y_{d'}(x_{d'}) - y_0$ is the **pure two-way interaction**
+  (Sobol' 2001 [4]).
+- And so on for higher-order interactions.
 
-PySR's standard `elementwise_loss` (MSE) is:
-```
-L_MSE = (1/N) · Σᵢ ε[i]²
-```
+Each sub-function is orthogonal in $L^2$ to all lower-order ones
+under the uniform measure: $\mathbb{E}[y_d(X_d)] = 0$ for all $d$,
+$\mathbb{E}[y_{d,d'}(X_d, X_{d'}) \mid X_d] = 0$ for all $d, d'$, etc.
+This is the same decomposition that defines Sobol' sensitivity indices
+in global sensitivity analysis (Saltelli et al. 2008 [5]).
 
-#### Functional ANOVA penalty (per feature)
+For our application (forcing PySR equations to use feature $X_0 = θ$),
+we apply the same decomposition not to the *target* $y$ but to the
+*residual* $\varepsilon = f - y$, and add a penalty proportional to
+the L²-norm of each main effect of the residual.
 
-For each feature index `d ∈ {0, 1, …, D−1}`:
+#### The dim-balanced loss (formal definition)
 
-**Step 1 — quantile binning.** Partition the `N` rows into `B`
-non-overlapping bins (we use `B = 10`) by quantile of the feature:
+Notation:
 
-```
-bin_boundaries_d = quantile(x[:, d], q = [1/B, 2/B, …, (B−1)/B])
-```
+- A training batch has $N$ rows, indexed by $i = 1, \ldots, N$.
+- The feature vector at row $i$ is
+  $\mathbf{x}^{(i)} = \big(x^{(i)}_0,\, x^{(i)}_1,\, \ldots,\, x^{(i)}_{D-1}\big) \in [0,1]^D$.
+  Per-1D fits use $D=4$ with components
+  $(θ_\mathrm{norm},\, k_\mathrm{norm},\, r,\, z_\mathrm{norm})$.
+  Pair fits use $D=5$ (adds $θ_j$).
+- The scalar target at row $i$ is $y^{(i)} \in \mathbb{R}$ (the
+  normalized P_F or normalized residual, see § 4).
+- A candidate equation $f : [0,1]^D \to \mathbb{R}$ (one PySR
+  expression tree per genetic search iteration).
 
-Let `b_d(i) ∈ {1, 2, …, B}` denote the bin containing row `i` along
-feature `d`. By construction each bin has approximately `N/B` rows.
+**Per-row residual:**
 
-**Step 2 — per-bin residual mean.** For each bin `b ∈ {1, …, B}`:
-```
-n_{d,b}    = number of rows i with b_d(i) = b              (≈ N/B)
-ε̄_{d,b}    = (1/n_{d,b}) · Σ_{i : b_d(i)=b} ε[i]
-```
+$$
+\varepsilon^{(i)} \;=\; f(\mathbf{x}^{(i)}) \;-\; y^{(i)}, \qquad i=1,\ldots,N.
+$$
 
-**Step 3 — main-effect contribution.** The deviation of each bin's
-residual mean from the global mean:
-```
-δ_{d,b} = ε̄_{d,b} − ε̄
-```
-Squaring and probability-weighting gives the main-effect L²-norm
-estimate:
-```
-‖ε_d‖² = Σ_{b=1}^{B} (n_{d,b} / N) · δ_{d,b}²
-```
+**Batch-mean residual:**
 
-#### Total loss
+$$
+\bar{\varepsilon} \;=\; \frac{1}{N}\sum_{i=1}^{N} \varepsilon^{(i)}.
+$$
 
-```
-L_ANOVA = L_MSE + α · Σ_{d=0}^{D−1} ‖ε_d‖²
-```
+**Mean squared error (PySR's default `elementwise_loss`):**
 
-with default weight `α = 5`.
+$$
+L_\mathrm{MSE}(f) \;=\; \frac{1}{N}\sum_{i=1}^{N} \big(\varepsilon^{(i)}\big)^2.
+$$
 
-#### Why this catches feature-dropping
+For each feature index $d \in \{0, 1, \ldots, D-1\}$, define a
+quantile-bin partition of the $N$ rows along feature $d$. With $B = 10$
+bins (production default):
 
-Consider the failure mode where the eq `f(x)` drops feature `d=0`
-(i.e., `f(x) = g(x[1], …, x[D−1])` independent of `x[0]`). Then:
+$$
+q_b \;=\; \mathrm{quantile}\!\big(\,\{x^{(i)}_d\}_{i=1}^N,\; \tfrac{b}{B}\big), \qquad b=0,1,\ldots,B
+$$
 
-```
-ε[i] = f(x[i]) − y[i] = g(x[1:D]) − y[i]
-```
+with $q_0 = 0$ and $q_B = 1$ by convention. Define the **bin index
+function**:
 
-If the true target `y` has any θ-dependence, the residual will
-*systematically* track θ. Binning rows by `x[:, 0]` (= `θ_norm`):
+$$
+\beta_d(i) \;=\; \min\!\Big\{ b \in \{1,\ldots,B\} : q_{b-1} \le x^{(i)}_d \le q_b \Big\}.
+$$
 
-- Bin 1 (low θ): residuals `ε[i]` average to a value < ε̄ (negative δ)
-- Bin B (high θ): residuals average to > ε̄ (positive δ)
+So $\beta_d(i)$ tells you which of the $B$ quantile bins row $i$
+belongs to along feature $d$.
 
-So `δ_{0,b}` are large in magnitude and consistently signed → `‖ε_0‖²`
-is **large** → the ANOVA penalty kicks in → PySR's Pareto front
-disfavors this candidate.
+**Per-bin row count:**
 
-If, on the other hand, the eq correctly captures the θ-dependence,
-binned residuals are noise-like, `δ_{0,b}` ≈ 0 for all bins, and
-`‖ε_0‖² ≈ 0` (no penalty).
+$$
+n_{d,b} \;=\; \big|\{\, i \in \{1,\ldots,N\} : \beta_d(i) = b \,\}\big|, \qquad b=1,\ldots,B.
+$$
 
-#### Numerical example (illustrative)
+By construction $n_{d,b} \approx N/B$ and $\sum_{b=1}^{B} n_{d,b} = N$.
 
-Suppose `B = 4` bins, `N = 1000` rows, eq drops feature `d = 0`.
-Empirical residual means per bin (linearly trending with θ):
+**Per-bin mean residual** (this is the empirical estimator of
+$\mathbb{E}[\varepsilon \mid X_d \in \text{bin } b]$):
 
-| bin b | n_{0,b} | ε̄_{0,b} | δ_{0,b} = ε̄_{0,b} − ε̄ |
-|---|---|---|---|
-| 1 (θ ∈ [0.0, 0.25]) | 250 | −0.20 | −0.20 |
-| 2 (θ ∈ [0.25, 0.5]) | 250 | −0.05 | −0.05 |
-| 3 (θ ∈ [0.5, 0.75]) | 250 | +0.05 | +0.05 |
-| 4 (θ ∈ [0.75, 1.0]) | 250 | +0.20 | +0.20 |
-| | total 1000 | ε̄ = 0 | |
+$$
+\bar{\varepsilon}_{d,b}
+\;=\; \frac{1}{n_{d,b}}\sum_{i : \beta_d(i)=b}\varepsilon^{(i)}.
+$$
 
-Then:
-```
-‖ε_0‖² = (250/1000)·(−0.20)² + (250/1000)·(−0.05)²
-       + (250/1000)·(+0.05)² + (250/1000)·(+0.20)²
-       = 0.25·0.04 + 0.25·0.0025 + 0.25·0.0025 + 0.25·0.04
-       = 0.010 + 0.000625 + 0.000625 + 0.010
-       = 0.02125
-```
+**Bin main effect** (deviation of the bin's residual mean from the
+global residual mean — empirical estimator of the main-effect
+component of the residual's ANOVA decomposition, evaluated at the bin
+midpoint):
 
-That extra 0.02 contribution — multiplied by `α = 5` → 0.10 — gets
-added to the MSE. For a small-residual eq this is enough to demote it
-on the Pareto front in favor of an x0-using alternative.
+$$
+\delta_{d,b} \;=\; \bar{\varepsilon}_{d,b} \;-\; \bar{\varepsilon}.
+$$
 
-#### Why ANOVA over a simpler correlation² penalty
+**Empirical L² norm of the residual's main effect along feature $d$**
+(probability-weighted sum of squared bin main effects):
 
-A correlation² penalty `(corr(x[:, d], ε))²` only catches **linear**
-residual-vs-feature dependence. The ANOVA bin-mean construction
-catches **any** dependence (quadratic, sigmoidal, piecewise) because
-binning is non-parametric. Important for our use case: the residual's
-dependence on θ can be nonlinear (e.g., U-shaped if the eq fits the
-midpoint correctly but misses the boundaries) — correlation² would let
-those slip through; ANOVA does not.
+$$
+\|\varepsilon_d\|^2 \;=\; \sum_{b=1}^{B} \frac{n_{d,b}}{N}\,\delta_{d,b}^2.
+$$
+
+This $\|\varepsilon_d\|^2$ is the sample-mean estimator of the
+$L^2(\mu_d)$ norm of the main effect of $\varepsilon$ along feature $d$,
+where $\mu_d$ is the empirical distribution of $X_d$ on the training
+set. Standard quadrature theory (Owen 2003 [3]) shows it converges to
+$\int_0^1 [\,\mathbb{E}(\varepsilon\mid X_d=x)\,]^2 \, dx$ as $B \to \infty$
+and $N/B \to \infty$.
+
+**Total dim-balanced ANOVA loss** (production):
+
+$$
+\boxed{\;L_\mathrm{ANOVA}(f) \;=\; L_\mathrm{MSE}(f) \;+\; \alpha \,\sum_{d=0}^{D-1}\,\|\varepsilon_d\|^2\;}
+$$
+
+with **default weight $\alpha = 5$** (production setting in
+`src/priya_forecast/dim_balanced_loss.py:DEFAULT_ALPHA`) and
+**$B = 10$ bins** (production setting `n_bins=10`).
+
+This is implemented as a Julia full-batch callback passed to PySR via
+its `loss_function` keyword (PySR's docs distinguish per-sample
+`elementwise_loss` from full-batch `loss_function`; we need full-batch
+because the ANOVA penalty couples all $N$ rows through the bin means).
+
+#### Why this catches feature-dropping (formal argument)
+
+Suppose the candidate $f(\mathbf{x})$ does not depend on feature
+$d=0$, i.e., $\partial f/\partial x_0 = 0$ everywhere. Then for any
+$\mathbf{x}, \mathbf{x}'$ that agree on features $1, \ldots, D-1$ but
+differ in feature 0:
+
+$$
+f(\mathbf{x}) - f(\mathbf{x}') = 0
+\quad\Longrightarrow\quad
+\varepsilon(\mathbf{x}) - \varepsilon(\mathbf{x}') = -\big(y(\mathbf{x}) - y(\mathbf{x}')\big).
+$$
+
+If the true target $y$ depends on $X_0$ (which it does, by
+construction of the training data — we Sobol-vary $X_0$ across rows),
+then $\varepsilon^{(i)}$ inherits that $X_0$-dependence directly. The
+conditional expectation
+$\mathbb{E}[\varepsilon\mid X_0 = x_0]$ is then non-constant in $x_0$,
+so the empirical bin means $\bar{\varepsilon}_{0,b}$ vary with bin $b$,
+$\delta_{0,b}$ are large and consistently signed, and
+$\|\varepsilon_0\|^2$ is large. The ANOVA penalty $\alpha \cdot \|\varepsilon_0\|^2$
+then dominates the small-MSE benefit of dropping the feature, demoting
+the candidate on the Pareto front.
+
+Conversely, if $f$ correctly captures the $X_0$-dependence of $y$,
+then $\mathbb{E}[\varepsilon \mid X_0 = x_0]$ is approximately
+constant in $x_0$, so $\bar{\varepsilon}_{0,b} \approx \bar{\varepsilon}$ for
+all $b$, and $\|\varepsilon_0\|^2 \approx 0$ (no penalty).
+
+#### Worked numerical example
+
+Take $B = 4$ bins, $N = 1000$ rows, and assume the candidate $f$ does
+not depend on $X_0$. The empirical residual means per quantile bin
+linearly trend with $X_0$:
+
+| $b$ | bin range of $X_0$ | $n_{0,b}$ | $\bar{\varepsilon}_{0,b}$ | $\delta_{0,b}$ |
+|---|---|---|---|---|
+| 1 | $[0.00, 0.25]$ | 250 | $-0.20$ | $-0.20$ |
+| 2 | $[0.25, 0.50]$ | 250 | $-0.05$ | $-0.05$ |
+| 3 | $[0.50, 0.75]$ | 250 | $+0.05$ | $+0.05$ |
+| 4 | $[0.75, 1.00]$ | 250 | $+0.20$ | $+0.20$ |
+| | total | 1000 | $\bar{\varepsilon} = 0$ | |
+
+Plug into the empirical norm:
+
+$$
+\begin{aligned}
+\|\varepsilon_0\|^2 &= \tfrac{250}{1000}(-0.20)^2 + \tfrac{250}{1000}(-0.05)^2 \\
+&\quad+ \tfrac{250}{1000}(+0.05)^2 + \tfrac{250}{1000}(+0.20)^2 \\
+&= 0.25\cdot 0.0400 + 0.25\cdot 0.0025 + 0.25\cdot 0.0025 + 0.25\cdot 0.0400 \\
+&= 0.0100 + 0.000625 + 0.000625 + 0.0100 \\
+&= 0.02125.
+\end{aligned}
+$$
+
+With $\alpha = 5$, the ANOVA penalty contribution from feature $d=0$
+alone is $\alpha \cdot \|\varepsilon_0\|^2 = 5 \cdot 0.02125 = 0.10625$.
+For a candidate with $L_\mathrm{MSE} \sim 0.001$ (typical
+small-residual regime in our training), this is two orders of
+magnitude larger than the MSE — the penalty *dominates*, and the
+Pareto front disfavors the no-$X_0$ candidate.
+
+#### Why functional ANOVA over correlation²
+
+A simpler proposal would be a correlation-squared penalty:
+
+$$
+\rho_d^2(\varepsilon) \;=\; \left(\frac{\sum_i (x^{(i)}_d - \bar{x}_d)\,\varepsilon^{(i)}}{\sqrt{\sum_i (x^{(i)}_d - \bar{x}_d)^2}\,\sqrt{\sum_i (\varepsilon^{(i)})^2}}\right)^2.
+$$
+
+This catches **linear** dependence of $\varepsilon$ on $X_d$ but not
+nonlinear dependence. In particular, if
+$\mathbb{E}[\varepsilon \mid X_d = x_d]$ is U-shaped or sigmoidal in
+$x_d$, the linear correlation $\rho_d$ is zero (cancellation across
+the U or S) yet the *true* main effect L²-norm
+$\|\varepsilon_d\|^2$ is nonzero.
+
+The ANOVA bin-mean construction is non-parametric: with $B=10$ bins
+it discriminates ~10 distinct values of $X_d$, capturing any monotone
+or non-monotone dependence. We saw this matter empirically for params
+where the $X_0$-vs-residual structure has a node near fid (Phase 1
+omegamh2 candidates with U-shaped residual would have looked fine
+under correlation² but were correctly demoted under ANOVA).
+
+#### References
+
+[1] Hoeffding, W. (1948). "A Class of Statistics with Asymptotically
+Normal Distribution." *Annals of Mathematical Statistics* **19**,
+293–325. (The original ANOVA decomposition for U-statistics.)
+
+[2] Sobol', I. M. (1993). "Sensitivity Estimates for Nonlinear
+Mathematical Models." *Mathematical Modeling and Computational
+Experiments* **1**, 407–414. (English translation of the 1990 paper
+introducing what is now called the Sobol' sensitivity indices.)
+
+[3] Owen, A. B. (2003). "The dimension distribution and quadrature
+test functions." *Statistica Sinica* **13**, 1–17. (Establishes
+$\|y_d\|^2_{L^2}$ as a sensitivity measure and gives the empirical
+estimator we use.)
+
+[4] Sobol', I. M. (2001). "Global sensitivity indices for nonlinear
+mathematical models and their Monte Carlo estimates." *Mathematics
+and Computers in Simulation* **55**, 271–280. (Two-way and
+higher-order interaction terms.)
+
+[5] Saltelli, A., et al. (2008). *Global Sensitivity Analysis: The
+Primer.* Wiley. (Textbook treatment with Monte Carlo estimators
+matching our $B$-bin construction.)
+
+[6] Cranmer, M. (2023). "Interpretable Machine Learning for Science
+with PySR and SymbolicRegression.jl." *arXiv:2305.01582*. (PySR's
+`loss_function` and `elementwise_loss` API documented in §3.2.)
 
 #### Implementation
 
