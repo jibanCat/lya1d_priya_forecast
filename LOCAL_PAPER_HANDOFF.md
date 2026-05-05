@@ -23,12 +23,12 @@ pip install numpy scipy matplotlib sympy h5py pytest hypothesis
 
 # 3. Re-render figures from cached refits (~10 s).
 PYTHONPATH=src python scripts/replot.py \
-    --results-dir results/refit_optionC_z2.6-4.2
+    --results-dir results/refit_optionC_z2.6-4.2_ksdata
 
 # 4. Look at the figures + scorecard.
-open results/refit_optionC_z2.6-4.2/scorecard.md
-open results/refit_optionC_z2.6-4.2/corner.pdf
-open results/refit_optionC_z2.6-4.2/resolution_correction_grid_cosmo.pdf
+open results/refit_optionC_z2.6-4.2_ksdata/scorecard.md
+open results/refit_optionC_z2.6-4.2_ksdata/corner.pdf
+open results/refit_optionC_z2.6-4.2_ksdata/resolution_correction_grid_cosmo.pdf
 # … etc.
 ```
 
@@ -49,8 +49,8 @@ open results/refit_optionC_z2.6-4.2/resolution_correction_grid_cosmo.pdf
 
 | Path | Contents |
 |---|---|
-| `results/refit_optionC_z2.6-4.2/` | **Headline scorecard**: multi-z (z=2.6→4.2), per-1D PySR + additive-Taylor combine, kodiaq emulator, KSData covariance optionally, production priors. Contains: `scorecard.md`, `per_param_summary.md`, `resolution_correction.{md,json,grid_{cosmo,astro}.{png,pdf},equations.md}`, `resolution_correction_param_variation_{cosmo,astro}.{png,pdf}`, `holdout_validation_{cosmo,astro}.{png,pdf}`, `corner.{png,pdf}`, `fisher.npz`, `refits/<param>.pkl` (× 11). |
-| `results/refit_optionC_z2.6-4.2_ksdata/` | Same as above but with `--use-ksdata` (real Karacayli+ 2021 cov). Compare hybrid/GP ratios vs synthetic-cov version. |
+| `results/refit_optionC_z2.6-4.2_ksdata/` | **Headline scorecard** (paper number): multi-z (z=2.6→4.2), per-1D PySR + additive-Taylor combine, kodiaq emulator, **real KSData (Karacayli+ 2021) covariance**, production priors. Contains: `scorecard.md`, `per_param_summary.md`, `resolution_correction.{md,json,grid_{cosmo,astro}.{png,pdf},equations.md}`, `resolution_correction_param_variation_{cosmo,astro}.{png,pdf}`, `holdout_validation_{cosmo,astro}.{png,pdf}`, `corner.{png,pdf}`, `fisher.npz`. The `refits/<param>.pkl` (×11) live in the synthetic-cov dir below and are shared (the only difference between the two dirs is the covariance, not the PySR fits). |
+| `results/refit_optionC_z2.6-4.2/` | Same per-1D PySR refits, but with a synthetic 5%-diagonal covariance instead of the real KSData cov. **Kept for ablation only — the numbers there are NOT the paper headline.** Contains the same set of artifacts plus the `refits/<param>.pkl` ×11. |
 | `results/refit_kodiaq_optionB_z3.6/` | Single-z (z=3.6) baseline: per-1D + additive-Taylor at one redshift. Useful for ablations. |
 | `results/refit_multid_z2.6-4.2/` | (When SLURM lands) Multi-D cross-coupled forecast: one PySR equation over 6 cross-coupled θs + (k, r, z). The "headline" PySR equation goes into the paper from `multid_equation.md`. |
 
@@ -109,24 +109,39 @@ footnote".
 ## What's the "headline number"?
 
 From the most recent multi-z aggregate at
-`results/refit_optionC_z2.6-4.2/scorecard.md` (per-1D + additive-Taylor,
-production priors, KSData covariance):
+`results/refit_optionC_z2.6-4.2_ksdata/scorecard.md` (per-1D +
+additive-Taylor, production priors, **real KSData (Karacayli+ 2021)
+covariance**):
 
-| param | hybrid σ / GP σ | notes |
-|---|---|---|
-| Ap | 0.66× | (overconstrained — multi-D fit may improve) |
-| ns | 1.27× | clean |
-| tau0 | 1.40× | clean |
-| dtau0 | (fixed at 0) | Kim convention |
-| hub, omegamh2, bhfeedback | 1.0×–1.3× | prior-dominated, clean |
-| heref, alphaq | 1.05×, 0.63× | mixed — borderline |
-| herei | 4.18× | needs multi-D PySR |
-| **hireionz** | **broken (no x0 in eq)** | needs multi-D PySR; in the cross-coupled subset |
+| param | hybrid σ / GP σ | route | notes |
+|---|---|---|---|
+| Ap | 0.77× | PySR | (mildly overconstrained — multi-D fit may improve) |
+| ns | 1.31× | PySR | clean |
+| tau0 | 1.40× | PySR | clean |
+| dtau0 | (fixed at 0) | — | Kim convention |
+| hub | 1.27× | PySR | prior-dominated |
+| omegamh2 | 0.99× | GP-slice (gated) | refit had no x0; routed via GP |
+| bhfeedback | 1.01× | GP-slice (gated) | refit had no x0; routed via GP |
+| alphaq | 0.80× | PySR | clean |
+| heref | 6.07× | PySR | needs multi-D PySR |
+| herei | 4.33× | PySR | needs multi-D PySR |
+| hireionz | 1.03× | GP-slice (gated) | refit had no x0; routed via GP |
 
-The multi-D PySR run (`results/refit_multid_z2.6-4.2/`) is the
-follow-up: a single equation over `{ns, Ap, herei, heref, alphaq,
-hireionz}` × `(k, resolution, z)` to capture cross-couplings the
-per-1D + additive Taylor cannot.
+The aggregator's quality gate (`scripts/multi_z_aggregate.py`) drops
+any per-1D PySR refit whose equation lacks a `x0` (θ-norm) term or
+whose LF/HF training rel-err exceeds 5%; those params route through
+the hybrid model's GP-slice fallback so their Fisher contribution
+matches the GP exactly. Currently four refits trip the gate
+(`dtau0`, `omegamh2`, `bhfeedback`, `hireionz`); the first is fixed
+at fid by the `USE_TAU0_ONLY` convention, and the other three are
+prior-dominated or weakly constrained, so routing them through the
+GP carries no science cost.
+
+The multi-D PySR run (`results/refit_multid_z2.6-4.2/`) was the
+intended follow-up — a single equation over `{ns, Ap, herei, heref,
+alphaq, hireionz}` × `(k, resolution, z)` to capture cross-couplings
+that per-1D + additive Taylor cannot — but it was abandoned (see
+PAPER_NOTES.md §D5.5 post-mortem).
 
 ---
 
