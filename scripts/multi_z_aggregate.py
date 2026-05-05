@@ -77,6 +77,10 @@ def main():
                    help="Params held fixed at theta_fid in the multi-z Fisher. "
                         "Default ['dtau0'] — production paper's `USE_TAU0_ONLY=true` "
                         "convention; dtau0 is just tau0's z-dependent slope.")
+    p.add_argument("--pair-refits-dir", type=Path, default=None,
+                   help="Optional Phase-2 pair refits dir (Refit2DPairResult "
+                        "pkls). When given, the hybrid is wrapped with "
+                        "MultiZPairCoupledModel = base + Σ pair.cross_diff.")
     args = p.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
 
@@ -161,10 +165,34 @@ def main():
     # fallback. Filtering Nones out here would silently turn those
     # params into "fixed at fid" and wipe their Fisher gradient — that
     # was the original BLOCKER 1 symptom.
-    hybrid = MultiZAdditiveTaylorModel(
+    base_hybrid = MultiZAdditiveTaylorModel(
         gp=gp_hf, fid=fid, refits=refits,
         k_grid=k_grid, z_grid=z_grid_use,
     )
+    # Optional Phase-2 pair coupling: wrap base with MultiZPairCoupledModel
+    # = base + Σ pair.cross_difference. Each pair adds an independent
+    # gradient direction by construction (ANOVA pure 2-way interaction
+    # term that's zero whenever either θ_i = fid_i or θ_j = fid_j).
+    pair_refits_loaded: list = []
+    if args.pair_refits_dir is not None:
+        from priya_forecast.refit_pair import (
+            MultiZPairCoupledModel, Refit2DPairResult,  # noqa: F401
+        )
+        for path in sorted(args.pair_refits_dir.glob("*.pkl")):
+            with open(path, "rb") as fh:
+                pr = pickle.load(fh)
+            pair_refits_loaded.append(pr)
+            print(f"  [pair] loaded {pr.pair_names} (eq complexity "
+                  f"{pr.pareto_complexity}, LF={pr.lf_train_mean_rel_err*100:.2f}% "
+                  f"HF={pr.hf_train_mean_rel_err*100:.2f}%)")
+        if pair_refits_loaded:
+            hybrid = MultiZPairCoupledModel(base=base_hybrid, pairs=pair_refits_loaded)
+            print(f"  Phase-2 hybrid wraps base with {len(pair_refits_loaded)} pair(s).")
+        else:
+            hybrid = base_hybrid
+            print("  (no pair refits found — using base Phase-1 hybrid.)")
+    else:
+        hybrid = base_hybrid
     max_rel = 0.0
     for z_check in z_grid_use:
         p_hy = hybrid.predict(fid, k_grid, float(z_check))
@@ -213,10 +241,17 @@ def main():
               f"single fisher call, kodiaq k-grid ({len(ks_k_grid)} bins ≤ {args.k_max}).")
         # Rebuild hybrid on kodiaq k-grid. Pass the FULL gated dict
         # (with `None` entries) — see the synthetic-cov branch comment.
-        hybrid_ks = MultiZAdditiveTaylorModel(
+        base_hybrid_ks = MultiZAdditiveTaylorModel(
             gp=gp_hf, fid=fid, refits=refits,
             k_grid=ks_k_grid, z_grid=z_grid_use,
         )
+        if pair_refits_loaded:
+            from priya_forecast.refit_pair import MultiZPairCoupledModel
+            hybrid_ks = MultiZPairCoupledModel(
+                base=base_hybrid_ks, pairs=pair_refits_loaded,
+            )
+        else:
+            hybrid_ks = base_hybrid_ks
         lk_gp_ks = KSDataLikelihood(
             model=gp_hf, z_min=z_min, z_max=z_max, k_max=args.k_max,
             mock_data="gp", theta_fid=fid,
