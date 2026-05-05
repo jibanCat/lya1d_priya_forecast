@@ -700,6 +700,182 @@ for follow-up paper or appendix.
 
 ---
 
+## D8. Operator policy and blow-up prevention
+
+User question (2026-05-05): "is there a way to put the operator or loss
+function in pysr such that make the emulator not blow up and not
+mal-behave?" The Ap retro-analysis revealed the answer.
+
+**Symptom that triggered this section.** The default per-1D Ap eq from
+Phase 1 was
+
+  `(((k_norm ^ θ_Ap_norm) · -3.18) - (θ_Ap_norm + (-1.03/r))) · exp((z²)² · 1.10)`
+
+Per-sample MSE was small (mean LF rel-err = 1.68%) but max LF rel-err =
+**39.7%** (vs ≤ 5% for tau0/ns/hub). The `k_norm^θ_Ap_norm` term has
+gradient `k^θ · log(k)` that diverges as k→0, producing tail outliers
+and a spurious-steep gradient at fid: σ_PySR/σ_GP = 0.79× (overconfident
+by 21%). At θ_target_simdat the same eq has 1.62× σ_GP (4.5×
+underconfident). Both pathologies traced back to the `^` operator.
+
+**Mechanisms PySR exposes for blow-up control** (used by our
+`SMART_REFIT_PYSR_KWARGS`):
+
+| level | mechanism | what it does |
+|---|---|---|
+| operator | `binary_operators` whitelist | drop `^` entirely (option A — too restrictive; lost Ap polynomial expressivity) |
+| operator | `unary_operators` whitelist | drop `inv` (1/x diverges at 0), `sqrt` (sharp curvature near 0) |
+| **operator** | **`constraints={"^": (-1, 0)}`** | **option B — chosen.** LHS unconstrained, RHS must be complexity 0 (literal constant). Allows `x²`, `k^c`; forbids `feature^feature` like `k^θ` |
+| operator | `complexity_of_operators={"^": 3}` | soft Pareto discouragement (soft-pref polynomials over `^`) |
+| loss | `loss_function=JULIA_LOSS_FUNCTION_ANOVA` | full-batch dim-balanced loss; penalizes batch-level main effects on dropped features |
+| Pareto pick | `is_eq_well_behaved` (in `pareto_filters.py`) | rejects NaN/inf or `\|pred\|>100·y_range` over training X |
+| Pareto pick | `is_fisher_stencil_safe` | rejects eqs that NaN under ±h stencil at fid |
+| Pareto pick | `has_pathological_constant` | rejects `\|c\|>100` literals (catches the `c=−8.1e13` failure) |
+
+**Production policy** (applied to all per-1D + per-pair fits in Phase 2):
+
+1. **`binary_operators = ["+", "-", "*", "/", "^"]`** with
+   **`constraints={"^": (-1, 0)}`**. Polynomial powers allowed,
+   `feature^feature` forbidden.
+2. **`unary_operators = ["exp", "log", "square"]`** — no `inv`, no `sqrt`.
+3. **`loss_function = JULIA_LOSS_FUNCTION_ANOVA`** — see § D3.
+4. **Three-tier Pareto filters** at refit time (see `pareto_filters.py`).
+5. **niter=50, maxsize=20, maxdepth=10** — architectural levers, not
+   search-depth ones.
+
+**Verified outcome** (Ap re-fit with full-`^`-drop, same recipe sans the
+constraint nuance): max LF rel-err dropped 39.7% → 9.86% (4× better),
+new eq is `((1.41 − 1.54·k_norm) + z_norm²) · ((θ_Ap_norm + 0.333) −
+12.07·k_norm·resolution²)` — fully smooth Lipschitz structure. The
+final option B run will adjust the gradient-at-fid as well; numbers
+land in the Phase 2 final scorecard (see "Headline numbers" below).
+
+## D9. Default PySR kwargs (production)
+
+Two configs live in `src/priya_forecast/refit_1d_pysr.py`:
+
+```python
+DEFAULT_PYSR_KWARGS = dict(  # legacy / Phase-1 baseline
+    model_selection="best",
+    niterations=50, maxsize=20, maxdepth=10,
+    binary_operators=["+", "-", "*", "/", "^"],
+    unary_operators=["exp", "log", "square", "sqrt", "inv(x) = 1/x"],
+    extra_sympy_mappings={"inv": lambda x: 1 / x},
+    elementwise_loss="loss(p, t) = (p - t)^2",
+    constraints={"^": (-1, 1)},                       # ! allows x^x_i
+    complexity_of_operators={"^": 3},
+    deterministic=False, parallelism="multithreading", procs=4,
+    verbosity=0,
+)
+
+# Production for Phase 2 (D8 policy):
+SMART_REFIT_PYSR_KWARGS = dict(DEFAULT_PYSR_KWARGS, **{
+    "binary_operators": ["+", "-", "*", "/", "^"],
+    "unary_operators": ["exp", "log", "square"],      # no inv / sqrt
+    "extra_sympy_mappings": {},
+    "constraints": {"^": (-1, 0)},                    # rhs literal only
+    "complexity_of_operators": {"^": 3},
+    "loss_function": JULIA_LOSS_FUNCTION_ANOVA,       # batch-aware loss
+})
+
+# Default smart-refit set (other params still pickup `--smart` via flag).
+SMART_REFIT_PARAMS = ("heref", "herei", "alphaq", "Ap")
+```
+
+The `DEFAULT_PYSR_KWARGS` is kept for legacy reproducibility (the
+unmodified Phase 1 numbers were generated with it) but **all production
+fits in the paper use `SMART_REFIT_PYSR_KWARGS` via
+`scripts/refit_one_param.py --smart`**. Pair fits use the same kwargs
+via `scripts/refit_one_pair.py`.
+
+The `loss_function` (full-batch ANOVA dim-balanced) is the Julia
+implementation in `src/priya_forecast/dim_balanced_loss.py`. Its python
+reference + tests live in `tests/test_dim_balanced_loss.py`.
+
+## Headline numbers (current production snapshot, 2026-05-05)
+
+> Updated whenever a new aggregate / hold-out lands. Reproducibly
+> regeneratable via `scripts/multi_z_aggregate.py` + `scripts/holdout_multid.py`.
+
+**Configuration** for the current snapshot:
+- emulator: `kodiaq_2_2_4_6-48-48` (KODIAQ-SQUAD + XQ-100 production)
+- z grid: `[2.6, 2.8, 3.0, 3.2, 3.4, 3.6, 3.8, 4.0, 4.2]` (9 bins)
+- k grid: `linspace(0.005, 0.064, 32)` s/km
+- covariance: KSData (Karacayli+ 2021), conservative=True, k≤0.064
+- Gaussian priors (production): `hub σ=0.015, omegamh2 σ=0.001,
+  bhfeedback σ=0.005, tau0 σ=0.331` (Kim mean-flux × prior width)
+- `dtau0 = 0` fixed (Kim USE_TAU0_ONLY)
+- per-1D refits use `SMART_REFIT_PYSR_KWARGS` for `{heref, herei,
+  alphaq, Ap}`; `DEFAULT_PYSR_KWARGS` for the rest (Phase 1 baseline).
+- pair refits: pending — final Phase 2 scorecard after option-B re-fits.
+
+**Phase 1.5 v1 KSData scorecard** (pre-option-B Ap, no pairs):
+`results/refit_optionC_z2.6-4.2_phase1_5_ksdata/scorecard.md`
+
+| param | σ_GP | σ_PySR | σ_PySR / σ_GP | route |
+|---|---|---|---|---|
+| tau0 | 0.0289 | 0.0364 | **1.26×** | PySR |
+| ns | 0.0441 | 0.0617 | **1.40×** | PySR |
+| Ap | 0.174 | 0.138 | **0.79×** ← overconfident, the case study | PySR (legacy `^x0` eq) |
+| herei | 0.12 | 0.705 | **5.90×** | PySR |
+| heref | 0.386 | 0.341 | **0.88×** | GP-slice (gated) |
+| alphaq | 0.395 | 0.512 | **1.30×** | PySR |
+| hub | 0.0118 | 0.0149 | **1.26×** | PySR |
+| omegamh2 | 0.000986 | 0.000980 | **0.99×** | GP-slice (gated) |
+| hireionz | 1.56 | 1.58 | **1.01×** | GP-slice (gated) |
+| bhfeedback | 0.00492 | 0.00495 | **1.00×** | GP-slice (gated) |
+| dtau0 | (fixed at 0) | — | — | Kim convention |
+
+Four refits gated → GP-slice (no x0 in eq or rel-err >5%): `dtau0`,
+`omegamh2`, `hireionz`, `bhfeedback`. Their Fisher contributions thus
+match the GP exactly (σ-ratio ≈ 1×).
+
+**Multi-D Sobol hold-out** (n_sobol=64, all 11 θ varied jointly, dtau0
+fixed at 0, z=3.6, KSData k-grid): `results/holdout_multid_phase1_5/`
+
+| metric | aggregate over k bins |
+|---|---|
+| mean rel-err | **3.27%** |
+| p90 | **7.11%** |
+| p99 | **12.08%** |
+| max | **23.93%** |
+
+Per-k breakdown shows errors grow monotonically: ~1.5% at k=0.005 → ~4.5%
+at k=0.064 (mean). The worst 10 (of 64) Sobol rows all have mid-to-high
+θ_Ap values, confirming Ap-direction stress is the dominant failure mode
+at the multi-D level. **The per-1D hold-out (mean ≤ 2%, in
+`per_param_summary.md`) significantly undercounts the actual multi-D
+emulator error** — each 1D test fixes others at fid, missing
+cross-coupling completely. The 12% p99 number is the headline
+"emulator faithfulness" diagnostic for the paper.
+
+**Closure to σ_MCMC_simdat** (Phase 1.5 hybrid, KSData covariance, at
+θ_target_simdat = simdat-ind15 truth with dtau0→0):
+`results/closure_at_simdat_ind15_phase1_5_ksdata/scorecard.md`
+
+| param | σ_GP_at_target | σ_PySR_at_target | σ_PySR/σ_GP | σ_PySR/σ_MCMC |
+|---|---|---|---|---|
+| tau0 | 0.0228 | 0.0246 | 1.08× | 0.91× |
+| ns | 0.0422 | 0.0399 | 0.95× | 0.69× |
+| Ap | 0.229 | 0.371 | 1.62× ← overshoot off-fid | 1.47× |
+| herei | 0.184 | 0.733 | 3.97× | 4.97× |
+| heref | 0.379 | 0.290 | 0.77× (GP-slice) | 1.79× |
+| alphaq | 0.643 | 0.248 | 0.39× ← overconfident off-fid | 0.63× |
+| hub | 0.0139 | 0.0148 | 1.07× | 1.40× |
+| (gated 4 params: GP-slice; ratios near 1×) | | | | |
+
+**Phase 2 work in progress** (re-fits with option-B operator policy +
+per-pair coupling):
+- `Ap` re-fit (smart, no-`^`): max rel-err 39.7% → 9.86% ✓ but gradient
+  overshot to 3.52× σ_GP — switching to constraints `^: (-1, 0)`.
+- `tau0×ns` pair fit: complexity 19, no `^`; eq lands.
+- `herei×alphaq` pair fit: complexity 18, no `^`; eq lands.
+- **Pending**: `Ap×alphaq` pair (per user: simdat ρ=+0.68, top-3
+  strongest), full re-fit of all 7 PySR-routed per-1D with option B,
+  re-aggregate, re-validate multi-D hold-out.
+
+---
+
 ## Pipeline summary (for the methods section)
 
 For each of the 11 PRIYA cosmological + IGM parameters, we train a 1D
