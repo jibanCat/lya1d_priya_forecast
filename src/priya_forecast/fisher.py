@@ -29,6 +29,7 @@ Saving:
 from __future__ import annotations
 
 import io
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -37,6 +38,60 @@ import scipy.linalg as la
 
 from priya_forecast.likelihood import GaussianLikelihood
 from priya_forecast.parameters import PARAMS_11D, Param
+
+
+def _invert_fisher_safe(
+    F_hat: np.ndarray, W: np.ndarray, *, label: str,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Symmetrize, pseudo-invert, redimension, and extract sigma with NaN-safe sqrt.
+
+    Floating-point noise can leave `F_hat` slightly asymmetric and a
+    near-rank-deficient block can produce small-negative diagonal
+    entries in `cov = la.inv(F_hat) * W`. Both pathologies turn into
+    NaN sigmas and silent garbage downstream. Defenses applied here:
+
+    1. Symmetrize `F_hat` -> `0.5*(F + F.T)` before inversion.
+    2. Use `la.pinvh` (PSD-aware pseudo-inverse). For full-rank Fisher
+       this matches `la.inv` to machine precision; for rank-deficient
+       blocks `pinvh` truncates eigenvalues below `rtol*max(|eig|)` so
+       null-space directions get exactly zero in `cov_hat` rather than
+       producing NaN.
+    3. Re-symmetrize `cov_hat`, redimension to `cov = cov_hat * W`.
+    4. Diagonal entries with `diag(cov) < tol*max|diag|` are flagged
+       as null-space directions and their `sigma` becomes NaN. This
+       includes both genuinely-degenerate parameters (no gradient
+       contribution at all) and small-numerical-noise indefiniteness.
+       A `RuntimeWarning` surfaces the affected count.
+
+    Returns (cov, sigma) where cov is the redimensioned covariance and
+    sigma = sqrt(diag(cov)) with NaN for degenerate entries.
+    """
+    n = F_hat.shape[0]
+    if n == 0:
+        return F_hat.copy(), np.empty(0, dtype=float)
+    F_sym = 0.5 * (F_hat + F_hat.T)
+    try:
+        cov_hat = la.pinvh(F_sym)
+    except la.LinAlgError as e:
+        raise ValueError(f"{label}: Fisher pinvh failed: {e}") from e
+    cov_hat = 0.5 * (cov_hat + cov_hat.T)
+    cov = cov_hat * W
+    diag = np.diag(cov)
+    scale = max(float(np.abs(diag).max()), 1e-30)
+    tol = scale * 1e-10
+    bad = diag < tol
+    if bad.any():
+        warnings.warn(
+            f"{label}: {int(bad.sum())}/{len(diag)} diagonal cov entries "
+            f"are < {tol:.2e} (rank-deficient Fisher block; null-space "
+            f"directions had no gradient information). Setting those "
+            f"sigmas to NaN; check for collinear or absent gradient "
+            f"directions in the affected parameters.",
+            RuntimeWarning, stacklevel=2,
+        )
+    safe_diag = np.where(bad, np.nan, diag)
+    sigma = np.sqrt(safe_diag)
+    return cov, sigma
 
 
 @dataclass
@@ -149,6 +204,10 @@ def combine_fisher_phys_arrays(
     priors_sigma: dict[str, float] | None = None,
 ) -> FisherResult:
     """Sum a list of F_phys matrices, add priors, invert in dim-less coords."""
+    if not F_phys_list:
+        raise ValueError(
+            "combine_fisher_phys_arrays: no F_phys matrices provided."
+        )
     n = len(params)
     F_phys = np.zeros((n, n), dtype=float)
     for F in F_phys_list:
@@ -164,13 +223,10 @@ def combine_fisher_phys_arrays(
     widths = np.array([p.width() for p in params], dtype=float)
     W = np.outer(widths, widths)
     F_hat = F_phys * W
-    try:
-        cov_hat = la.inv(F_hat)
-    except la.LinAlgError as e:
-        raise ValueError(f"Combined Fisher not invertible: {e}") from e
-    cov = cov_hat * W
-    sigma = np.sqrt(np.diag(cov))
-    with np.errstate(invalid="ignore"):
+    cov, sigma = _invert_fisher_safe(
+        F_hat, W, label="combine_fisher_phys_arrays",
+    )
+    with np.errstate(invalid="ignore", divide="ignore"):
         corr = cov / np.outer(sigma, sigma)
     return FisherResult(
         F=F_phys, cov=cov, sigma=sigma, corr=corr,
@@ -222,13 +278,8 @@ def combine_fisher_phys(
     widths = np.array([p.width() for p in params], dtype=float)
     W = np.outer(widths, widths)
     F_hat = F_phys * W
-    try:
-        cov_hat = la.inv(F_hat)
-    except la.LinAlgError as e:
-        raise ValueError(f"Combined Fisher not invertible: {e}") from e
-    cov = cov_hat * W
-    sigma = np.sqrt(np.diag(cov))
-    with np.errstate(invalid="ignore"):
+    cov, sigma = _invert_fisher_safe(F_hat, W, label="combine_fisher_phys")
+    with np.errstate(invalid="ignore", divide="ignore"):
         corr = cov / np.outer(sigma, sigma)
     # converged_steps are per-z; pick the first as a placeholder (the
     # diagnostic isn't very meaningful when summing across z anyway).
@@ -343,15 +394,9 @@ def fisher_matrix(
     # Re-express in dimensionless coords: F_hat_ij = F_phys_ij * width_i * width_j.
     W = np.outer(widths, widths)
     F_hat = F_phys * W
-    try:
-        cov_hat = la.inv(F_hat)
-    except la.LinAlgError as e:
-        raise ValueError(f"Fisher matrix not invertible: {e}") from e
-    cov = cov_hat * W
+    cov, sigma = _invert_fisher_safe(F_hat, W, label="fisher_matrix")
     F = F_phys
-
-    sigma = np.sqrt(np.diag(cov))
-    with np.errstate(invalid="ignore"):
+    with np.errstate(invalid="ignore", divide="ignore"):
         corr = cov / np.outer(sigma, sigma)
     # theta_fid stored on the result is the per-varying-param view (length n),
     # extracted from the full vector if needed. Matches `param_names`.

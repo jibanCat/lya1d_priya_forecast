@@ -131,3 +131,29 @@ def test_param_names_and_theta_fid_propagate():
     )
     assert fr.param_names == tuple(p.name for p in params)
     np.testing.assert_array_equal(fr.theta_fid, theta_fid)
+
+
+def test_rank_deficient_block_yields_nan_sigma_with_warning():
+    """A rank-deficient F (one param contributes no gradient) should:
+    - not raise (graceful pinvh fallback),
+    - emit RuntimeWarning identifying the rank-deficient block,
+    - return NaN sigma for the null-space param,
+    - return finite sigma for the well-conditioned params.
+
+    Defends against the multi-D pathology (PAPER_NOTES § D5.5) and the
+    Copilot review concern about la.inv-then-sqrt-of-negative-diag NaN.
+    """
+    n = 3
+    params = PARAMS_11D[:n]
+    # F_phys with one zero row/column → rank-deficient block on that param.
+    F = np.diag([100.0, 50.0, 0.0])
+    theta_fid = np.array([p.fid for p in params])
+    with pytest.warns(RuntimeWarning, match="rank-deficient"):
+        fr = combine_fisher_phys_arrays(
+            [F], params=params, theta_fid=theta_fid, priors_sigma=None,
+        )
+    assert np.isfinite(fr.sigma[0]) and fr.sigma[0] > 0
+    assert np.isfinite(fr.sigma[1]) and fr.sigma[1] > 0
+    assert np.isnan(fr.sigma[2]), (
+        f"expected NaN sigma for rank-deficient param, got {fr.sigma[2]!r}"
+    )

@@ -202,6 +202,12 @@ class GPModel(P1DModel):
             )
             traindir = str(self.basedir / "trained_mf")
             if self._fidelity == "hf":
+                if self._hires_subdir is None:
+                    raise ValueError(
+                        "GPModel(fidelity='hf') requires hires_subdir to "
+                        "be set (got None). For LF-only emulation pass "
+                        "fidelity='lf' instead."
+                    )
                 hires_basedir = str(self.basedir / self._hires_subdir)
                 gp.set_emulator(
                     HRbasedir=hires_basedir, max_z=4.6, min_z=2.2, traindir=traindir,

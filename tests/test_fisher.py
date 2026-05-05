@@ -148,15 +148,34 @@ def test_fisher_markdown_table_lists_all_params():
     assert "Parameter" in md and "sigma" in md
 
 
-def test_fisher_with_mock_gp_full_11d_raises_on_singular_F():
-    """MockGP only constrains ns/Ap/hub/omegamh2 — the other 7 parameters
-    contribute zero gradient, so the full-11D Fisher is genuinely singular
-    and must raise rather than return garbage."""
+def test_fisher_with_mock_gp_full_11d_degrades_gracefully():
+    """MockGP only constrains ns/Ap/hub/omegamh2 — the other 7 params
+    contribute zero gradient, so the full-11D Fisher is rank-deficient.
+
+    With the symmetric-pinvh-based inversion (post-Copilot review), the
+    function no longer raises — it returns a FisherResult with NaN sigma
+    on the unconstrained directions, finite sigma on the constrained
+    ones, and emits a RuntimeWarning so the caller sees the degeneracy.
+    Graceful degradation is more useful for the forecast pipeline than
+    a hard raise: it tells the caller *which* params are degenerate.
+    """
     lk = GaussianLikelihood(model=MockGPModel(), z=3.6, mock_data="gp")
-    with pytest.raises(ValueError, match="not invertible"):
-        fisher_matrix(
-            likelihood=lk, params=PARAMS_11D, step_frac=0.01, rel_tol=0.05, max_halvings=2,
+    with pytest.warns(RuntimeWarning, match="rank-deficient"):
+        res = fisher_matrix(
+            likelihood=lk, params=PARAMS_11D, step_frac=0.01,
+            rel_tol=0.05, max_halvings=2,
         )
+    constrained = {"ns", "Ap", "hub", "omegamh2"}
+    sigma_by_name = dict(zip(res.param_names, res.sigma))
+    for name, sig in sigma_by_name.items():
+        if name in constrained:
+            assert np.isfinite(sig) and sig > 0, (
+                f"{name}: expected finite positive sigma, got {sig!r}"
+            )
+        else:
+            assert np.isnan(sig), (
+                f"{name}: expected NaN (rank-deficient), got {sig!r}"
+            )
 
 
 def test_fisher_with_mock_gp_on_constrained_subset_is_pos_def():

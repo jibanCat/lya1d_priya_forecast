@@ -54,9 +54,32 @@ def plot_fisher_corner(
     if theta.shape != (n,):
         raise ValueError(f"theta_fid shape {theta.shape} != ({n},).")
 
-    sigma_gp = np.sqrt(np.diag(fr_gp.cov))
-    sigma_hy = np.sqrt(np.diag(fr_hybrid.cov))
-    panel_sigma = np.maximum(sigma_gp, sigma_hy)
+    # Defensive: cov from a near-rank-deficient Fisher block can have
+    # tiny-negative diagonal entries from inversion roundoff. Clip to >= 0
+    # within tolerance and surface NaNs explicitly so downstream panel
+    # ranges/contours don't silently use complex sqrt or unbounded axes.
+    def _safe_sigma(cov: np.ndarray) -> np.ndarray:
+        diag = np.diag(cov)
+        if diag.size == 0:
+            return np.sqrt(diag)
+        scale = max(float(np.abs(diag).max()), 1e-30)
+        tol = scale * 1e-12
+        bad = diag < -tol
+        safe = np.where(bad, np.nan, np.maximum(diag, 0.0))
+        return np.sqrt(safe)
+
+    sigma_gp = _safe_sigma(fr_gp.cov)
+    sigma_hy = _safe_sigma(fr_hybrid.cov)
+    # If a panel has NaN sigma in BOTH posteriors, fall back to a
+    # finite default so ax limits don't go NaN; the panel will be drawn
+    # but the (degenerate) Gaussian curve becomes flat.
+    panel_sigma = np.where(
+        np.isnan(sigma_gp) & np.isnan(sigma_hy),
+        np.array([0.5 * (p.prior[1] - p.prior[0]) for p in params]),
+        np.where(np.isnan(sigma_gp), sigma_hy,
+                 np.where(np.isnan(sigma_hy), sigma_gp,
+                          np.maximum(sigma_gp, sigma_hy))),
+    )
     lows = np.array([
         max(p.prior[0], theta[i] - width_sigma * panel_sigma[i])
         for i, p in enumerate(params)
