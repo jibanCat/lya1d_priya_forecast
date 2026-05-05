@@ -808,6 +808,63 @@ trade-off for production.
 
 ---
 
+## D8.6. Ap remediation experiments (failed; documented for posterity)
+
+Phase 2 production exposed a **gradient-at-fid** failure mode for `Ap`:
+
+| Phase | eq style | σ_PySR/σ_GP at fid | direction |
+|---|---|---|---|
+| Phase 1 (default kwargs) | `(k^θ_Ap) · ...` | **0.79×** | overconfident; tail max LF rel-err 39.7% |
+| Phase 2 (option B, no `feature^feature`) | smooth `exp(...) · (...)` | **2.62×** | underconfident; tail max LF rel-err 23.8% |
+
+Neither fit gives the right gradient at fid. The reason: PySR's
+training loss penalizes function values across the Sobol prior cube
+(global rel-err), which is decoupled from the *local* slope at fid.
+Different operators give different "compromises" in the gradient, but
+none is principled.
+
+**Failed experiments to fix** (as of 2026-05-05; documented in case the
+paper revisits them):
+
+1. **Log-target training** (smoke at `scripts/smoke/refit_ap_log_target_smoke.py`,
+   results at `results/smoke_ap_log_target/`). Train PySR on
+   `(log P_F − log LF_GP(fid)) / std_log_per_(z, k)` instead of
+   `(P_F − LF_GP(fid)) / std_per_(z, k)`. Rationale: Ap is a near-pure
+   linear amplitude on P_F, so log-target is additive in the amplitude.
+   **Result**: log-target's max LF rel-err dropped 23.8% → 19.4% (better
+   Lipschitz off-fid ✓), BUT slope-at-fid jumped 0.276 → 3.64 (~13×
+   steeper). Translates to σ_PySR/σ_GP ≈ 0.20× — overshoot in the
+   opposite direction. **Not deployed.** Wall: ~6 min on login node.
+
+2. **More seed retries** (not run; based on Phase-2 traces showing
+   smart fits land on attempt 1 mostly, more seeds unlikely to help).
+
+3. **Post-hoc gradient rescale at aggregate time** (planned, not yet
+   implemented). Multiply per-1D Ap eq's contribution by
+   `c = target_grad / current_grad` where `target_grad = ∂P_GP/∂θ_Ap` at
+   fid. Breaks at-fid identity by `c × 0 = 0` (so still exact at fid),
+   but gives correct Fisher gradient. **Cleanest cheap fix** if revisited.
+
+4. **Grad-matching loss term** (planned, not yet implemented). Extend
+   `JULIA_LOSS_FUNCTION_ANOVA` to add `λ · (eq_grad_at_fid −
+   target_grad)²`. Most principled but requires symbolic / finite-diff
+   gradient computation inside the Julia loss callback. **~half day
+   to wire.**
+
+5. **Split-learning eq family** (PySR `TemplateExpressionSpec`,
+   planned). Constrain eq form to `eq = c · θ_norm + g(θ_norm, k_norm,
+   r, z_norm)` with `c` a fitted scalar and `g` discouraged from
+   linear-in-θ component. Fitted `c` becomes the slope-at-fid by
+   construction. **~half day.**
+
+**Phase 2 production accepted with σ_Ap/σ_GP = 2.62× as a known
+limitation** (option B operator policy is correct architecturally; the
+gradient mismatch is an open subproblem documented above). The
+multi-D Sobol hold-out is much better (1.96% mean vs Phase 1.5's 3.27%),
+which is the headline emulator-faithfulness diagnostic for the paper.
+
+---
+
 ## D9. Default PySR kwargs (production)
 
 Two configs live in `src/priya_forecast/refit_1d_pysr.py`:
