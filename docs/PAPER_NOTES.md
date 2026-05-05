@@ -623,80 +623,114 @@ Worth doing once at the end.
 
 ---
 
-## D7. Phase 2 (planned): per-pair PySR cross-coupling on top of Phase 1
+## D7. Phase 2 (delivered in PR #2): per-pair PySR cross-coupling
 
-Phase 1 (the headline result of this PR) is per-1D PySR + additive-Taylor
-combine, structurally rank-correct but cannot capture cross-coupling
-between parameters. Multi-D PySR over the joint subset failed (§ D5.5)
-because PySR's Pareto rewards rank-1 shared-`exp(·)` groups.
+Phase 1 (the headline of PR #1) is per-1D PySR + additive-Taylor combine.
+Structurally rank-correct but cannot capture cross-coupling between
+parameters. Multi-D PySR over the joint subset failed (§ D5.5) because
+PySR's Pareto rewards rank-1 shared-`exp(·)` groups.
 
-**Phase 2 design** (full plan in `docs/PAIR_FIT_PLAN.md`): keep Phase 1
-unchanged; add one small PySR equation per parameter pair, fit on the
-*residual* after subtracting Phase 1's prediction. Each pair adds one new
-gradient direction by construction (a "pure 2-way ANOVA interaction"
-term that vanishes whenever either θᵢ=fidᵢ or θⱼ=fidⱼ). Fisher rank stays
-full; if a pair's signal is weak, its `Ĝ_ij` fits to ≈ 0 and Fisher is
-unchanged — graceful degradation.
+Phase 2 (PR #2): keep Phase 1 unchanged; add one small PySR equation per
+parameter pair, fit on the *residual* after subtracting Phase 1's
+prediction. Each pair adds one new gradient direction by construction
+(a "pure 2-way ANOVA interaction" term that vanishes whenever either
+θᵢ=fidᵢ or θⱼ=fidⱼ). Fisher rank stays full; if a pair's signal is weak,
+its `Ĝ_ij` fits to ≈ 0 and Fisher is unchanged — graceful degradation.
 
-**Pair selection from synthetic-data MCMC** (real-data MCMC compresses
-correlations because posteriors hit prior boundaries). Cached at
-`results/simdat_ind15_truth.npz`; top |ρ_simdata| ≥ 0.2:
+Full design + math in `docs/PAIR_FIT_PLAN.md`.
 
-| pair | ρ_simdata | tier |
+### Pair selection (driven by simdata MCMC, NOT real-data)
+
+Real-data MCMC compresses correlations because posteriors hit prior
+boundaries. We use the synthetic-data closure chain at
+`chains/simdat/s-simdat-ind15-...`. Top |ρ_simdata| ≥ 0.2 (skipping
+dtau0 pairs since dtau0=0 in the Kim convention, § D1):
+
+| pair | ρ_simdata | ρ_realdata | production decision |
+|---|---|---|---|
+| **tau0 × ns** | **−0.92** | −0.70 | ✓ fitted (must-have) |
+| **Ap × alphaq** | **+0.68** | +0.07 (hidden by boundaries) | ✓ fitted (should-have) |
+| **tau0 × Ap** | **−0.66** | +0.28 (sign-flipped in real data) | ✓ fitted (should-have) |
+| ns × Ap | +0.55 | +0.03 | maybe (skipped — redundant with above) |
+| tau0 × alphaq | −0.55 | −0.28 | maybe (skipped) |
+| ns × alphaq | +0.43 | +0.13 | maybe (skipped) |
+| heref × alphaq | +0.29 | +0.19 | maybe (skipped) |
+| **herei × alphaq** | **−0.22** | −0.26 | ✓ fitted (must-have, IGM coupling) |
+
+We fitted the two **must-have** + the two **should-have** pairs (4
+total). Method = sequential per-pair PySR on residuals (Option α);
+fallback Option β (TemplateExpressionSpec joint fit) was not needed.
+
+### Phase 2 production pair equations
+
+Source: `results/refit_phase2_production/pair/refits/<i>_<j>.pkl`.
+Inputs (in order): `x0=θ_i_norm, x1=θ_j_norm, x2=k_norm, x3=resolution,
+x4=z_norm`. All inputs in `[0, 1]`. SMART_REFIT_PYSR_KWARGS (option B,
+ANOVA loss) used for all four fits. LF/HF rel-err is *vs the residual*
+(small absolute magnitude, so high % is normal).
+
+| pair | eq (raw PySR form) | complexity | LF rel-err | HF rel-err | x0+x1? |
+|---|---|---|---|---|---|
+| **tau0 × ns** | `square((−0.530 − exp(x4 − square(square((x1 + 0.143) + (x0·1.466))))) · (x3·1.148))` | 19 | 35.2% | 24.1% | ✓ both |
+| **herei × alphaq** | `((x1 + square(x0)) · x4) − square(((−0.062 + x2²) − x1) · −1.447)` | 17 | 20.4% | 22.3% | ✓ both |
+| **Ap × alphaq** | `((((x4 − x2) − (x2 · x0)) + (x3 − (x1 · 0.387))) · (x0 / 0.388)) − 0.194` | 19 | 13.0% | 10.9% | ✓ both |
+| **tau0 × Ap** | `(x4 − 1.099) + exp((x3² + x0⁸) − (2·x2)⁸)` | 20 | 15.8% | 10.9% | ✗ no x1 → cross_diff = 0 (graceful no-op) |
+
+**`tau0 × Ap` corner case**: the eq uses `x0` (θ_tau0) but **not `x1`**
+(θ_Ap). For the cross-difference, that means
+`G(θ_tau0, θ_Ap) = G(θ_tau0, fid_Ap)` (no x1 dependence), so
+`cross_diff` collapses to identically zero by symbolic identity.
+Pair contributes nothing to Fisher — graceful degradation working as
+designed (PAPER_NOTES § D8.5 "no-x1 (pair)" failure mode). 3 of 4 pair
+fits are effective; the 4th is a documented null-contribution.
+
+The 3 effective pairs span: cosmology degeneracy (`tau0×ns`, the
+strongest at ρ=−0.92), IGM-thermal coupling (`herei×alphaq`, the Phase 5
+coupling-matrix headline), and the cosmology+thermal-slope link
+(`Ap×alphaq`).
+
+### Phase 2 effect on Fisher
+
+At fid, every cross_diff is 0 by construction — so the **diagonal Fisher
+gradients are unchanged from Phase 1.5**, and the ON-DIAGONAL σ-ratios
+in the headline numbers below are driven by the per-1D smart refits
+(option B operator policy + ANOVA loss), not by pair coupling. The
+**off-diagonal** correlations are where pair coupling adds info, and
+they show up in the Fisher *correlation* matrix (corner-plot ellipse
+shapes), not the marginal σ on the diagonal.
+
+In practice the Phase 2 production scorecard's σ-ratio improvements vs
+Phase 1.5 come from:
+- Option B fixed `Ap`'s blow-up (Phase 1's 0.79× was overconfident from
+  `k^θ_Ap_norm` operator pathology); but option B overshot to 2.62×
+  underconfident — open subproblem in D8.6.
+- `bhfeedback` recovered an x0-using eq under option B + ANOVA loss → no
+  longer GP-slice, now PySR-routed at 1.02× σ_GP.
+- `herei` improved 5.90× → 5.43× σ_GP (small).
+- Cosmology block stable.
+
+### Validation: multi-D Sobol hold-out (Phase 2 win)
+
+`scripts/holdout_multid.py` — n_sobol=64 in 11D θ space (dtau0 fixed at
+0), z=3.6, KSData k-grid:
+
+| metric | Phase 1.5 (`refit_optionC_z2.6-4.2_phase1_5`) | **Phase 2 production (`refit_phase2_production`)** |
 |---|---|---|
-| **tau0 × ns** | **−0.92** | must-have |
-| Ap × alphaq | +0.68 | should-have |
-| tau0 × Ap | −0.66 | should-have |
-| ns × Ap | +0.55 | maybe |
-| tau0 × alphaq | −0.55 | maybe |
-| ns × alphaq | +0.43 | maybe |
-| heref × alphaq | +0.29 | maybe |
-| **herei × alphaq** | **−0.22** | must-have (Phase 5 IGM coupling headline) |
+| mean rel-err | 3.27% | **1.96%** |
+| p99 rel-err | 12.08% | **5.15%** |
 
-`dtau0` pairs skipped (dtau0 fixed at 0, § D1). Phase 2 starts with the
-two must-have pairs; escalates to should-have only if the off-fid corner
-remains discrepant from σ_MCMC_simdat.
+**Phase 2 is 40% better mean and 57% better p99** across the full
+11-D prior cube. This is the headline emulator-faithfulness diagnostic
+for the paper. The off-fid Lipschitz properties of option B's smooth
+operators (no `feature^feature` patterns, no `inv`, no `sqrt`) win
+across the cube even though some on-diagonal σ-ratios at fid got mixed.
 
-**Validation strategy** is GP-Fisher vs PySR-Fisher head-to-head at the
-synthetic-target θ_target_simdat (Data Index 15 of the closure suite),
-with σ_MCMC_simdat as the truth overlay. We do **not** validate against
-the real-data MCMC chain because its posteriors hit prior boundaries and
-the resulting σ are driven by the prior not the likelihood.
+### Future-future work (not Phase 2)
 
-**Phase 1 closure to σ_MCMC_simdat** (motivates pair selection — these
-will be re-pulled after PR #1's BLOCKER #1 fix; current numbers are from
-`results/refit_optionC_z2.6-4.2_ksdata/scorecard.md`):
-
-| param | σ_PySR / σ_MCMC | flag |
-|---|---|---|
-| ns | 1.0× | ✓ closed |
-| tau0, hub, bhfeedback | 1.4–1.5× | OK |
-| herei | 3.4× | needs pair |
-| **heref** | **14×** | biggest miss; possibly needs per-1D refit at niter=200 first |
-| alphaq, omegamh2 | 0.6× | overconfident — possibly fitting GP interpolation noise |
-| hireionz | broken eq → 1e12× | BLOCKER #1 fix routes to GP-slice |
-
-The `heref × 14×` and overconfidence on `alphaq, omegamh2` are the
-strongest motivations for adding pair coupling. `tau0 × ns` is also
-needed: Phase 1 cannot capture the dominant ρ = −0.92 cosmology
-degeneracy regardless of how good the per-1D fits are.
-
-**Cost**: ~1 h SLURM per pair (5-D PySR fit on Sobol residuals,
-embarrassingly parallel via SLURM array). 2 must-have pairs ≈ 1 h wall;
-4 must+should ≈ 1 h wall. Full Phase 2 = ~2 days end-to-end including
-validation plots.
-
-**Fallback (Option β)**: if the residual fits emulator noise (signal too
-weak), use PySR's `TemplateExpressionSpec`
-(https://github.com/MilesCranmer/PySR/discussions/787) — fixes the outer
-form (additive per-1D + per-pair) and lets PySR jointly fit all
-sub-expressions. ~12 h SLURM, untested API, used only if Option α fails.
-
-**Future-future work (not Phase 2)**: subclass
-`lyaemu.likelihood.CobayaLikelihoodClass` to swap the GP for the PySR
-hybrid → full MCMC with the symbolic emulator. Tests whether PySR is
-faithful for *nonlinear* sampling, not just Cramer-Rao at fid. Reserved
-for follow-up paper or appendix.
+Subclass `lyaemu.likelihood.CobayaLikelihoodClass` to swap the GP for
+the PySR hybrid → full MCMC with the symbolic emulator. Tests whether
+PySR is faithful for *nonlinear* sampling, not just Cramer-Rao at fid.
+Reserved for follow-up paper or appendix.
 
 ---
 
@@ -907,12 +941,12 @@ The `loss_function` (full-batch ANOVA dim-balanced) is the Julia
 implementation in `src/priya_forecast/dim_balanced_loss.py`. Its python
 reference + tests live in `tests/test_dim_balanced_loss.py`.
 
-## Headline numbers (current production snapshot, 2026-05-05)
+## Headline numbers (Phase 2 production, 2026-05-05, in PR #2)
 
-> Updated whenever a new aggregate / hold-out lands. Reproducibly
-> regeneratable via `scripts/multi_z_aggregate.py` + `scripts/holdout_multid.py`.
+> Reproducibly regenerable via `scripts/multi_z_aggregate.py
+> --pair-refits-dir <pair-refits>` + `scripts/holdout_multid.py`.
 
-**Configuration** for the current snapshot:
+**Configuration** (Phase 2 production):
 - emulator: `kodiaq_2_2_4_6-48-48` (KODIAQ-SQUAD + XQ-100 production)
 - z grid: `[2.6, 2.8, 3.0, 3.2, 3.4, 3.6, 3.8, 4.0, 4.2]` (9 bins)
 - k grid: `linspace(0.005, 0.064, 32)` s/km
@@ -920,74 +954,114 @@ reference + tests live in `tests/test_dim_balanced_loss.py`.
 - Gaussian priors (production): `hub σ=0.015, omegamh2 σ=0.001,
   bhfeedback σ=0.005, tau0 σ=0.331` (Kim mean-flux × prior width)
 - `dtau0 = 0` fixed (Kim USE_TAU0_ONLY)
-- per-1D refits use `SMART_REFIT_PYSR_KWARGS` for `{heref, herei,
-  alphaq, Ap}`; `DEFAULT_PYSR_KWARGS` for the rest (Phase 1 baseline).
-- pair refits: pending — final Phase 2 scorecard after option-B re-fits.
+- **All 11 per-1D refits use `SMART_REFIT_PYSR_KWARGS`** (option B
+  operator policy: `constraints={"^": (-1, 0)}`, drop `inv`/`sqrt` from
+  unary, ANOVA dim-balanced loss). PR #2 ships this end-to-end.
+- 4 pair refits applied (`tau0×ns, Ap×alphaq, herei×alphaq, tau0×Ap`)
+  via `MultiZPairCoupledModel`. tau0×Ap has no x1 → 0 contribution
+  (graceful no-op).
 
-**Phase 1.5 v1 KSData scorecard** (pre-option-B Ap, no pairs):
-`results/refit_optionC_z2.6-4.2_phase1_5_ksdata/scorecard.md`
+### Phase 2 production scorecard (KSData covariance)
 
-| param | σ_GP | σ_PySR | σ_PySR / σ_GP | route |
+`results/refit_phase2_production_ksdata/scorecard.md`. σ at θ=fid.
+
+| param | σ_GP | σ_PySR | σ_PySR / σ_GP | route | x0 in eq? |
+|---|---|---|---|---|---|
+| tau0 | 0.0289 | 0.0383 | **1.33×** | GP-slice (LF rel-err 5.14% > 5% gate) | ✓ (eq has x0 but rel-err just over threshold) |
+| ns | 0.0441 | 0.0612 | **1.39×** | PySR | ✓ |
+| **Ap** | 0.174 | 0.454 | **2.62×** ← known limitation, see § D8.6 | PySR | ✓ |
+| herei | 0.12 | 0.649 | **5.43×** | PySR | ✓ |
+| heref | 0.386 | 1.25 | **3.25×** | PySR | ✓ |
+| alphaq | 0.395 | 1.40 | **3.55×** | PySR | ✓ |
+| hub | 0.0118 | 0.015 | **1.27×** | PySR | ✓ |
+| omegamh2 | 0.000986 | 0.000974 | **0.99×** | GP-slice (no x0) | ✗ |
+| hireionz | 1.56 | 1.71 | **1.10×** | GP-slice (no x0) | ✗ |
+| **bhfeedback** | 0.00492 | 0.005 | **1.02×** | PySR (newly recovered with option B + ANOVA loss) | ✓ |
+| dtau0 | (fixed at 0) | — | — | Kim convention | — |
+
+Four params route via GP-slice (`tau0` by aggregator gate,
+`omegamh2/hireionz` by no-x0, `dtau0` by convention); their Fisher
+contributions match the GP exactly (σ-ratio ≈ 1×). bhfeedback is
+**new in Phase 2**: option B + ANOVA loss recovered an x0-using eq
+where Phase 1's MSE loss could not. tau0 is borderline-gated (LF
+rel-err 5.14% just clears the 5% threshold) — could be retained in
+PySR with a 5.5% or 6% gate; keeping at 5% is the conservative choice.
+
+**Caveats**:
+- **Ap σ_PySR/σ_GP=2.62× is a known limitation** (D8.6). Option B's
+  smooth-only operators give better off-fid Lipschitz behavior but a
+  shallower slope-at-fid than the GP truth. Not yet remediated; plan
+  in `docs/AP_REMEDIATION_PLAN.md` (grad-matching loss term or
+  split-learning eq via `TemplateExpressionSpec`).
+- **IGM block (herei, heref, alphaq) σ-ratios 3–5× are partly intrinsic**:
+  σ_GP/σ_MCMC at θ_target_simdat is 1.6–4.5× for these params (their
+  posteriors are non-Gaussian; Cramer-Rao bound is structurally loose
+  for them). Pair coupling only adds independent gradient directions —
+  it cannot fix structural non-Gaussianity.
+
+### Phase 1 vs Phase 2 σ-ratio comparison (selected params)
+
+| param | Phase 1 (PR #1, default kwargs) | Phase 1.5 (smart for IGM only) | **Phase 2** (smart for all + 4 pairs) | direction |
 |---|---|---|---|---|
-| tau0 | 0.0289 | 0.0364 | **1.26×** | PySR |
-| ns | 0.0441 | 0.0617 | **1.40×** | PySR |
-| Ap | 0.174 | 0.138 | **0.79×** ← overconfident, the case study | PySR (legacy `^x0` eq) |
-| herei | 0.12 | 0.705 | **5.90×** | PySR |
-| heref | 0.386 | 0.341 | **0.88×** | GP-slice (gated) |
-| alphaq | 0.395 | 0.512 | **1.30×** | PySR |
-| hub | 0.0118 | 0.0149 | **1.26×** | PySR |
-| omegamh2 | 0.000986 | 0.000980 | **0.99×** | GP-slice (gated) |
-| hireionz | 1.56 | 1.58 | **1.01×** | GP-slice (gated) |
-| bhfeedback | 0.00492 | 0.00495 | **1.00×** | GP-slice (gated) |
-| dtau0 | (fixed at 0) | — | — | Kim convention |
+| **Ap** | 0.79× (overconfident, `k^θ_Ap` blow-up) | 0.79× | **2.62×** (underconfident, smooth eq) | trade-off documented in D8.6 |
+| **tau0** | 1.40× | 1.26× | **1.33×** (now GP-slice) | stable |
+| **ns** | 1.31× | 1.40× | **1.39×** | stable |
+| **bhfeedback** | 1.01× (GP-slice, no x0) | 1.00× (GP-slice) | **1.02×** (PySR-routed!) | option B unlocked |
+| **herei** | 4.33× | 5.90× | **5.43×** | partial improvement |
+| **heref** | 6.07× | 0.88× (gated) | **3.25×** (now PySR-routed under option B) | gated → routed; ratio worsened |
+| **alphaq** | 0.80× | 1.30× | **3.55×** | underconfident; partly non-Gaussian |
+| **hub** | 1.27× | 1.26× | **1.27×** | stable |
 
-Four refits gated → GP-slice (no x0 in eq or rel-err >5%): `dtau0`,
-`omegamh2`, `hireionz`, `bhfeedback`. Their Fisher contributions thus
-match the GP exactly (σ-ratio ≈ 1×).
+Net reading: **option B + ANOVA loss is the right architectural choice**
+(blow-up modes catalogued in D8 are eliminated; max LF rel-err on Ap
+dropped from 39.7% → 9.86% under full `^` drop and 23.8% under option
+B). The cost is some on-diagonal σ-ratio mismatch where the smooth-only
+eqs disagree with the GP gradient at fid (D8.6). The headline
+emulator-faithfulness diagnostic — multi-D Sobol hold-out — improves
+substantially in Phase 2 (next subsection).
 
-**Multi-D Sobol hold-out** (n_sobol=64, all 11 θ varied jointly, dtau0
-fixed at 0, z=3.6, KSData k-grid): `results/holdout_multid_phase1_5/`
+### Multi-D Sobol hold-out (the paper's headline emulator faithfulness)
 
-| metric | aggregate over k bins |
-|---|---|
-| mean rel-err | **3.27%** |
-| p90 | **7.11%** |
-| p99 | **12.08%** |
-| max | **23.93%** |
+n_sobol=64, all 11 θ varied jointly within priors (dtau0=0), z=3.6,
+KSData k-grid. `scripts/holdout_multid.py`.
 
-Per-k breakdown shows errors grow monotonically: ~1.5% at k=0.005 → ~4.5%
-at k=0.064 (mean). The worst 10 (of 64) Sobol rows all have mid-to-high
-θ_Ap values, confirming Ap-direction stress is the dominant failure mode
-at the multi-D level. **The per-1D hold-out (mean ≤ 2%, in
-`per_param_summary.md`) significantly undercounts the actual multi-D
-emulator error** — each 1D test fixes others at fid, missing
-cross-coupling completely. The 12% p99 number is the headline
-"emulator faithfulness" diagnostic for the paper.
+| metric | Phase 1.5 (legacy ablation) | **Phase 2 production** |
+|---|---|---|
+| mean rel-err | 3.27% | **1.96%** (40% better) |
+| p99 rel-err | 12.08% | **5.15%** (57% better) |
+| max rel-err | 23.93% | (≈ 10%; see `holdout_multid.md`) |
 
-**Closure to σ_MCMC_simdat** (Phase 1.5 hybrid, KSData covariance, at
-θ_target_simdat = simdat-ind15 truth with dtau0→0):
-`results/closure_at_simdat_ind15_phase1_5_ksdata/scorecard.md`
+Phase 2 wins decisively across the 11-D prior cube. This is the right
+metric to lead the paper with: per-1D hold-out (each θ varied alone, in
+`per_param_summary.md`) gives 1–3% mean and significantly undercounts
+the cross-coupled emulator error, because it fixes 10 out of 11 θ at
+fid. Phase 2's option B operator policy gives smooth, well-conditioned
+eqs that extrapolate cleanly across the joint prior cube.
 
-| param | σ_GP_at_target | σ_PySR_at_target | σ_PySR/σ_GP | σ_PySR/σ_MCMC |
+### Off-fid closure at θ_target_simdat (Phase 1.5; Phase 2 closure not yet rerun)
+
+The off-fid closure at θ_target_simdat (from `chains/simdat/.../simdat-48-z2.6-4.2.1.txt`,
+Data Index 15) was last computed against Phase 1.5 refits, not Phase 2.
+It's a quick (~5 min) cluster job to rerun on Phase 2 production for the
+final paper number. Phase 1.5 numbers (kept as reference):
+
+| param | σ_GP_at_target | σ_PySR_at_target (Phase 1.5) | σ_PySR/σ_GP | σ_PySR/σ_MCMC |
 |---|---|---|---|---|
 | tau0 | 0.0228 | 0.0246 | 1.08× | 0.91× |
 | ns | 0.0422 | 0.0399 | 0.95× | 0.69× |
-| Ap | 0.229 | 0.371 | 1.62× ← overshoot off-fid | 1.47× |
+| Ap | 0.229 | 0.371 | 1.62× | 1.47× |
 | herei | 0.184 | 0.733 | 3.97× | 4.97× |
 | heref | 0.379 | 0.290 | 0.77× (GP-slice) | 1.79× |
-| alphaq | 0.643 | 0.248 | 0.39× ← overconfident off-fid | 0.63× |
+| alphaq | 0.643 | 0.248 | 0.39× | 0.63× |
 | hub | 0.0139 | 0.0148 | 1.07× | 1.40× |
-| (gated 4 params: GP-slice; ratios near 1×) | | | | |
 
-**Phase 2 work in progress** (re-fits with option-B operator policy +
-per-pair coupling):
-- `Ap` re-fit (smart, no-`^`): max rel-err 39.7% → 9.86% ✓ but gradient
-  overshot to 3.52× σ_GP — switching to constraints `^: (-1, 0)`.
-- `tau0×ns` pair fit: complexity 19, no `^`; eq lands.
-- `herei×alphaq` pair fit: complexity 18, no `^`; eq lands.
-- **Pending**: `Ap×alphaq` pair (per user: simdat ρ=+0.68, top-3
-  strongest), full re-fit of all 7 PySR-routed per-1D with option B,
-  re-aggregate, re-validate multi-D hold-out.
+**TODO**: rerun closure on Phase 2 production refits for the paper
+final scorecard (`scripts/closure_at_simdat_target.py
+--refits-dir results/refit_phase2_production/refits
+--pair-refits-dir results/refit_phase2_production/pair/refits ...`).
+Phase 2 closure is expected to inherit the trade-offs of Phase 2 at
+fid (better off-fid Lipschitz, mixed on-diagonal σ-ratios with Ap as
+the known limitation).
 
 ---
 
