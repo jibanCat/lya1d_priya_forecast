@@ -105,7 +105,16 @@ class HPOResult:
     wall_time_s: float
     pareto_complexities: list[int] = field(default_factory=list)
     pareto_losses: list[float] = field(default_factory=list)
-    extra_metrics: dict[str, float] = field(default_factory=dict)
+    extra_metrics: dict[str, Any] = field(default_factory=dict)
+
+    def __setstate__(self, state: dict) -> None:
+        """Ensure backward-compatible unpickling of cached HPOResult objects.
+
+        Older pickles pre-date the ``extra_metrics`` field; restore the
+        default so consumers never see an AttributeError.
+        """
+        state.setdefault("extra_metrics", {})
+        self.__dict__.update(state)
 
     def metric(self, name: str, *, target_loss: float | None = None,
                fisher_residual: float | None = None) -> float:
@@ -248,7 +257,7 @@ def make_sigma_targeted_trainer(
         )
         if len(out) == 5:
             train_loss, val_loss, complexities, losses, best_expr = out
-            extra: dict[str, float] = {}
+            extra: dict[str, Any] = {}
         else:
             train_loss, val_loss, complexities, losses, best_expr, extra = out
         try:
@@ -304,7 +313,7 @@ def make_fisher_aware_trainer(
         # Older trainers return 5-tuples; pad to 6.
         if len(out) == 5:
             train_loss, val_loss, complexities, losses, best_expr = out
-            extra: dict[str, float] = {}
+            extra: dict[str, Any] = {}
         else:
             train_loss, val_loss, complexities, losses, best_expr, extra = out
 
@@ -338,8 +347,12 @@ def make_fisher_aware_trainer(
             else:
                 # Build a vectorized callable taking the n_in columns of
                 # fid_X. Any extra `other` symbols default to 0.
+                # Include inv->1/x so PySR's custom 'inv' function (commonly
+                # emitted in Pareto-optimal eqs) evaluates correctly instead
+                # of raising a NameError that silently sets fisher_residual=inf.
                 all_syms = list(xcols) + other
-                fn = sp.lambdify(all_syms, expr, modules=["numpy"])
+                _pysr_modules = [{"inv": np.reciprocal}, "numpy"]
+                fn = sp.lambdify(all_syms, expr, modules=_pysr_modules)
 
                 def _eval(X):
                     args = []
@@ -529,11 +542,16 @@ def _bayesian_configs(
                 return cached.val_loss
 
         t0 = time.time()
-        train_loss, val_loss, complexities, losses, best_expr = trainer(
+        out = trainer(
             X_train=X_train, y_train=y_train,
             X_val=X_val, y_val=y_val, config=cfg, seed=seed,
         )
         wt = time.time() - t0
+        if len(out) == 5:
+            train_loss, val_loss, complexities, losses, best_expr = out
+            extra_m: dict[str, Any] = {}
+        else:
+            train_loss, val_loss, complexities, losses, best_expr, extra_m = out
         best_idx = int(np.argmin(losses)) if losses else 0
         r = HPOResult(
             config=cfg, train_loss=train_loss, val_loss=val_loss, test_loss=None,
@@ -541,6 +559,7 @@ def _bayesian_configs(
             pareto_loss=float(losses[best_idx]) if losses else float("inf"),
             best_expression=best_expr, wall_time_s=wt,
             pareto_complexities=list(complexities), pareto_losses=list(losses),
+            extra_metrics=dict(extra_m),
         )
         if cache_path is not None:
             with open(cache_path, "wb") as f:

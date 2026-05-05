@@ -27,10 +27,10 @@ The same pattern applies to a smaller target subspace (e.g. only the
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import combinations_with_replacement
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 
@@ -53,6 +53,16 @@ class ResidualFit:
     k_grid: np.ndarray
     z: float
     wall_time_s: float
+    # Lazily compiled residual callable — excluded from __init__, repr, and
+    # equality checks. Populated on first call to predict_with_p_fid so that
+    # sympy.lambdify is only called once per instance rather than once per
+    # Fisher-stencil evaluation.
+    _residual_fn_cache: Any = field(
+        default=None, init=False, repr=False, compare=False,
+    )
+    _residual_syms_cache: Any = field(
+        default=None, init=False, repr=False, compare=False,
+    )
 
     def predict(self, theta_full: np.ndarray, k: np.ndarray) -> np.ndarray:
         """Full multiplicative-product baseline + residual correction.
@@ -89,19 +99,31 @@ class ResidualFit:
             with np.errstate(divide="ignore", invalid="ignore"):
                 out = out * (num / den)
 
-        # Residual correction.
-        expr = sp.sympify(self.residual_equation_str)
-        n_in = len(self.varying_names) + 1  # + k
-        # The PySR residual was trained with x0..xN where x_last = k_norm.
-        x_syms = sorted(
-            [s for s in expr.free_symbols if s.name.startswith("x")],
-            key=lambda s: int(s.name[1:]),
-        )
-        all_syms = sorted(
-            list({sp.Symbol(f"x{i}") for i in range(n_in)} | set(x_syms)),
-            key=lambda s: int(s.name[1:]),
-        )
-        fn = sp.lambdify(all_syms, expr, modules=["numpy"])
+        # Residual correction — compile the sympy expression once and cache
+        # the callable + symbol list so Fisher-stencil loops don't re-parse
+        # the string and re-call lambdify on every evaluation.
+        # NOTE: ResidualFit instances are not shared across threads; the lazy
+        # init below is safe for the single-threaded forecast/Fisher context.
+        if self._residual_fn_cache is None:
+            expr = sp.sympify(self.residual_equation_str)
+            n_in = len(self.varying_names) + 1  # + k
+            # The PySR residual was trained with x0..xN where x_last = k_norm.
+            x_syms = sorted(
+                [s for s in expr.free_symbols if s.name.startswith("x")],
+                key=lambda s: int(s.name[1:]),
+            )
+            all_syms = sorted(
+                list({sp.Symbol(f"x{i}") for i in range(n_in)} | set(x_syms)),
+                key=lambda s: int(s.name[1:]),
+            )
+            fn = sp.lambdify(all_syms, expr, modules=["numpy"])
+            # Store on the instance (dataclass is not frozen, so direct
+            # attribute assignment works without object.__setattr__).
+            self._residual_fn_cache = fn
+            self._residual_syms_cache = all_syms
+
+        fn = self._residual_fn_cache
+        all_syms = self._residual_syms_cache
 
         # Build the input vectors at all (varying_norm, k_norm) points.
         args = []
