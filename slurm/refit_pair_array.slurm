@@ -23,10 +23,14 @@ export PYTHON_JULIAPKG_PROJECT=$HOME/.julia_env
 export JULIA_DEPOT_PATH=$HOME/.julia
 export PYTHONPATH=/home/mfho/student_projects/lya_emulator_full:src
 
-# PAIRS is a colon-separated list of "name_i,name_j" entries.
+# PAIRS is a colon-separated list of "name_i_name_j" entries (underscore
+# inside the pair, since `--export=...,PAIRS=...` treats `,` as an env-var
+# separator). The script translates `_` back to `,` for refit_one_pair.py.
 IFS=':' read -ra PAIR_ARRAY <<< "$PAIRS"
-PAIR="${PAIR_ARRAY[$SLURM_ARRAY_TASK_ID]}"
-echo "Task $SLURM_ARRAY_TASK_ID → pair $PAIR"
+RAW="${PAIR_ARRAY[$SLURM_ARRAY_TASK_ID]}"
+# Translate first `_` to `,` (e.g. tau0_ns → tau0,ns).
+PAIR="${RAW/_/,}"
+echo "Task $SLURM_ARRAY_TASK_ID → pair $PAIR (from raw $RAW)"
 
 /sw/pkgs/arc/mamba/py3.11/bin/python scripts/refit_one_pair.py \
     --pair "$PAIR" \
