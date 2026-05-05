@@ -985,15 +985,19 @@ ANOVA loss) used for all four fits. LF/HF rel-err is *vs the residual*
 | **tau0 × ns** | `square((−0.530 − exp(x4 − square(square((x1 + 0.143) + (x0·1.466))))) · (x3·1.148))` | 19 | 35.2% | 24.1% | ✓ both |
 | **herei × alphaq** | `((x1 + square(x0)) · x4) − square(((−0.062 + x2²) − x1) · −1.447)` | 17 | 20.4% | 22.3% | ✓ both |
 | **Ap × alphaq** | `((((x4 − x2) − (x2 · x0)) + (x3 − (x1 · 0.387))) · (x0 / 0.388)) − 0.194` | 19 | 13.0% | 10.9% | ✓ both |
-| **tau0 × Ap** | `(x4 − 1.099) + exp((x3² + x0⁸) − (2·x2)⁸)` | 20 | 15.8% | 10.9% | ✗ no x1 → cross_diff = 0 (graceful no-op) |
+| **tau0 × Ap** | (v2 fit drops `x0`; specific eq stored in `pair_v2/refits/tau0_Ap.pkl`) | 20 | 63.3% | 69.3% | ✗ no x0 → cross_diff = 0 (graceful no-op) |
 
-**`tau0 × Ap` corner case**: the eq uses `x0` (θ_tau0) but **not `x1`**
-(θ_Ap). For the cross-difference, that means
-`G(θ_tau0, θ_Ap) = G(θ_tau0, fid_Ap)` (no x1 dependence), so
+**`tau0 × Ap` corner case**: in the v2 fit (post-LF/HF normalization
+fix) all 3 retries failed to find an eq using both `x0` and `x1`; the
+saved best-anyway eq uses `x1` (θ_Ap) but **not `x0`** (θ_tau0). For
+the cross-difference, that means
+`G(θ_tau0, θ_Ap) = G(fid_tau0, θ_Ap)` (no x0 dependence), so
 `cross_diff` collapses to identically zero by symbolic identity.
 Pair contributes nothing to Fisher — graceful degradation working as
-designed (PAPER_NOTES § D8.5 "no-x1 (pair)" failure mode). 3 of 4 pair
+designed (PAPER_NOTES § D8.5 "no-x0 (pair)" failure mode). 3 of 4 pair
 fits are effective; the 4th is a documented null-contribution.
+(In the v1 fit the *other* feature was dropped — same null behavior,
+different feature; the symbolic identity holds either way.)
 
 The 3 effective pairs span: cosmology degeneracy (`tau0×ns`, the
 strongest at ρ=−0.92), IGM-thermal coupling (`herei×alphaq`, the Phase 5
@@ -1025,12 +1029,12 @@ Phase 1.5 come from:
 `scripts/holdout_multid.py` — n_sobol=64 in 11D θ space (dtau0 fixed at
 0), z=3.6, KSData k-grid:
 
-| metric | Phase 1.5 (`refit_optionC_z2.6-4.2_phase1_5`) | **Phase 2 production (`refit_phase2_production`)** |
+| metric | Phase 1.5 (`refit_optionC_z2.6-4.2_phase1_5`) | **Phase 2 production (`refit_phase2_production`, 4 pairs v2)** |
 |---|---|---|
-| mean rel-err | 3.27% | **1.96%** |
-| p99 rel-err | 12.08% | **5.15%** |
+| mean rel-err | 3.27% | **2.35%** |
+| p99 rel-err | 12.08% | **7.05%** |
 
-**Phase 2 is 40% better mean and 57% better p99** across the full
+**Phase 2 is 28% better mean and 42% better p99** across the full
 11-D prior cube. This is the headline emulator-faithfulness diagnostic
 for the paper. The off-fid Lipschitz properties of option B's smooth
 operators (no `feature^feature` patterns, no `inv`, no `sqrt`) win
@@ -1208,7 +1212,7 @@ paper revisits them):
 **Phase 2 production accepted with σ_Ap/σ_GP = 2.62× as a known
 limitation** (option B operator policy is correct architecturally; the
 gradient mismatch is an open subproblem documented above). The
-multi-D Sobol hold-out is much better (1.96% mean vs Phase 1.5's 3.27%),
+multi-D Sobol hold-out is much better (2.35% mean vs Phase 1.5's 3.27%),
 which is the headline emulator-faithfulness diagnostic for the paper.
 
 ---
@@ -1272,8 +1276,10 @@ reference + tests live in `tests/test_dim_balanced_loss.py`.
   operator policy: `constraints={"^": (-1, 0)}`, drop `inv`/`sqrt` from
   unary, ANOVA dim-balanced loss). PR #2 ships this end-to-end.
 - 4 pair refits applied (`tau0×ns, Ap×alphaq, herei×alphaq, tau0×Ap`)
-  via `MultiZPairCoupledModel`. tau0×Ap has no x1 → 0 contribution
-  (graceful no-op).
+  via `MultiZPairCoupledModel`. The v2 `tau0×Ap` fit dropped `x0`
+  (tau0) after 3 attempts failed to find an eq using both `x0` and
+  `x1`; the saved best-anyway eq contributes 0 to the tau0 gradient
+  direction (graceful no-op by design — see `Refit2DPairResult`).
 
 ### Phase 2 production scorecard (KSData covariance)
 
@@ -1339,11 +1345,11 @@ substantially in Phase 2 (next subsection).
 n_sobol=64, all 11 θ varied jointly within priors (dtau0=0), z=3.6,
 KSData k-grid. `scripts/holdout_multid.py`.
 
-| metric | Phase 1.5 (legacy ablation) | **Phase 2 production** |
+| metric | Phase 1.5 (legacy ablation) | **Phase 2 production (4 pairs v2)** |
 |---|---|---|
-| mean rel-err | 3.27% | **1.96%** (40% better) |
-| p99 rel-err | 12.08% | **5.15%** (57% better) |
-| max rel-err | 23.93% | (≈ 10%; see `holdout_multid.md`) |
+| mean rel-err | 3.27% | **2.35%** (28% better) |
+| p99 rel-err | 12.08% | **7.05%** (42% better) |
+| max rel-err | 23.93% | 12.11% (49% better; see `holdout_multid.md`) |
 
 Phase 2 wins decisively across the 11-D prior cube. This is the right
 metric to lead the paper with: per-1D hold-out (each θ varied alone, in
