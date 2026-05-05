@@ -109,8 +109,15 @@ class NormalizationSpec:
     # Inverse (PySR output -> P_F)
     # ------------------------------------------------------------------
 
-    def denormalize_flux(self, flux_norm: np.ndarray, k_target: np.ndarray) -> np.ndarray:
-        """Apply `P_F = flux_norm * std_k + mean_k` after interpolating to k_target."""
+    def denormalize_flux(
+        self, flux_norm: np.ndarray, k_target: np.ndarray,
+        z: float | None = None,
+    ) -> np.ndarray:
+        """Apply `P_F = flux_norm * std_k + mean_k` after interpolating to k_target.
+
+        `z` is accepted but ignored on the base (single-z) spec. The
+        multi-z subclass overrides this to look up the right per-z norm.
+        """
         flux_norm = np.asarray(flux_norm, dtype=float)
         k_target = np.asarray(k_target, dtype=float)
         if flux_norm.shape != k_target.shape:
@@ -125,6 +132,80 @@ class NormalizationSpec:
 # ---------------------------------------------------------------------------
 # Loaders / derivers
 # ---------------------------------------------------------------------------
+
+
+@dataclass
+class MultiZNormalizationSpec:
+    """Per-z mean/std normalization for multi-z PySR fits.
+
+    `mean_flux` and `std_flux` are 2D arrays of shape `(n_z, n_k)`.
+    `z_grid` is the discrete z-bin grid. `denormalize_flux(flux_norm,
+    k_target, z)` looks up the row for the nearest z bin (no interp
+    across z — the kodiaq emulator only predicts at discrete z).
+    """
+
+    param_min: float
+    param_max: float
+    k_min: float
+    k_max: float
+    z_grid: np.ndarray             # (n_z,)
+    mean_flux: np.ndarray          # (n_z, n_k)
+    std_flux: np.ndarray           # (n_z, n_k)
+    k_grid: np.ndarray             # (n_k,)
+
+    def __post_init__(self) -> None:
+        self.z_grid = np.asarray(self.z_grid, dtype=float)
+        self.mean_flux = np.asarray(self.mean_flux, dtype=float)
+        self.std_flux = np.asarray(self.std_flux, dtype=float)
+        self.k_grid = np.asarray(self.k_grid, dtype=float)
+        n_z, n_k = self.mean_flux.shape
+        if self.std_flux.shape != (n_z, n_k):
+            raise ValueError(
+                f"std_flux shape {self.std_flux.shape} != mean_flux shape "
+                f"({n_z}, {n_k})."
+            )
+        if self.z_grid.shape != (n_z,):
+            raise ValueError(
+                f"z_grid shape {self.z_grid.shape} != ({n_z},)."
+            )
+        if self.k_grid.shape != (n_k,):
+            raise ValueError(
+                f"k_grid shape {self.k_grid.shape} != ({n_k},)."
+            )
+        if not np.all(self.std_flux > 0):
+            raise ValueError("std_flux entries must all be > 0.")
+
+    def normalize_param(self, value: float | np.ndarray) -> np.ndarray:
+        return (np.asarray(value) - self.param_min) / (self.param_max - self.param_min)
+
+    def normalize_k(self, k: np.ndarray) -> np.ndarray:
+        return (np.asarray(k) - self.k_min) / (self.k_max - self.k_min)
+
+    def _z_index(self, z: float) -> int:
+        i = int(np.argmin(np.abs(self.z_grid - z)))
+        if abs(self.z_grid[i] - z) > 1e-3:
+            raise ValueError(
+                f"z={z} not in MultiZ spec's z_grid: {self.z_grid}."
+            )
+        return i
+
+    def denormalize_flux(
+        self, flux_norm: np.ndarray, k_target: np.ndarray,
+        z: float | None = None,
+    ) -> np.ndarray:
+        """Per-z `P_F = flux_norm · std_k(z) + mean_k(z)` interpolated onto k_target."""
+        if z is None:
+            raise ValueError("MultiZNormalizationSpec.denormalize_flux requires z.")
+        zi = self._z_index(float(z))
+        flux_norm = np.asarray(flux_norm, dtype=float)
+        k_target = np.asarray(k_target, dtype=float)
+        if flux_norm.shape != k_target.shape:
+            raise ValueError(
+                f"flux_norm shape {flux_norm.shape} must match k_target shape {k_target.shape}."
+            )
+        mean = np.interp(k_target, self.k_grid, self.mean_flux[zi])
+        std = np.interp(k_target, self.k_grid, self.std_flux[zi])
+        return flux_norm * std + mean
 
 
 def from_files(

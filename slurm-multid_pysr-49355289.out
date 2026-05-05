@@ -1,0 +1,134 @@
+[slurm] host=gl3107.arc-ts.umich.edu job=49355289
+[slurm] cpus_per_task=16
+[slurm] OUTPUT_DIR=results/refit_multid_z2.6-4.2
+[slurm] z range=[2.6, 4.2], n_total=256, niter=100
+Multi-D cross-coupled refit:
+  subset: ['ns', 'Ap', 'herei', 'heref', 'alphaq', 'hireionz'] (n=6)
+  fixed:  ['dtau0']
+  z_grid: [2.6, 2.8, 3.0, 3.2, 3.4, 3.6, 3.8, 4.0, 4.2]
+  k-grid: linspace(0.005, 0.064, 32) s/km
+  Sobol n_total=256, niter=100, maxsize=25
+
+Loading kodiaq emulators (LF + HF)...
+[Info] Load the emulator.json parameter file to the emulator.
+Beginning to generate emulator at 2026-05-04 17:58:46.256584
+Loading flux powers from:  /nfs/turbo/umor-yueyingn/mfho/birdgroup/lya_xq100/kodiaq_2_2_4_6-48-48/mf_emulator_flux_vectors_tau1000000.hdf5
+Number of redshifts for emulator generation=13 nk= 172
+Loading pre-trained GP for z:4.6
+Loading pre-trained GP for z:4.4
+Loading pre-trained GP for z:4.2
+Loading pre-trained GP for z:4.0
+Loading pre-trained GP for z:3.8
+Loading pre-trained GP for z:3.6
+Loading pre-trained GP for z:3.4
+Loading pre-trained GP for z:3.2
+Loading pre-trained GP for z:3.0
+Loading pre-trained GP for z:2.8
+Loading pre-trained GP for z:2.6
+Loading pre-trained GP for z:2.4
+Loading pre-trained GP for z:2.2
+Finished generating emulator at 2026-05-04 17:58:49.977522
+[Info] Load the emulator.json parameter file to the emulator.
+Beginning to generate emulator at 2026-05-04 17:58:50.129160
+Loading flux powers from:  /nfs/turbo/umor-yueyingn/mfho/birdgroup/lya_xq100/kodiaq_2_2_4_6-48-48/mf_emulator_flux_vectors_tau1000000.hdf5
+[Info] Load the emulator.json parameter file to the emulator.
+Loading flux powers from:  /nfs/turbo/umor-yueyingn/mfho/birdgroup/lya_xq100/kodiaq_2_2_4_6-48-48/hires/mf_emulator_flux_vectors_tau1000000.hdf5
+Number of redshifts for emulator generation=13 nk= 172
+Loading pre-trained GP for z:4.6
+Loading pre-trained GP for z:4.4
+Loading pre-trained GP for z:4.2
+Loading pre-trained GP for z:4.0
+Loading pre-trained GP for z:3.8
+Loading pre-trained GP for z:3.6
+Loading pre-trained GP for z:3.4
+Loading pre-trained GP for z:3.2
+Loading pre-trained GP for z:3.0
+Loading pre-trained GP for z:2.8
+Loading pre-trained GP for z:2.6
+Loading pre-trained GP for z:2.4
+Loading pre-trained GP for z:2.2
+Finished generating emulator at 2026-05-04 17:59:08.677484
+
+Fitting multi-D PySR...
+Detected IPython. Loading juliacall extension. See https://juliapy.github.io/PythonCall.jl/stable/compat/#IPython
+ /home/mfho/.local/lib/python3.11/site-packages/pysr/sr.py:2265: UserWarning:Note: you are running with more than 10,000 datapoints. You should consider turning on batching (https://ai.damtp.cam.ac.uk/pysr/options/#batching). You should also reconsider if you need that many datapoints. Unless you have a large amount of noise (in which case you should smooth your dataset first), generally < 10,000 datapoints is enough to find a functional form with symbolic regression. More datapoints will lower the search speed.
+ /home/mfho/.local/lib/python3.11/site-packages/pysr/sr.py:2895: UserWarning:`numprocs` is specified but will be ignored since `parallelism='multithreading'`
+ /home/mfho/.local/lib/python3.11/site-packages/pysr/sr.py:1873: UserWarning:Note: Setting `random_state` without also setting `deterministic=True` and `parallelism='serial'` will result in non-deterministic searches.
+  [1053s] complexity=25, flux_norm loss=0.585
+  LF rel-err=2.79% HF rel-err=3.00%
+  eq: (sqrt(x2 * x1) * (1.2668293 - sqrt(x3 * sqrt(x6)))) + ((square(x6) - x7) - ((sqrt(sqrt(x6)) - x0) / 0.3931706))
+[Info] Load the emulator.json parameter file to the emulator.
+Beginning to generate emulator at 2026-05-04 18:16:43.423689
+Loading flux powers from:  /nfs/turbo/umor-yueyingn/mfho/birdgroup/lya_xq100/kodiaq_2_2_4_6-48-48/mf_emulator_flux_vectors_tau1000000.hdf5
+[Info] Load the emulator.json parameter file to the emulator.
+Loading flux powers from:  /nfs/turbo/umor-yueyingn/mfho/birdgroup/lya_xq100/kodiaq_2_2_4_6-48-48/hires/mf_emulator_flux_vectors_tau1000000.hdf5
+Number of redshifts for emulator generation=13 nk= 172
+Loading pre-trained GP for z:4.6
+Loading pre-trained GP for z:4.4
+Loading pre-trained GP for z:4.2
+Loading pre-trained GP for z:4.0
+Loading pre-trained GP for z:3.8
+Loading pre-trained GP for z:3.6
+Loading pre-trained GP for z:3.4
+Loading pre-trained GP for z:3.2
+Loading pre-trained GP for z:3.0
+Loading pre-trained GP for z:2.8
+Loading pre-trained GP for z:2.6
+Loading pre-trained GP for z:2.4
+Loading pre-trained GP for z:2.2
+Finished generating emulator at 2026-05-04 18:17:22.024057
+
+hybrid vs HF GP at fid (max over z): 0.0000%
+
+Fisher params (n=10): ['tau0', 'ns', 'Ap', 'herei', 'heref', 'alphaq', 'hub', 'omegamh2', 'hireionz', 'bhfeedback']
+  fixed: ['dtau0']
+
+Per-z Fisher on 9 z bins...
+  z=2.6 done
+  z=2.8 done
+  z=3.0 done
+  z=3.2 done
+  z=3.4 done
+  z=3.6 done
+  z=3.8 done
+  z=4.0 done
+  z=4.2 done
+  priors: {'hub': 0.015, 'omegamh2': 0.001, 'bhfeedback': 0.005}
+ /home/mfho/lya1d_priya_forecast/src/priya_forecast/fisher.py:172: RuntimeWarning:invalid value encountered in sqrt
+
+# Multi-D cross-coupled forecast (single PySR eq + GP-slice fallback)
+emulator: /nfs/turbo/umor-yueyingn/mfho/birdgroup/lya_xq100/kodiaq_2_2_4_6-48-48
+subset: ['ns', 'Ap', 'herei', 'heref', 'alphaq', 'hireionz']  (handled by joint multi-D PySR eq)
+fixed:  ['dtau0']
+z range: [2.6, 4.2] (z_grid=[2.6, 2.8, 3.0, 3.2, 3.4, 3.6, 3.8, 4.0, 4.2])
+k-grid: linspace(0.005, 0.064, 32) s/km, cov: 5.0%·P_F(fid, k) per z.
+priors: {'hub': 0.015, 'omegamh2': 0.001, 'bhfeedback': 0.005}
+hybrid vs HF GP at fid: 0.0000%
+multi-D eq complexity: 25, flux_norm loss: 0.585
+
+| param | in subset? | GP σ | hybrid σ | hybrid/GP ratio |
+|---|---|---|---|---|
+| tau0 | GP-slice | 0.0159 | 0.0181 | **1.14×** |
+| ns | ✓ multi-D | 0.0258 | nan | **nan×** |
+| Ap | ✓ multi-D | 0.11 | 9.58e+06 | **87021178.94×** |
+| herei | ✓ multi-D | 0.0677 | nan | **nan×** |
+| heref | ✓ multi-D | 0.206 | nan | **nan×** |
+| alphaq | ✓ multi-D | 0.241 | 6.28e+19 | **260791642155434770432.00×** |
+| hub | GP-slice | 0.00591 | 0.00589 | **1.00×** |
+| omegamh2 | GP-slice | 0.000956 | 0.000922 | **0.96×** |
+| hireionz | ✓ multi-D | 0.675 | 5.54e+19 | **82096044201251127296.00×** |
+| bhfeedback | GP-slice | 0.00468 | 0.00451 | **0.96×** |
+
+## Target subset ('Ap', 'ns', 'tau0', 'dtau0')
+  - **Ap**: ratio = 87021178.94× (multi-D)
+  - **ns**: ratio = nan× (multi-D)
+  - **tau0**: ratio = 1.14× (GP-slice)
+  - **dtau0**: fixed at fid=0
+
+Multi-D equation: results/refit_multid_z2.6-4.2/multid_equation.md
+Scorecard: results/refit_multid_z2.6-4.2/scorecard.md
+Fisher: results/refit_multid_z2.6-4.2/fisher.npz
+ /home/mfho/lya1d_priya_forecast/src/priya_forecast/plotting.py:58: RuntimeWarning:invalid value encountered in sqrt
+ /home/mfho/lya1d_priya_forecast/src/priya_forecast/plotting.py:58: RuntimeWarning:invalid value encountered in sqrt
+Corner: results/refit_multid_z2.6-4.2/corner.{pdf,png}
+[slurm] multi-D refit done

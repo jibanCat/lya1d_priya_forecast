@@ -101,8 +101,16 @@ def main():
                    help="YAML defining the HPOSearchSpace (configs/hpo/{quick,full}.yaml).")
     p.add_argument("--strategy", choices=["grid", "random", "bayesian"], default="random")
     p.add_argument("--n-trials", type=int, default=6)
-    p.add_argument("--metric", default="val_mse")
+    p.add_argument("--metric", default="val_mse",
+                   help="val_mse | complexity_at_target | pareto_area | "
+                        "fisher_agreement | sigma_targeted")
     p.add_argument("--target-loss", type=float, default=1e-3)
+    p.add_argument("--fisher-aware", action="store_true",
+                   help="Compute df/dθ vs GP at fid for each result.")
+    p.add_argument("--sigma-targeted", action="store_true",
+                   help="Run the full Fisher forecast per config and store "
+                        "σ_pysr/σ_GP in extra_metrics. Slower (one Fisher "
+                        "solve per config) but directly optimizes σ.")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--output", type=Path, required=True)
     args = p.parse_args()
@@ -111,6 +119,9 @@ def main():
     space_cfg = load_hpo_config(args.space)
     space = HPOSearchSpace(**space_cfg.space)
 
+    gp = None
+    fid = None
+    k_eboss = None
     if args.data is not None:
         d = np.load(args.data)
         X_tr, y_tr = d["X_train"], d["y_train"]
@@ -122,6 +133,7 @@ def main():
         print("Loading real PRIYA GP emulator...")
         gp = GPModel()
         k_eboss, _, _ = load_eboss(z=args.z)
+        fid = np.array(fiducial_vector(), dtype=float)
         print(f"Building Sobol training set for {args.param} at z={args.z}...")
         X_tr, y_tr, X_va, y_va = _build_priya_dataset(
             gp=gp, param=args.param, n_train=args.n_train,
@@ -131,25 +143,137 @@ def main():
 
     print(f"Running HPO: strategy={args.strategy}, n_trials={args.n_trials}, "
           f"metric={args.metric}")
+    trainer = None
+    if (args.sigma_targeted or args.metric == "sigma_targeted"):
+        if args.param is None:
+            raise SystemExit("--sigma-targeted requires --param so we can run the forecast.")
+        from priya_forecast.pysr_hpo import _default_pysr_trainer, make_sigma_targeted_trainer
+        from priya_forecast.config import EqnConfig, EqnParam
+        from priya_forecast.fisher import fisher_matrix
+        from priya_forecast.likelihood import GaussianLikelihood
+        from priya_forecast.models import PySRModel
+        from priya_forecast.models.base import P1DModel
+        from priya_forecast.parameters import PARAMS_11D, get_param
+
+        p = get_param(args.param)
+        sub = (next(pp for pp in PARAMS_11D if pp.name == args.param),)
+        idx = PARAM_NAMES.index(args.param)
+
+        # GP reference σ (one-time)
+        class _Proj(P1DModel):
+            def __init__(self, base): self.base = base
+            def predict(self, t, k, z):
+                full = fid.copy(); full[idx] = t[0]
+                return self.base.predict(full, k, z)
+        proj_gp = _Proj(gp)
+        lk_gp = GaussianLikelihood(model=proj_gp, z=args.z, mock_data="gp",
+                                   theta_fid=np.array([p.fid]))
+        sigma_gp = float(fisher_matrix(
+            likelihood=lk_gp, theta_fid=np.array([p.fid]), params=sub,
+            step_frac=0.02, rel_tol=0.05, max_halvings=2,
+        ).sigma[0])
+
+        # Fid .npz path for the framework
+        fid_npz = args.output / "_fid.npz"
+        np.savez(fid_npz, k=k_eboss, p1d=gp.predict(fid, k_eboss, args.z))
+
+        def sigma_evaluator(eq_str: str) -> float:
+            """Plug eq_str (in x0/x1 PySR convention) into the multiplicative
+            forecast for the chosen --param, return σ_pysr / σ_GP."""
+            # Translate x0 → ((param - lo)/(hi-lo)), x1 → ((k - kmin)/kspan).
+            kmin, kspan = float(k_eboss.min()), float(k_eboss.max() - k_eboss.min())
+            phys = (eq_str
+                    .replace("x0", f"(({args.param} - {p.prior[0]})/{p.width()})")
+                    .replace("x1", f"((k - {kmin})/{kspan})"))
+            parameters = {
+                n: EqnParam(fiducial=get_param(n).fid, expression="1", variables=[n,"k"])
+                for n in PARAM_NAMES
+            }
+            parameters[args.param] = EqnParam(fiducial=p.fid, expression=phys,
+                                              variables=[args.param, "k"])
+            cfg = EqnConfig(name="sigma_eval", redshift=args.z, model="pysr",
+                            combine="multiplicative", fiducial_p1d=str(fid_npz),
+                            parameters=parameters)
+            m = PySRModel(eqn_cfg=cfg, k_grid=k_eboss,
+                          normalization_block={"mode": "identity"})
+            proj = _Proj(m)
+            lk = GaussianLikelihood(model=proj, z=args.z, mock_data="gp",
+                                    theta_fid=np.array([p.fid]))
+            sigma_pysr = float(fisher_matrix(
+                likelihood=lk, theta_fid=np.array([p.fid]), params=sub,
+                step_frac=0.02, rel_tol=0.05, max_halvings=2,
+            ).sigma[0])
+            return sigma_pysr / sigma_gp
+
+        trainer = make_sigma_targeted_trainer(
+            base_trainer=_default_pysr_trainer,
+            sigma_evaluator=sigma_evaluator,
+        )
+        print(f"  sigma-targeted trainer enabled. σ_GP = {sigma_gp:.4g}")
+    elif args.fisher_aware or args.metric == "fisher_agreement":
+        if args.param is None:
+            raise SystemExit("--fisher-aware requires --param so we can compute "
+                             "the GP gradient at fid.")
+        from priya_forecast.pysr_hpo import _default_pysr_trainer, make_fisher_aware_trainer
+        from priya_forecast.parameters import get_param
+
+        # Compute the GP's df/dθ at fid evaluated on each k-eval point.
+        p = get_param(args.param)
+        h_phys = 1e-3 * p.width()
+        idx = PARAM_NAMES.index(args.param)
+        t_p = fid.copy(); t_p[idx] += h_phys
+        t_m = fid.copy(); t_m[idx] -= h_phys
+        gp_grad_phys = (gp.predict(t_p, k_eboss, args.z) -
+                        gp.predict(t_m, k_eboss, args.z)) / (2 * h_phys)
+        # Convert to gradient per *normalized* theta unit (the equation's units).
+        gp_grad_norm = gp_grad_phys * p.width()
+        # fid_X: column 0 = theta_norm at fid, column 1 = k_norm.
+        fid_norm = (p.fid - p.prior[0]) / p.width()
+        k_norm_grid = (k_eboss - k_eboss.min()) / (k_eboss.max() - k_eboss.min())
+        fid_X = np.column_stack([np.full_like(k_norm_grid, fid_norm), k_norm_grid])
+        trainer = make_fisher_aware_trainer(
+            base_trainer=_default_pysr_trainer,
+            gradient_target=gp_grad_norm, fid_X=fid_X,
+        )
+        print(f"  fisher-aware trainer enabled. GP df/dθ_norm at fid range = "
+              f"{gp_grad_norm.min():.3g} .. {gp_grad_norm.max():.3g}")
+
     results = run_hpo(
         X_train=X_tr, y_train=y_tr, X_val=X_va, y_val=y_va,
         space=space, strategy=args.strategy, n_trials=args.n_trials,
         metric=args.metric, target_loss=args.target_loss,
         seed=args.seed, cache_dir=args.output / "cache",
+        trainer=trainer,
     )
 
     plot_hpo_results(results, outdir=args.output, metric=args.metric,
                      target_loss=args.target_loss)
 
     # Markdown scorecard.
-    lines = ["| rank | val_loss | wall_time | maxsize | niter | parsimony | best_expr |",
-             "|---|---|---|---|---|---|---|"]
+    has_fisher = any("fisher_residual" in r.extra_metrics for r in results)
+    has_sigma = any("sigma_ratio" in r.extra_metrics for r in results)
+    headers = ["rank", "val_loss"]
+    if has_fisher:
+        headers.append("fisher_resid")
+    if has_sigma:
+        headers.append("σ_ratio")
+    headers += ["wall_time", "maxsize", "niter", "parsimony", "best_expr"]
+    lines = ["| " + " | ".join(headers) + " |", "|" + "|".join(["---"] * len(headers)) + "|"]
     for i, r in enumerate(results[:10]):
-        lines.append(
-            f"| {i+1} | {r.val_loss:.3g} | {r.wall_time_s:.1f}s | "
-            f"{r.config['maxsize']} | {r.config['niterations']} | "
-            f"{r.config['parsimony']:.0e} | `{r.best_expression[:50]}...` |"
-        )
+        row = [str(i + 1), f"{r.val_loss:.3g}"]
+        if has_fisher:
+            fr = r.extra_metrics.get("fisher_residual", float("nan"))
+            row.append(f"{fr:.3g}" if np.isfinite(fr) else "inf")
+        if has_sigma:
+            sr = r.extra_metrics.get("sigma_ratio", float("nan"))
+            row.append(f"{sr:.3g}" if np.isfinite(sr) else "inf")
+        row += [
+            f"{r.wall_time_s:.1f}s",
+            str(r.config["maxsize"]), str(r.config["niterations"]),
+            f"{r.config['parsimony']:.0e}",
+            f"`{r.best_expression[:60]}...`",
+        ]
+        lines.append("| " + " | ".join(row) + " |")
     (args.output / "hpo_top10.md").write_text("\n".join(lines))
     print("\n".join(lines))
     print(f"\nFigures + cache + scorecard at {args.output}")

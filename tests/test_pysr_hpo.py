@@ -324,6 +324,138 @@ def test_property_random_sample_size_matches_request(n: int, seed: int):
     assert len(cfgs) == n
 
 
+def test_fisher_aware_trainer_decorates_with_fisher_residual():
+    """make_fisher_aware_trainer wraps a base trainer so each result
+    carries `extra_metrics['fisher_residual']`."""
+    from priya_forecast.pysr_hpo import make_fisher_aware_trainer
+
+    rng = np.random.default_rng(0)
+    n = 80
+    X = rng.uniform(0, 1, size=(n, 2))
+    # Truth: y = 5*x0 + x1**2  → df/dx0 = 5 everywhere.
+    y = 5.0 * X[:, 0] + X[:, 1] ** 2
+
+    def _stub_returning_5tuple(*, X_train, y_train, X_val, y_val, config, seed):
+        # Return a trivial "perfect" equation so we can verify the wrapper
+        # math without dragging real PySR in.
+        return 0.0, 0.0, [3], [0.0], "5.0*x0 + x1**2"
+
+    # Target gradient: 5.0 at every k-eval point.
+    n_eval = 12
+    fid_X = np.column_stack([np.full(n_eval, 0.5), np.linspace(0, 1, n_eval)])
+    grad_target = np.full(n_eval, 5.0)
+
+    fisher_trainer = make_fisher_aware_trainer(
+        base_trainer=_stub_returning_5tuple,
+        gradient_target=grad_target,
+        fid_X=fid_X,
+    )
+    out = fisher_trainer(
+        X_train=X[:60], y_train=y[:60],
+        X_val=X[60:], y_val=y[60:], config={}, seed=0,
+    )
+    assert len(out) == 6
+    extra = out[5]
+    assert "fisher_residual" in extra
+    # Equation's df/dx0 is exactly 5 → residual should be ~0.
+    assert extra["fisher_residual"] < 1e-10
+
+
+def test_fisher_aware_trainer_flags_wrong_gradient():
+    """If the equation's gradient doesn't match the target, residual > 0."""
+    from priya_forecast.pysr_hpo import make_fisher_aware_trainer
+
+    def _stub(**kw):
+        # Equation: y = 2*x0 + x1**2  → df/dx0 = 2 (target wants 5).
+        return 0.0, 0.0, [3], [0.0], "2.0*x0 + x1**2"
+
+    n_eval = 12
+    fid_X = np.column_stack([np.full(n_eval, 0.5), np.linspace(0, 1, n_eval)])
+    grad_target = np.full(n_eval, 5.0)
+
+    fisher_trainer = make_fisher_aware_trainer(
+        base_trainer=_stub, gradient_target=grad_target, fid_X=fid_X,
+    )
+    _, _, _, _, _, extra = fisher_trainer(
+        X_train=np.zeros((10, 2)), y_train=np.zeros(10),
+        X_val=np.zeros((10, 2)), y_val=np.zeros(10),
+        config={}, seed=0,
+    )
+    # |df/dx0 - target|² = |2 - 5|² = 9 at every point → residual ≈ 9.
+    assert 8.5 < extra["fisher_residual"] < 9.5
+
+
+def test_sigma_targeted_trainer_uses_evaluator_to_score():
+    from priya_forecast.pysr_hpo import (
+        HPOSearchSpace, make_sigma_targeted_trainer, run_hpo,
+    )
+
+    # Trainers return slope = maxsize/4 in their equation;
+    # the evaluator turns "k*S" into σ_ratio = 1/(S/4) so smaller maxsize → larger ratio.
+    def _stub(**kw):
+        slope = kw["config"]["maxsize"] / 4.0
+        return (1.0, 1.0, [3], [1.0], f"{slope}*x0")
+
+    def _evaluator(expr_str):
+        # Parse the leading constant from "S*x0".
+        s = float(expr_str.split("*")[0])
+        return 4.0 / s  # so maxsize=4 → ratio=4, maxsize=20 → ratio=0.8 (closest to 1)
+
+    trainer = make_sigma_targeted_trainer(base_trainer=_stub, sigma_evaluator=_evaluator)
+    space = HPOSearchSpace(
+        maxsize=[4, 20, 40], niterations=[40], populations=[15],
+        population_size=[33], parsimony=[1e-3],
+        binary_operators=[["+"]], unary_operators=[[]],
+    )
+    results = run_hpo(
+        X_train=np.zeros((10, 2)), y_train=np.zeros(10),
+        X_val=np.zeros((10, 2)), y_val=np.zeros(10),
+        space=space, strategy="grid", trainer=trainer,
+        metric="sigma_targeted",
+    )
+    # ratios: maxsize=4 → 4.0 (off by 3), maxsize=20 → 0.8 (closest to 1),
+    # maxsize=40 → 0.4 (off by 0.6). 0.8 ranks first.
+    assert results[0].config["maxsize"] == 20
+    assert abs(results[0].extra_metrics["sigma_ratio"] - 0.8) < 1e-10
+
+
+def test_run_hpo_with_fisher_agreement_metric_picks_best_gradient():
+    """run_hpo with metric='fisher_agreement' sorts by gradient residual,
+    not val_mse. Verify that the result with the smallest fisher_residual
+    is ranked first."""
+    from priya_forecast.pysr_hpo import (
+        HPOSearchSpace, make_fisher_aware_trainer, run_hpo,
+    )
+
+    # Two stub trainers: each gives a different equation depending on config.
+    def _stub(*, X_train, y_train, X_val, y_val, config, seed):
+        # Slope of df/dx0 = config["maxsize"] / 4 (varies with config).
+        slope = config["maxsize"] / 4.0
+        # Same val_mse for all — only the gradient differs.
+        return (1.0, 1.0, [3], [1.0], f"{slope}*x0 + x1**2", )
+
+    n_eval = 12
+    fid_X = np.column_stack([np.full(n_eval, 0.5), np.linspace(0, 1, n_eval)])
+    grad_target = np.full(n_eval, 5.0)
+    trainer = make_fisher_aware_trainer(
+        base_trainer=_stub, gradient_target=grad_target, fid_X=fid_X,
+    )
+    space = HPOSearchSpace(
+        maxsize=[8, 20, 40],   # slopes: 2, 5, 10
+        niterations=[40], populations=[15], population_size=[33],
+        parsimony=[1e-3], binary_operators=[["+"]], unary_operators=[[]],
+    )
+    results = run_hpo(
+        X_train=np.zeros((10, 2)), y_train=np.zeros(10),
+        X_val=np.zeros((10, 2)), y_val=np.zeros(10),
+        space=space, strategy="grid", trainer=trainer,
+        metric="fisher_agreement",
+    )
+    # maxsize=20 → slope=5 → fisher_residual=0 → ranks first.
+    assert results[0].config["maxsize"] == 20
+    assert results[0].extra_metrics["fisher_residual"] < 1e-10
+
+
 @given(seed=st.integers(min_value=0, max_value=999))
 @settings(max_examples=5, deadline=None)
 def test_property_hpo_results_sorted_by_metric(seed: int):

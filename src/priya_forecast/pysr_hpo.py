@@ -105,8 +105,31 @@ class HPOResult:
     wall_time_s: float
     pareto_complexities: list[int] = field(default_factory=list)
     pareto_losses: list[float] = field(default_factory=list)
+    extra_metrics: dict[str, Any] = field(default_factory=dict)
 
-    def metric(self, name: str, *, target_loss: float | None = None) -> float:
+    def __setstate__(self, state: dict) -> None:
+        """Ensure backward-compatible unpickling of cached HPOResult objects.
+
+        Older pickles pre-date the ``extra_metrics`` field; restore the
+        default so consumers never see an AttributeError.
+        """
+        state.setdefault("extra_metrics", {})
+        self.__dict__.update(state)
+
+    def metric(self, name: str, *, target_loss: float | None = None,
+               fisher_residual: float | None = None) -> float:
+        """Score this trial under the named metric (lower = better).
+
+        Recognised names:
+          - "val_mse"             : raw validation MSE.
+          - "complexity_at_target" : min Pareto complexity with loss ≤ target.
+          - "pareto_area"          : ∫ log10(loss) d(complexity) along Pareto.
+          - "fisher_agreement"     : mean-square error of the equation's
+                                     gradient at fid vs the GP's. Requires
+                                     callers to populate
+                                     ``self.extra_metrics["fisher_residual"]``
+                                     (or pass it explicitly here).
+        """
         if name == "val_mse":
             return float(self.val_loss)
         if name == "complexity_at_target":
@@ -121,7 +144,30 @@ class HPOResult:
             cs = np.asarray(self.pareto_complexities, dtype=float)
             ls = np.log10(np.maximum(np.asarray(self.pareto_losses), 1e-30))
             order = np.argsort(cs)
-            return float(np.trapz(ls[order], cs[order]))
+            # np.trapz was removed in NumPy 2.x; scipy.integrate.trapezoid
+            # is identical and available in scipy >= 1.0.
+            from scipy.integrate import trapezoid
+            return float(trapezoid(ls[order], cs[order]))
+        if name == "fisher_agreement":
+            v = fisher_residual
+            if v is None:
+                v = (self.extra_metrics or {}).get("fisher_residual")
+            if v is None:
+                raise ValueError(
+                    "fisher_agreement requires fisher_residual either as "
+                    "kwarg or stored in self.extra_metrics."
+                )
+            return float(v)
+        if name == "sigma_targeted":
+            ratio = (self.extra_metrics or {}).get("sigma_ratio")
+            if ratio is None:
+                raise ValueError(
+                    "sigma_targeted requires `sigma_ratio` in extra_metrics. "
+                    "Use make_sigma_targeted_trainer() to populate it."
+                )
+            if not np.isfinite(ratio):
+                return float("inf")
+            return float((ratio - 1.0) ** 2)
         raise ValueError(f"Unknown metric {name!r}.")
 
 
@@ -147,9 +193,18 @@ def _hash_config(config: dict, X_train: np.ndarray, y_train: np.ndarray) -> str:
 
 def _default_pysr_trainer(
     *, X_train, y_train, X_val, y_val, config, seed,
-) -> tuple[float, float, list[int], list[float], str]:
-    """Train one PySR config and return
-    (train_loss, val_loss, pareto_complexities, pareto_losses, best_expression)."""
+):
+    """Train one PySR config.
+
+    Returns a 6-tuple:
+      (train_loss, val_loss, pareto_complexities, pareto_losses,
+       best_expression, extra_metrics)
+
+    `extra_metrics` is an optional dict of additional metrics computed
+    post-fit (empty by default; populated by `make_fisher_aware_trainer`).
+    Older trainers returning only the first 5 elements are accepted by
+    `run_hpo`.
+    """
     from pysr import PySRRegressor  # type: ignore[import-not-found]
 
     args = dict(
@@ -175,7 +230,161 @@ def _default_pysr_trainer(
         pareto["complexity"].astype(int).tolist(),
         pareto["loss"].astype(float).tolist(),
         str(pareto.iloc[pareto["loss"].idxmin()]["equation"]),
+        {},
     )
+
+
+def make_sigma_targeted_trainer(
+    *,
+    base_trainer: Callable | None = None,
+    sigma_evaluator: Callable[[str], float],
+):
+    """Wrap a base PySR trainer so each fit ALSO computes σ_pysr / σ_GP via
+    a user-supplied evaluator that runs the actual forecast Fisher.
+
+    `sigma_evaluator(equation_str)` should return the σ ratio (1.0 = perfect).
+    Stored in `extra_metrics["sigma_ratio"]` so the metric
+    `"sigma_targeted"` can sort by `(sigma_ratio - 1)²`.
+
+    This is more expensive than `make_fisher_aware_trainer` (one extra
+    Fisher solve per config) but it directly optimizes what the forecast
+    cares about. For 1D forecasts this is ~ms; for higher-D, seconds.
+    """
+    if base_trainer is None:
+        base_trainer = _default_pysr_trainer
+
+    def _trainer(*, X_train, y_train, X_val, y_val, config, seed):
+        out = base_trainer(
+            X_train=X_train, y_train=y_train,
+            X_val=X_val, y_val=y_val, config=config, seed=seed,
+        )
+        if len(out) == 5:
+            train_loss, val_loss, complexities, losses, best_expr = out
+            extra: dict[str, Any] = {}
+        else:
+            train_loss, val_loss, complexities, losses, best_expr, extra = out
+        try:
+            ratio = float(sigma_evaluator(best_expr))
+            extra["sigma_ratio"] = ratio
+        except Exception as e:  # noqa: BLE001
+            extra["sigma_ratio"] = float("inf")
+            extra["sigma_eval_error"] = str(e)
+        return train_loss, val_loss, complexities, losses, best_expr, extra
+
+    return _trainer
+
+
+def make_fisher_aware_trainer(
+    *,
+    base_trainer: Callable | None = None,
+    gradient_target: np.ndarray,
+    fid_X: np.ndarray,
+    h: float = 1e-3,
+):
+    """Wrap a base PySR trainer so each fit also computes the gradient
+    residual at fid vs a target (e.g. the GP's gradient).
+
+    Parameters
+    ----------
+    base_trainer : callable, optional
+        Underlying trainer; defaults to `_default_pysr_trainer`.
+    gradient_target : ndarray, shape (n_eval_points,)
+        The reference gradient ∂P/∂θ to match, evaluated at each row of
+        `fid_X`. For 1D forecast, this is the GP's df/dθ along the
+        eBOSS k-grid (one number per k-bin) at fid.
+    fid_X : ndarray, shape (n_eval_points, n_features)
+        Inputs at which to evaluate the equation's gradient. Convention:
+        column 0 is the parameter (held at fid_norm), columns 1+ are k_norm
+        and any other inputs. Gradient is taken w.r.t. column 0 only.
+    h : float
+        Finite-difference step in normalized-input units.
+
+    Returns
+    -------
+    trainer callable that returns the same 6-tuple as `_default_pysr_trainer`
+    but with `extra_metrics={"fisher_residual": ...}`.
+    """
+    if base_trainer is None:
+        base_trainer = _default_pysr_trainer
+
+    def _trainer(*, X_train, y_train, X_val, y_val, config, seed):
+        # Train normally.
+        out = base_trainer(
+            X_train=X_train, y_train=y_train,
+            X_val=X_val, y_val=y_val, config=config, seed=seed,
+        )
+        # Older trainers return 5-tuples; pad to 6.
+        if len(out) == 5:
+            train_loss, val_loss, complexities, losses, best_expr = out
+            extra: dict[str, Any] = {}
+        else:
+            train_loss, val_loss, complexities, losses, best_expr, extra = out
+
+        # Need the trained PySRRegressor to evaluate gradients at fid.
+        # Re-train just at the best Pareto point — cheap because we cache
+        # the same config + data hash; default trainer holds the model in
+        # memory but doesn't return it. Cleanest is to re-import and refit
+        # at the chosen complexity. For simplicity here, reconstruct
+        # gradients by parsing the equation through sympy.
+        try:
+            import sympy as sp
+            expr = sp.sympify(best_expr)
+            # Map x0, x1, ... to their column indices. Any other free symbols
+            # (e.g. `r` in published equations) are kept as additional inputs
+            # that the caller can fix via `fid_X` extra columns or — if
+            # absent from fid_X — pinned to 0 here.
+            xcols = sorted(
+                [s for s in expr.free_symbols if s.name.startswith("x")],
+                key=lambda s: int(s.name[1:]),
+            )
+            other = sorted(
+                [s for s in expr.free_symbols if not s.name.startswith("x")],
+                key=lambda s: s.name,
+            )
+            eval_points = np.asarray(fid_X)
+            if eval_points.ndim == 1:
+                eval_points = eval_points[:, None]
+            n_in = eval_points.shape[1]
+            if not xcols:
+                extra["fisher_residual"] = float("inf")
+            else:
+                # Build a vectorized callable taking the n_in columns of
+                # fid_X. Any extra `other` symbols default to 0.
+                # Include inv->1/x so PySR's custom 'inv' function (commonly
+                # emitted in Pareto-optimal eqs) evaluates correctly instead
+                # of raising a NameError that silently sets fisher_residual=inf.
+                all_syms = list(xcols) + other
+                _pysr_modules = [{"inv": np.reciprocal}, "numpy"]
+                fn = sp.lambdify(all_syms, expr, modules=_pysr_modules)
+
+                def _eval(X):
+                    args = []
+                    for s in xcols:
+                        col = int(s.name[1:])
+                        if col < n_in:
+                            args.append(X[:, col])
+                        else:
+                            args.append(np.zeros(X.shape[0]))
+                    for _ in other:
+                        args.append(np.zeros(X.shape[0]))
+                    return np.asarray(fn(*args)).ravel()
+
+                Xp = eval_points.copy(); Xp[:, 0] += h
+                Xm = eval_points.copy(); Xm[:, 0] -= h
+                df = (_eval(Xp) - _eval(Xm)) / (2 * h)
+                target = np.asarray(gradient_target).ravel()
+                if df.shape == target.shape:
+                    extra["fisher_residual"] = float(np.mean((df - target) ** 2))
+                else:
+                    extra["fisher_residual"] = float("inf")
+                    extra["fisher_shape_mismatch"] = f"df={df.shape} target={target.shape}"
+        except Exception as e:  # noqa: BLE001
+            extra["fisher_residual"] = float("inf")
+            extra["fisher_residual_error"] = str(e)
+
+        return (train_loss, val_loss, complexities, losses, best_expr, extra)
+
+    return _trainer
 
 
 # ---------------------------------------------------------------------------
@@ -265,11 +474,16 @@ def run_hpo(
                 continue
 
         t0 = time.time()
-        train_loss, val_loss, complexities, losses, best_expr = trainer(
+        out = trainer(
             X_train=X_train, y_train=y_train,
             X_val=X_val, y_val=y_val, config=cfg, seed=seed,
         )
         wt = time.time() - t0
+        if len(out) == 5:
+            train_loss, val_loss, complexities, losses, best_expr = out
+            extra_metrics: dict[str, float] = {}
+        else:
+            train_loss, val_loss, complexities, losses, best_expr, extra_metrics = out
         best_idx = int(np.argmin(losses)) if losses else 0
         result = HPOResult(
             config=cfg,
@@ -282,6 +496,7 @@ def run_hpo(
             wall_time_s=wt,
             pareto_complexities=list(complexities),
             pareto_losses=list(losses),
+            extra_metrics=dict(extra_metrics or {}),
         )
         if cache_path is not None:
             with open(cache_path, "wb") as f:
@@ -330,11 +545,16 @@ def _bayesian_configs(
                 return cached.val_loss
 
         t0 = time.time()
-        train_loss, val_loss, complexities, losses, best_expr = trainer(
+        out = trainer(
             X_train=X_train, y_train=y_train,
             X_val=X_val, y_val=y_val, config=cfg, seed=seed,
         )
         wt = time.time() - t0
+        if len(out) == 5:
+            train_loss, val_loss, complexities, losses, best_expr = out
+            extra_m: dict[str, Any] = {}
+        else:
+            train_loss, val_loss, complexities, losses, best_expr, extra_m = out
         best_idx = int(np.argmin(losses)) if losses else 0
         r = HPOResult(
             config=cfg, train_loss=train_loss, val_loss=val_loss, test_loss=None,
@@ -342,6 +562,7 @@ def _bayesian_configs(
             pareto_loss=float(losses[best_idx]) if losses else float("inf"),
             best_expression=best_expr, wall_time_s=wt,
             pareto_complexities=list(complexities), pareto_losses=list(losses),
+            extra_metrics=dict(extra_m),
         )
         if cache_path is not None:
             with open(cache_path, "wb") as f:

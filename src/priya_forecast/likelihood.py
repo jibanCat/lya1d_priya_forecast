@@ -48,8 +48,32 @@ def _build_inputs(
     mock_data: str,
     model: P1DModel,
     theta_fid: np.ndarray,
+    k_grid: np.ndarray | None = None,
+    cov_diag_frac: float | None = None,
 ) -> LikelihoodInputs:
-    k_eboss, pf_eboss, cov_eboss = load_eboss(z=z)
+    if (k_grid is None) != (cov_diag_frac is None):
+        raise ValueError(
+            "_build_inputs: k_grid and cov_diag_frac must be either both "
+            "None (eBOSS fallback) or both provided (synthetic diagonal "
+            f"cov). Got k_grid={'None' if k_grid is None else 'array'}, "
+            f"cov_diag_frac={cov_diag_frac!r}."
+        )
+    if k_grid is not None and cov_diag_frac is not None:
+        # Synthetic diagonal cov for non-eBOSS k-grids (e.g. KODIAQ
+        # production: k=0.005-0.064 s/km). σ_k = cov_diag_frac · P_F(fid, k).
+        k_eboss = np.asarray(k_grid, dtype=float)
+        m_fid = model.predict(theta_fid, k_eboss, z)
+        if not np.all(np.isfinite(m_fid)):
+            raise FloatingPointError("Model prediction at fid contains NaN/inf.")
+        # Floor sigma so a (near-)zero P_F(fid) doesn't produce a singular
+        # diagonal cov; use a small fraction of the median |P_F| as the floor.
+        med = float(np.median(np.abs(m_fid)))
+        sigma_floor = max(1e-30, med * 1e-12)
+        sigma = np.maximum(float(cov_diag_frac) * np.abs(m_fid), sigma_floor)
+        cov_eboss = np.diag(sigma ** 2)
+        pf_eboss = m_fid.copy()
+    else:
+        k_eboss, pf_eboss, cov_eboss = load_eboss(z=z)
     cov = cov_eboss * float(cov_scale)
     if mock_data == "eboss":
         d = pf_eboss
@@ -106,6 +130,8 @@ class GaussianLikelihood:
         cov_scale: float = 1.0,
         mock_data: str = "gp",
         theta_fid: np.ndarray | None = None,
+        k_grid: np.ndarray | None = None,
+        cov_diag_frac: float | None = None,
     ) -> None:
         self.model = model
         self.z = z
@@ -119,7 +145,10 @@ class GaussianLikelihood:
             raise ValueError(
                 f"theta_fid must be 1D non-empty, got shape {self.theta_fid.shape}."
             )
-        self.inputs = _build_inputs(z, cov_scale, mock_data, model, self.theta_fid)
+        self.inputs = _build_inputs(
+            z, cov_scale, mock_data, model, self.theta_fid,
+            k_grid=k_grid, cov_diag_frac=cov_diag_frac,
+        )
 
     # --- forward model ---------------------------------------------------
 
