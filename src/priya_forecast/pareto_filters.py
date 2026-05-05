@@ -103,3 +103,56 @@ def is_eq_well_behaved(
 def feature_count(eq_str: str, n_features: int) -> int:
     """Number of distinct `xN` features (N < n_features) referenced in the eq."""
     return sum(1 for i in range(n_features) if f"x{i}" in eq_str)
+
+
+def is_fisher_stencil_safe(
+    eq_str: str,
+    n_features: int,
+    *,
+    fid_point: np.ndarray | None = None,
+    h_values: tuple[float, ...] = (-0.1, -0.05, 0.05, 0.1),
+) -> bool:
+    """Check the eq doesn't blow up when each input is perturbed near `fid_point`.
+
+    Mimics what `fisher.fisher_matrix._stencil_derivative` does: at the
+    fiducial input, perturb each dimension by ±h and evaluate. If any
+    perturbed evaluation is non-finite, the Fisher derivative will be
+    NaN/inf.
+
+    Catches equations like `θ_heref / (θ_Ap * c)` where `θ_Ap`-norm at
+    the prior lower edge → 0 makes the eq blow up under stencil.
+
+    Default `fid_point`: 0.5 in each input dim (works because all our
+    inputs are min-max-normalized to [0, 1]; θ at fid is roughly
+    centered).
+    """
+    import sympy as sp
+    if fid_point is None:
+        fid_point = np.full(n_features, 0.5, dtype=float)
+    fid_point = np.asarray(fid_point, dtype=float)
+    if fid_point.shape != (n_features,):
+        raise ValueError(
+            f"fid_point shape {fid_point.shape} != ({n_features},)."
+        )
+    try:
+        expr = sp.sympify(eq_str)
+        all_syms = [sp.Symbol(f"x{i}") for i in range(n_features)]
+        fn = sp.lambdify(
+            all_syms, expr,
+            modules=[{"inv": lambda x: 1.0 / x}, "numpy"],
+        )
+    except Exception:
+        return False
+
+    for d in range(n_features):
+        for h in h_values:
+            point = fid_point.copy()
+            point[d] = fid_point[d] + h
+            try:
+                with np.errstate(all="ignore"):
+                    val = float(fn(*point))
+            except Exception:
+                return False
+            if not np.isfinite(val):
+                return False
+    return True

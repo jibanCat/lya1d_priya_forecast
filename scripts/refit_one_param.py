@@ -68,12 +68,10 @@ def _fit_once(
     model.fit(X_act, Y_act.reshape(-1, 1))
     elapsed = time.time() - t0
     pareto = model.equations_
-    # Pareto-pick filters: x0 must be present, no pathological |c|>100
-    # literal constants, eq must evaluate to finite values bounded by
-    # 100×y_range over the training set (catches sqrt(sqrt(k/(θ+θ)))
-    # blow-ups). See `pareto_filters.py` for the helpers.
+    # Pareto-pick filters: x0 present + no |c|>100 literals + finite over
+    # training X + Fisher-stencil safe. See `pareto_filters.py`.
     from priya_forecast.pareto_filters import (
-        has_pathological_constant, is_eq_well_behaved,
+        has_pathological_constant, is_eq_well_behaved, is_fisher_stencil_safe,
     )
     n_features = X_act.shape[1]
     eq_strs = pareto["equation"].astype(str)
@@ -82,9 +80,14 @@ def _fit_once(
     well_behaved = eq_strs.apply(
         lambda s: is_eq_well_behaved(s, X_act, Y_act.ravel(), n_features=n_features)
     )
-    sane_x0 = x0_mask & (~pathological) & well_behaved
+    stencil_safe = eq_strs.apply(
+        lambda s: is_fisher_stencil_safe(s, n_features=n_features)
+    )
+    sane_x0 = x0_mask & (~pathological) & well_behaved & stencil_safe
     if bool(sane_x0.any()):
         best_idx = int(pareto.loc[sane_x0, "loss"].idxmin())
+    elif bool((x0_mask & well_behaved & stencil_safe).any()):
+        best_idx = int(pareto.loc[x0_mask & well_behaved & stencil_safe, "loss"].idxmin())
     elif bool((x0_mask & well_behaved).any()):
         best_idx = int(pareto.loc[x0_mask & well_behaved, "loss"].idxmin())
     elif bool(x0_mask.any()):

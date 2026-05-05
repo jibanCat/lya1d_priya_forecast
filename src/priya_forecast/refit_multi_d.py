@@ -344,13 +344,18 @@ def refit_multi_d(
     elapsed = time.time() - t0
     pareto = model.equations_
 
-    # Pareto-pick filters (in order):
+    # Pareto-pick filters (applied as conjunction):
     #   1. has_pathological_constant: reject |c| > 100 literals.
-    #   2. is_eq_well_behaved: reject NaN/inf or |pred| > 100×y_range
-    #      across the training X (catches sqrt(sqrt(k/(θ+θ))) blow-ups).
-    #   3. tie-break by max subset-θ feature count, then min loss.
+    #   2. is_eq_well_behaved: NaN/inf or |pred| > 100×y_range over X_act.
+    #   3. is_fisher_stencil_safe: reject if eq blows up under
+    #      Fisher-stencil perturbation around fid (catches things like
+    #      `θ_heref / (θ_Ap × c)` that survive (1, 2) but produce NaN
+    #      when Fisher perturbs θ_Ap toward 0).
+    # Then prefer max-θ-features, with the FULL subset (n_sub) preferred
+    # if any sane eq has it, else the largest count among sane eqs.
     from priya_forecast.pareto_filters import (
-        feature_count, has_pathological_constant, is_eq_well_behaved,
+        feature_count, has_pathological_constant,
+        is_eq_well_behaved, is_fisher_stencil_safe,
     )
     n_sub = len(subset_names)
     n_features = X_act.shape[1]
@@ -360,16 +365,22 @@ def refit_multi_d(
     pareto["_well_behaved"] = eq_strs.apply(
         lambda s: is_eq_well_behaved(s, X_act, Y_act, n_features=n_features)
     )
-    sane = pareto[(~pareto["_pathological"]) & pareto["_well_behaved"]]
+    pareto["_stencil_safe"] = eq_strs.apply(
+        lambda s: is_fisher_stencil_safe(s, n_features=n_features)
+    )
+    sane = pareto[
+        (~pareto["_pathological"])
+        & pareto["_well_behaved"]
+        & pareto["_stencil_safe"]
+    ]
     sane_max_count = int(sane["_theta_count"].max()) if len(sane) > 0 else 0
     if sane_max_count > 0:
         cand = sane[sane["_theta_count"] == sane_max_count]
         best_idx = int(cand["loss"].idxmin())
     elif len(sane) > 0:
-        # No subset-θ in any sane equation; pick lowest-loss sane.
         best_idx = int(sane["loss"].idxmin())
     elif int(pareto["_theta_count"].max()) > 0:
-        # Last-resort fallback: max-θ entries even if pathological/blowing-up.
+        # Last resort: ignore stencil-safety, but still prefer max-θ.
         max_count = int(pareto["_theta_count"].max())
         cand = pareto[pareto["_theta_count"] == max_count]
         best_idx = int(cand["loss"].idxmin())
@@ -458,15 +469,34 @@ class MultiDCrossCoupledModel:
             )
             for z in self.z_grid
         }
-        # Pre-compute which params take the GP-slice path. Subset params
-        # are handled via the multi-D eq; fixed_params are at fid;
-        # everything else uses GP-slice.
-        self._subset_set = set(self.multi_d_refit.subset_names)
+        # Subset / fixed / GP-slice partitioning. Subset params NOT
+        # actually used by the multi-D equation get re-routed to the
+        # GP-slice path, otherwise their Fisher gradient through the
+        # multi-D path is identically zero → singular Fisher block →
+        # NaN diagonals propagate to OTHER multi-D-handled params via
+        # cov inversion. Detected by string-matching xN in the eq.
+        eq_str = self.multi_d_refit.equation_str
         self._fixed_set = set(self.fixed_params)
+        active_subset = []
+        unused_subset = []
+        for j, name in enumerate(self.multi_d_refit.subset_names):
+            if f"x{j}" in eq_str:
+                active_subset.append(name)
+            else:
+                unused_subset.append(name)
+        self._subset_set = set(active_subset)
+        self._unused_subset = unused_subset
+        # Anything that wasn't in subset (or fell out as unused) and isn't
+        # fixed → GP-slice.
         self._gp_slice_names = [
             name for name in PARAM_NAMES
             if name not in self._subset_set and name not in self._fixed_set
         ]
+        if unused_subset:
+            print(
+                f"[MultiDCrossCoupledModel] Subset params not used by the "
+                f"multi-D eq → routed through GP-slice: {unused_subset}"
+            )
 
     def predict(self, theta: np.ndarray, k: np.ndarray, z: float) -> np.ndarray:
         theta = np.asarray(theta, dtype=float)

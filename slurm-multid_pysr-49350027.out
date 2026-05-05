@@ -1,0 +1,60 @@
+[slurm] host=gl3072.arc-ts.umich.edu job=49350027
+[slurm] cpus_per_task=16
+[slurm] OUTPUT_DIR=results/refit_multid_z2.6-4.2
+[slurm] z range=[2.6, 4.2], n_total=256, niter=100
+Multi-D cross-coupled refit:
+  subset: ['ns', 'Ap', 'herei', 'heref', 'alphaq', 'hireionz'] (n=6)
+  fixed:  ['dtau0']
+  z_grid: [2.6, 2.8, 3.0, 3.2, 3.4, 3.6, 3.8, 4.0, 4.2]
+  k-grid: linspace(0.005, 0.064, 32) s/km
+  Sobol n_total=256, niter=100, maxsize=25
+
+Loading kodiaq emulators (LF + HF)...
+[Info] Load the emulator.json parameter file to the emulator.
+Beginning to generate emulator at 2026-05-04 17:08:26.710168
+Loading flux powers from:  /nfs/turbo/umor-yueyingn/mfho/birdgroup/lya_xq100/kodiaq_2_2_4_6-48-48/mf_emulator_flux_vectors_tau1000000.hdf5
+Number of redshifts for emulator generation=13 nk= 172
+Loading pre-trained GP for z:4.6
+Loading pre-trained GP for z:4.4
+Loading pre-trained GP for z:4.2
+Loading pre-trained GP for z:4.0
+Loading pre-trained GP for z:3.8
+Loading pre-trained GP for z:3.6
+Loading pre-trained GP for z:3.4
+Loading pre-trained GP for z:3.2
+Loading pre-trained GP for z:3.0
+Loading pre-trained GP for z:2.8
+Loading pre-trained GP for z:2.6
+Loading pre-trained GP for z:2.4
+Loading pre-trained GP for z:2.2
+Finished generating emulator at 2026-05-04 17:08:29.693208
+[Info] Load the emulator.json parameter file to the emulator.
+Beginning to generate emulator at 2026-05-04 17:08:29.721468
+Loading flux powers from:  /nfs/turbo/umor-yueyingn/mfho/birdgroup/lya_xq100/kodiaq_2_2_4_6-48-48/mf_emulator_flux_vectors_tau1000000.hdf5
+[Info] Load the emulator.json parameter file to the emulator.
+Loading flux powers from:  /nfs/turbo/umor-yueyingn/mfho/birdgroup/lya_xq100/kodiaq_2_2_4_6-48-48/hires/mf_emulator_flux_vectors_tau1000000.hdf5
+Number of redshifts for emulator generation=13 nk= 172
+Loading pre-trained GP for z:4.6
+Loading pre-trained GP for z:4.4
+Loading pre-trained GP for z:4.2
+Loading pre-trained GP for z:4.0
+Loading pre-trained GP for z:3.8
+Loading pre-trained GP for z:3.6
+Loading pre-trained GP for z:3.4
+Loading pre-trained GP for z:3.2
+Loading pre-trained GP for z:3.0
+Loading pre-trained GP for z:2.8
+Loading pre-trained GP for z:2.6
+Loading pre-trained GP for z:2.4
+Loading pre-trained GP for z:2.2
+Finished generating emulator at 2026-05-04 17:08:44.167660
+
+Fitting multi-D PySR...
+Traceback (most recent call last):
+  File "/home/mfho/lya1d_priya_forecast/scripts/refit_multid_subset.py", line 347, in <module>
+    main()
+  File "/home/mfho/lya1d_priya_forecast/scripts/refit_multid_subset.py", line 133, in main
+    multid_refit = refit_multi_d(
+  File "/home/mfho/lya1d_priya_forecast/src/priya_forecast/refit_multi_d.py", line 304, in refit_multi_d
+    from pysr import PySRRegressor  # type: ignore[import-not-found]
+ModuleNotFoundError: No module named 'pysr'

@@ -471,6 +471,67 @@ Outputs at `resolution_correction_grid_{cosmo,astro}.{png,pdf}`.
 Additive form (`Δ = HF − LF`) also exported in
 `resolution_correction.json` for reference.
 
+### D5.5. Multi-D PySR over 6 cross-coupled features — **abandoned** (post-mortem)
+
+We attempted a single PySR equation over the cross-coupled subset
+`{ns, Ap, herei, heref, alphaq, hireionz}` plus `(k, resolution, z)`,
+trained on the at-fid-anchored normalized flux residual (D2). Two
+configurations were tried, both abandoned:
+
+| Run | procs | niter | complexity | flux_norm loss | Outcome |
+|---|---|---|---|---|---|
+| login-node smoke | 4 | 50 | 24 | 0.554 | `Ap`/`herei` σ NaN; `heref` σ ratio = 5×10⁶× |
+| SLURM, stencil-safe filter | 15 | 100 | 25 | 0.585 | `ns`/`herei`/`heref` σ NaN; `Ap`, `alphaq`, `hireionz` ratios 10⁶–10¹⁹× |
+
+**Result**: both Fisher matrices have eigenvalue spreads of 26 orders
+of magnitude — one near-zero positive, one large negative (numerical
+artifact of inverting a near-rank-deficient matrix). Diagonal
+entries of `cov_hybrid` for the rank-deficient block are negative, so
+σ = √diag is NaN.
+
+**Diagnosis** — the discovered equations look like
+
+    eq ≈ exp(θ_herei + θ_heref / (θ_Ap · c)) + θ_ns · k + …  (login)
+    eq ≈ exp((…) + (k · −5.19) + …) + (θ_ns · 2.55 − r) + k  (SLURM)
+
+In both, the IGM thermal triple `{Ap, herei, heref}` enters through a
+single `exp(...)` group whose argument is **a single linear (or affine)
+combination** of those three features. To first order in θ,
+
+    ∂(eq) / ∂θ_Ap  ∝ ∂(eq) / ∂θ_herei  ∝ ∂(eq) / ∂θ_heref
+
+so the three gradient vectors w.r.t. `flux_norm` are collinear. The
+Fisher block over those three is **rank 1**, not rank 3. The SLURM run
+with niter=100 collapsed *more* dimensions onto the shared exp/affine
+group — its larger Pareto budget was spent on a *more* compact form,
+which is what PySR rewards.
+
+**This is not a transient bug — it's structural.** PySR's Pareto front
+rewards *low loss per complexity*; for high-D inputs, the cheapest way
+to lower loss is to fold features into a shared `exp(·)`, `(·)^p`, or
+sigmoid group. Such groups have rank-1 first-order behavior in θ. So
+"single PySR eq over k cross-coupled features" tends to produce
+**rank-deficient** Fisher blocks — and the more nominally "expressive"
+the eq, the worse the rank.
+
+**What works instead** (per-1D + additive Taylor, our Option C
+headline): each θᵢ has its own 1D PySR eq, so each gradient direction
+is structurally distinct from the others by construction. Rank is full
+by design, regardless of what compact functional form each 1D eq picks.
+This is the operative reason Option C delivers a well-conditioned
+multi-z Fisher and the multi-D run does not.
+
+**Implication for the paper**: report the multi-D failure as a negative
+result in the methods discussion. The headline forecast is per-1D +
+additive-Taylor combine. Cross-coupling correction is left as future
+work, with the next-step proposal being a **per-pair (or small-block)
+PySR cross-coupling residual on top of Option C** — bounded complexity
+per pair, structurally rank-additive, much cheaper to fit.
+
+Outputs from the abandoned runs are kept under
+`results/refit_multid_z2.6-4.2{,_login}/` for reproducibility; the
+forecast scorecard does **not** use them.
+
 ### D6. Paper figure budget: 6 main figures + 2 appendix grids
 
 **Main figures**:
