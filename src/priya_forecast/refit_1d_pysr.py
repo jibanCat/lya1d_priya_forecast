@@ -87,6 +87,30 @@ DEFAULT_PYSR_KWARGS: dict[str, Any] = dict(
 )
 
 
+# Phase 1.5 "smart refit" config for IGM-thermal params (heref, herei, alphaq).
+# Phase-1 closure (results/closure_at_simdat_ind15_ksdata/scorecard.md) showed
+# σ_PySR/σ_GP off-fid at 6.4× (heref), 2.7× (herei), 0.20× (alphaq) — all three
+# have wrong fid-curvature in their default-MSE per-1D eqs. Two architectural
+# fixes per user direction (2026-05-04):
+#   - Drop `inv` and `sqrt` from unary operators (the two with sharpest
+#     fid-curvature); keep smooth analytic operators only.
+#   - Replace MSE elementwise loss with the dim-balanced ANOVA loss
+#     (penalizes batch-level main effects on dropped features → forces PySR
+#     to use θ even when (k, z, r) alone could lower the per-sample MSE).
+# niter stays at 50 — these params are weakly sensitive to P_F at fid; more
+# genetic search can't find signal that isn't there. Architectural lever only.
+SMART_REFIT_PYSR_KWARGS: dict[str, Any] = dict(DEFAULT_PYSR_KWARGS)
+SMART_REFIT_PYSR_KWARGS["unary_operators"] = ["exp", "log", "square"]
+SMART_REFIT_PYSR_KWARGS["extra_sympy_mappings"] = {}
+# PySR can't take both `elementwise_loss` and `loss_function`; swap them.
+SMART_REFIT_PYSR_KWARGS.pop("elementwise_loss", None)
+from priya_forecast.dim_balanced_loss import JULIA_LOSS_FUNCTION  # noqa: E402
+SMART_REFIT_PYSR_KWARGS["loss_function"] = JULIA_LOSS_FUNCTION
+
+# Default: which params get the smart-refit treatment. Override at call time.
+SMART_REFIT_PARAMS: tuple[str, ...] = ("heref", "herei", "alphaq")
+
+
 @dataclass
 class Refit1DResult:
     """Bundles a per-param PySR equation + the metadata needed to evaluate
