@@ -129,6 +129,47 @@ def test_cross_difference_is_nonzero_off_axis():
         f"cross_diff should be nonzero off-axis for x0*x1 eq; got {cd}"
 
 
+def test_cross_difference_short_circuits_under_float_jitter():
+    """Per PR #2 review item #5: the short-circuit must use np.isclose-style
+    tolerance, not strict ==. A caller passing `theta = fid + 1e-16` from
+    numpy arithmetic should still hit the short-circuit (returning exact
+    zeros) instead of falling through to a 4-predict difference, which can
+    suffer catastrophic cancellation at near-fid points.
+    """
+    pair = _make_pair(pair_names=("tau0", "ns"), eq="x0 * x1")
+    k = pair.k_grid
+    z = float(pair.norm.z_grid[1])
+    fi, fj = pair.fid_pair
+    # θ_i jittered, θ_j exactly at fid → must short-circuit.
+    cd1 = pair.cross_difference((1.05, fj + 1e-16), k, HF_RESOLUTION_FOR_COMBINE, z)
+    np.testing.assert_array_equal(cd1, np.zeros_like(k))
+    # θ_i exactly at fid + jitter, θ_j perturbed → must short-circuit.
+    cd2 = pair.cross_difference((fi + 1e-16, 0.95), k, HF_RESOLUTION_FOR_COMBINE, z)
+    np.testing.assert_array_equal(cd2, np.zeros_like(k))
+
+
+def test_cross_difference_nan_guard():
+    """Per PR #2 review item #6: if any of the 4 predict() calls produces
+    NaN/inf (e.g. a bad eq evaluating `log(negative)` near a boundary), the
+    cross_diff must be replaced with zeros rather than NaN-poisoning the
+    Fisher stencil. PySR Pareto filters catch most of these at fit time;
+    this is a runtime backstop.
+    """
+    # An eq whose lambdified result is NaN at a specific input combo.
+    # `log(-x0 + 0.5)` is NaN for x0 > 0.5 in normalized space.
+    pair = _make_pair(
+        pair_names=("tau0", "ns"),
+        eq="log(-(x0) + 0.5) + x1",
+    )
+    k = pair.k_grid
+    z = float(pair.norm.z_grid[1])
+    # θ_tau0 in upper half of prior → θ_tau0_norm > 0.5 → eq returns NaN.
+    cd = pair.cross_difference((1.20, 0.95), k, HF_RESOLUTION_FOR_COMBINE, z)
+    # Guard kicks in → zeros instead of NaN.
+    assert np.all(np.isfinite(cd)), "cross_diff must NOT propagate NaN"
+    np.testing.assert_array_equal(cd, np.zeros_like(k))
+
+
 def test_cross_difference_is_zero_for_axis_separable_eq():
     """If the eq has NO θ_i × θ_j coupling (e.g. x0 + x1), cross_diff = 0 by construction."""
     # f(x, y) = x + y → cross_diff(x, y) = (x+y) - (x+fj) - (fi+y) + (fi+fj) = 0

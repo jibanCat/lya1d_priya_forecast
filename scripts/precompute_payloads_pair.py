@@ -166,10 +166,19 @@ def _compute_pair_normalization(
     """Per-(z, k) std of residual; mean=0.
 
     Residual is ~0 at fid by construction (Phase-1 hybrid ≡ GP at fid).
-    For PySR training we want a target with O(1) magnitude per (z, k);
-    use the Sobol-empirical std at each z. The `param_min`/`param_max`
-    fields are stored as θ_i bounds — Refit2DPairResult also tracks the
-    full pair (θ_i, θ_j) bounds in `x_pair_min` / `x_pair_max`.
+    For PySR training we want a target with O(1) magnitude per (z, k).
+
+    **Normalization choice (fixed 2026-05-05, per PR #2 review item #3)**:
+    use `max(std_LF, std_HF)` per (z, k) so that BOTH the LF and HF
+    stacks have a normalized residual amplitude ≤ 1 in absolute value.
+    The previous version used `std_LF` only and reused it for HF, which
+    biased PySR's loss toward HF when std_HF > std_LF (empirically up
+    to 2.5× for some (z, k) bins) — the fit then preferentially
+    minimized HF residual at the cost of LF.
+
+    Using `max(std_LF, std_HF)` keeps a single (z, k) std per row (so
+    the pair eq's predicted normalized residual is on a single scale),
+    and the larger std prevents either stack from being over-weighted.
     """
     z_grid = payload["z_grid_in_range"]
     k_grid = payload["k_grid"]
@@ -180,9 +189,10 @@ def _compute_pair_normalization(
         mask = np.isclose(payload["z_per_row"], z, atol=1e-3)
         if not mask.any():
             raise ValueError(f"No Sobol rows at z={z}; need n_total ≥ 9 × |z_grid|.")
-        # Use the LF residual (smaller magnitude → tighter normalization);
-        # HF stack is normalized with the same std for self-consistency.
-        std[zi] = payload["residual_lf_z"][mask].std(axis=0, ddof=0)
+        std_lf = payload["residual_lf_z"][mask].std(axis=0, ddof=0)
+        std_hf = payload["residual_hf_z"][mask].std(axis=0, ddof=0)
+        # Per-(z, k) max so neither stack gets over-weighted.
+        std[zi] = np.maximum(std_lf, std_hf)
     std = np.where(std > 0, std, 1.0)
     return MultiZNormalizationSpec(
         param_min=float(payload["x_pair_min"][0]),

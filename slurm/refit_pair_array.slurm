@@ -1,8 +1,10 @@
 #!/bin/bash
 # SLURM array for per-pair PySR fits (Phase 2).
 #
-# Usage:
-#   sbatch --export=ALL,REPO=...,PAYLOAD_DIR=...,OUTPUT_DIR=...,PAIRS=tau0,ns:herei,alphaq:Ap,alphaq:tau0,Ap \
+# Usage (note underscore inside pair, colon between pairs — see comment
+# below; sbatch's --export uses comma as env-var separator so PAIRS
+# cannot contain commas):
+#   sbatch --export=ALL,REPO=...,PAYLOAD_DIR=...,OUTPUT_DIR=...,PAIRS=tau0_ns:herei_alphaq:Ap_alphaq:tau0_Ap \
 #          --array=0-3 slurm/refit_pair_array.slurm
 
 #SBATCH --account=cavestru0

@@ -759,7 +759,7 @@ underconfident). Both pathologies traced back to the `^` operator.
 |---|---|---|
 | operator | `binary_operators` whitelist | drop `^` entirely (option A — too restrictive; lost Ap polynomial expressivity) |
 | operator | `unary_operators` whitelist | drop `inv` (1/x diverges at 0), `sqrt` (sharp curvature near 0) |
-| **operator** | **`constraints={"^": (-1, 0)}`** | **option B — chosen.** LHS unconstrained, RHS must be complexity 0 (literal constant). Allows `x²`, `k^c`; forbids `feature^feature` like `k^θ` |
+| **operator** | **`constraints={"^": (-1, 0)}`** | **chosen.** Verdict: in PySR's complexity convention, leaves (constants AND variables) cost ≥ 1 by default → RHS-complexity ≤ 0 admits **no expression**, so this constraint **drops `^` entirely** (option A in practice). To allow `x^c` (constant-exponent only) one must additionally set `complexity_of_constants=0`; we did NOT — production smart fits have **0 occurrences of `^` across 14 of 14 fits** (10 per-1D Phase 2 + 4 pair). Net effect: the production policy is "drop `^` entirely; rely on `square` for x²" |
 | operator | `complexity_of_operators={"^": 3}` | soft Pareto discouragement (soft-pref polynomials over `^`) |
 | loss | `loss_function=JULIA_LOSS_FUNCTION_ANOVA` | full-batch dim-balanced loss; penalizes batch-level main effects on dropped features |
 | Pareto pick | `is_eq_well_behaved` (in `pareto_filters.py`) | rejects NaN/inf or `\|pred\|>100·y_range` over training X |

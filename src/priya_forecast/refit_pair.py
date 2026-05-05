@@ -188,20 +188,40 @@ class Refit2DPairResult:
     ) -> np.ndarray:
         """Ĝ(θ_i, θ_j) − Ĝ(θ_i, fid_j) − Ĝ(fid_i, θ_j) + Ĝ(fid_i, fid_j).
 
-        Zero whenever either θ_i = fid_i or θ_j = fid_j. Adds an
-        independent gradient direction in the (θ_i, θ_j) plane,
+        Zero whenever θ_i ≈ fid_i or θ_j ≈ fid_j (within float tolerance).
+        Adds an independent gradient direction in the (θ_i, θ_j) plane,
         orthogonal to per-1D directions.
+
+        Fail-safe: if any of the 4 corner predictions has NaN/inf
+        (a bad eq blowing up at boundaries), the cross_diff is replaced
+        with zeros (graceful degradation — Fisher stencil sees no
+        contribution from this pair at this θ instead of NaN-poisoning
+        the whole forecast).
         """
         ti, tj = float(theta_pair_phys[0]), float(theta_pair_phys[1])
         fi, fj = float(self.fid_pair[0]), float(self.fid_pair[1])
         # Short-circuit when on either axis (cross_diff is exactly 0).
-        if ti == fi or tj == fj:
+        # Use np.isclose with relative tolerance so callers passing
+        # `theta = fid + 1e-16` from numpy arithmetic still hit the
+        # short-circuit instead of falling through to a 4-predict
+        # difference that suffers catastrophic cancellation.
+        atol_i = max(abs(fi), 1.0) * 1e-12
+        atol_j = max(abs(fj), 1.0) * 1e-12
+        if abs(ti - fi) <= atol_i or abs(tj - fj) <= atol_j:
             return np.zeros_like(np.asarray(k, dtype=float))
         g_ij = self.predict((ti, tj), k, resolution, z)
         g_if = self.predict((ti, fj), k, resolution, z)
         g_fj = self.predict((fi, tj), k, resolution, z)
         g_ff = self.predict((fi, fj), k, resolution, z)
-        return g_ij - g_if - g_fj + g_ff
+        cd = g_ij - g_if - g_fj + g_ff
+        # NaN-guard: if the eq blew up at any of the 4 corners (e.g.,
+        # `log(negative)` from a bad eq exploring near a prior boundary),
+        # replace with zeros rather than poison the Fisher with NaN.
+        # The PySR Pareto filters (`is_fisher_stencil_safe` etc.) catch
+        # most of these at fit time; this is a runtime backstop.
+        if not np.all(np.isfinite(cd)):
+            return np.zeros_like(np.asarray(k, dtype=float))
+        return cd
 
     # --- introspection -------------------------------------------------
 

@@ -134,8 +134,12 @@ def _validate_pair(*, result: Refit2DPairResult, payload: dict) -> dict:
             z = float(z_per_row[r_i])
             pred = result.predict(theta_pair, p["k_grid"], resolution, z)
             true = resid[r_i]
-            scale = np.maximum(np.abs(true).max(), np.abs(pred).max(), )
-            denom = max(float(scale), 1e-30)
+            # Rel-err denominator uses |true|.max() only — comparing pred
+            # vs prediction-magnitude (the previous max(|true|.max(),
+            # |pred|.max()) form) made biased fits look artificially
+            # close. This convention now matches the per-1D rel-err
+            # metric in `_validate_per_fidelity_from_payload_multiz`.
+            denom = max(float(np.abs(true).max()), 1e-30)
             rel_per_row[r_i] = float(np.mean(np.abs(pred - true)) / denom)
         diag[f"{tag}_mean"] = float(np.mean(rel_per_row))
         diag[f"{tag}_max"] = float(np.max(rel_per_row))

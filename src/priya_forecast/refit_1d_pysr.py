@@ -94,16 +94,17 @@ DEFAULT_PYSR_KWARGS: dict[str, Any] = dict(
 #
 #   1. Drop `inv` and `sqrt` from unary operators — sharp curvature near 0
 #      produces mal-behaved gradients near prior boundaries.
-#   2. Restrict the `^` binary operator with `constraints={"^": (-1, 0)}`:
-#      LHS unrestricted (-1), RHS must have complexity 0 = a literal
-#      constant. So `x^2` and `k^c` are allowed (legitimate polynomial /
-#      power-law fits), but `k^θ` and `feature^feature` patterns are
-#      forbidden. The latter were the exact source of Ap's σ_PySR/σ_GP =
-#      0.79× pathology at fid: `k_norm^θ_Ap_norm` has derivative
-#      `k^θ · log(k)` that diverges as k→0, giving spurious gradient at
-#      fid (especially near the prior boundary). Full `^` drop overshot —
-#      Ap's σ went to 3.52× σ_GP (4.5× too shallow). Constraint `(-1, 0)`
-#      keeps the polynomial expressivity without the boundary blow-up.
+#   2. Restrict the `^` binary operator with `constraints={"^": (-1, 0)}`.
+#      Original intent: LHS unrestricted, RHS literal constant only —
+#      so `x^2`, `k^c` allowed but `k^θ` forbidden. **In practice (PySR
+#      complexity convention)**: RHS complexity ≤ 0 admits no expression
+#      (leaves cost ≥ 1 unless `complexity_of_constants=0` is also set,
+#      which we don't do). So this configuration **drops `^` entirely**
+#      — verified: 14 of 14 production fits (10 per-1D, 4 pair) have
+#      zero `^` operators. PySR uses `square` from the unary set for
+#      `x²` instead. This fix kills the `k^θ_Ap` boundary blow-up that
+#      gave Phase 1's Ap σ_PySR/σ_GP = 0.79× pathology at fid (`k^θ`
+#      derivative is `k^θ·log(k)` which diverges as k→0).
 #   3. Replace MSE elementwise loss with the dim-balanced ANOVA loss
 #      (penalizes batch-level main effects on dropped features → forces
 #      PySR to use θ even when (k, z, r) alone could lower per-sample MSE).
