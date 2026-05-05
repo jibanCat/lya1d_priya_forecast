@@ -152,12 +152,20 @@ class MultiZAdditiveTaylorModel(P1DModel):
     resolution, z_norm)`. The combine at any z in the trained range is
 
         P_F(θ, k, z) = P_GP(fid, k, z)
-                     + Σ_i [r_i.predict(θ_i, k, z, 0.8)
-                          − r_i.predict(fid_i_phys, k, z, 0.8)]
+                     + Σ_{i ∈ refit}     [r_i.predict(θ_i, k, z, 0.8)
+                                        − r_i.predict(fid_i_phys, k, z, 0.8)]
+                     + Σ_{i ∈ gp_slice}  [P_GP(fid except θ_i, k, z)
+                                        − P_GP(fid, k, z)]
 
-    Each per-param contribution is in physical P_F units via its bundled
-    `MultiZNormalizationSpec` (per-z mean/std). At fid the deviation
-    cancels; the combine recovers P_GP(fid, k, z) exactly.
+    Each per-param refit contribution is in physical P_F units via its
+    bundled `MultiZNormalizationSpec` (per-z mean/std). At fid every
+    deviation cancels; the combine recovers P_GP(fid, k, z) exactly.
+
+    Params with `refits[pname] is None` route through the GP-slice
+    fallback. This is how the aggregator drops broken refits (no x0,
+    bad rel-err) without poisoning the Fisher: pass `refits[pname] =
+    None` and the param's gradient comes from the GP — same code path
+    as a never-refit param.
     """
 
     gp: object                          # HF GP, supports predict(theta, k, z)
@@ -180,7 +188,9 @@ class MultiZAdditiveTaylorModel(P1DModel):
                                   dtype=float)
             for z in self.z_grid
         }
-        # Cache r_i.predict(fid_i_phys, k_grid, z, 0.8) per (param, z).
+        # Cache r_i.predict(fid_i_phys, k_grid, z, 0.8) per (param, z) for
+        # params with a refit. Params with `r is None` route through
+        # the GP-slice fallback path in predict().
         self._eq_at_fid_pf: dict[tuple[str, float], np.ndarray] = {}
         for pname, r in self.refits.items():
             if r is None:
@@ -206,7 +216,9 @@ class MultiZAdditiveTaylorModel(P1DModel):
             raise ValueError(
                 f"z={z_key} not in this model's z_grid: {self.z_grid}."
             )
-        out = self._p_gp_fid_per_z[z_key].copy()
+        p_gp_fid = self._p_gp_fid_per_z[z_key]
+        out = p_gp_fid.copy()
+        # Per-1D Taylor contribution for params with a refit.
         for pname, r in self.refits.items():
             if r is None:
                 continue
@@ -218,6 +230,22 @@ class MultiZAdditiveTaylorModel(P1DModel):
                 resolution=HF_RESOLUTION_FOR_COMBINE, z=z_key,
             )
             out = out + (p_at_theta - self._eq_at_fid_pf[(pname, z_key)])
+        # GP-slice fallback for params explicitly routed away from the
+        # per-1D Taylor path (refits[pname] is None). This includes
+        # never-refit params AND refits dropped by the aggregator's
+        # quality gate.
+        for pname, r in self.refits.items():
+            if r is not None:
+                continue
+            i = PARAM_NAMES.index(pname)
+            if float(theta[i]) == float(self.fid[i]):
+                continue
+            t_only = self.fid.copy()
+            t_only[i] = theta[i]
+            p_slice = np.asarray(
+                self.gp.predict(t_only, self.k_grid, z_key), dtype=float
+            )
+            out = out + (p_slice - p_gp_fid)
         return out
 
 

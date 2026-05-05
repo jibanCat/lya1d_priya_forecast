@@ -11,26 +11,6 @@ per-(k, z) anchor / std from the LF emulator. Below we report
 the equation evaluated at $x_2=0.8$ (HF) and $x_2=0.4$ (LF), and
 the simplified `HF − LF` in flux_norm space.
 
-### `dtau0` (θ_fid = -0.009)
-
-Trained equation (variables: θ, k, r=resolution, z):
-```
-(square(square((sqrt(z) ^ k) - square(z)) * r) * -8.147095e13) - θ
-```
-
-At HF (r = 0.8):
-```
--θ - 81470950000000.0*square(0.8*square(z**(k/2) - square(z)))
-```
-At LF (r = 0.4):
-```
--θ - 81470950000000.0*square(0.4*square(z**(k/2) - square(z)))
-```
-Resolution correction in flux_norm space (HF − LF, simplified):
-```
-81470950000000.0*square(0.4*square(z**(k/2) - square(z))) - 81470950000000.0*square(0.8*square(z**(k/2) - square(z)))
-```
-
 ### `tau0` (θ_fid = 1.09)
 
 Trained equation (variables: θ, k, r=resolution, z):
@@ -169,65 +149,5 @@ At LF (r = 0.4):
 Resolution correction in flux_norm space (HF − LF, simplified):
 ```
 0.4*exp(k*(θ + 1.3422002)) + 0.238691951622603*exp(0.4*exp(z)) - 1.42434619423518*exp(0.8*exp(z)) - 0.87284776
-```
-
-### `omegamh2` (θ_fid = 0.1439)
-
-Trained equation (variables: θ, k, r=resolution, z):
-```
-(((exp((z * k) * 1.868859) - square(k / 0.80250233)) * -27.006193) - -9.462707) * (r - 0.40290532)
-```
-
-At HF (r = 0.8):
-```
-10.7240155673532*square(1.24610230103631*k) - 10.7240155673532*exp(1.868859*k*z) + 3.75759060809876
-```
-At LF (r = 0.4):
-```
--0.0784616326467597*square(1.24610230103631*k) + 0.0784616326467597*exp(1.868859*k*z) - 0.0274921919012399
-```
-Resolution correction in flux_norm space (HF − LF, simplified):
-```
-10.8024772*square(1.24610230103631*k) - 10.8024772*exp(1.868859*k*z) + 3.7850828
-```
-
-### `hireionz` (θ_fid = 7.24)
-
-Trained equation (variables: θ, k, r=resolution, z):
-```
-(((((0.69243765 - z) * (k + -0.80715674)) * 3.9594388) - square(z)) * ((r * 39.495735) + -15.472661)) - -0.86672443
-```
-
-At HF (r = 0.8):
-```
--63.8417021721676*(k - 0.80715674)*(z - 0.69243765) - 16.123927*square(z) + 0.86672443
-```
-At LF (r = 0.4):
-```
--1.28932393476041*(k - 0.80715674)*(z - 0.69243765) - 0.325633000000002*square(z) + 0.86672443
-```
-Resolution correction in flux_norm space (HF − LF, simplified):
-```
--62.5523782374072*(k - 0.80715674)*(z - 0.69243765) - 15.798294*square(z)
-```
-
-### `bhfeedback` (θ_fid = 0.05)
-
-Trained equation (variables: θ, k, r=resolution, z):
-```
-((r * -29.825314) - -12.571616) * (square(exp(sqrt(r) + (r - exp(z + k)))) + z)
-```
-
-At HF (r = 0.8):
-```
--11.2886352*z - 11.2886352*square(5.44352697076298*exp(-exp(k + z)))
-```
-At LF (r = 0.4):
-```
-0.6414904*z + 0.6414904*square(2.80795239320684*exp(-exp(k + z)))
-```
-Resolution correction in flux_norm space (HF − LF, simplified):
-```
--11.9301256*z - 0.6414904*square(2.80795239320684*exp(-exp(k + z))) - 11.2886352*square(5.44352697076298*exp(-exp(k + z)))
 ```
 

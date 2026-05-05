@@ -80,19 +80,68 @@ def main():
     args = p.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
 
-    refits = {pn: None for pn in PARAM_NAMES}
+    refits_raw = {pn: None for pn in PARAM_NAMES}
     for pname in PARAM_NAMES:
         path = args.refits_dir / f"{pname}.pkl"
         if path.exists():
             with open(path, "rb") as fh:
-                refits[pname] = pickle.load(fh)
-    n_loaded = sum(r is not None for r in refits.values())
+                refits_raw[pname] = pickle.load(fh)
+    n_loaded = sum(r is not None for r in refits_raw.values())
     print(f"Loaded {n_loaded}/{len(PARAM_NAMES)} refits from {args.refits_dir}")
     if n_loaded == 0:
         raise SystemExit("No refits to aggregate.")
 
+    # Quality gate: drop refits that are obviously broken so they don't
+    # poison the multi-z Fisher. A refit is rejected if EITHER:
+    #   (a) the equation has no `x0` term — gradient w.r.t. θ is zero,
+    #       so the Fisher block for this param is degenerate, or
+    #   (b) the LF or HF train mean rel-err is >= 5%, indicating the
+    #       Pareto pick failed and the equation does not represent
+    #       P_F(θ,k,z) faithfully.
+    # Dropped refits are replaced with `None` in the gated dict; the
+    # hybrid model then routes that param through its GP-slice fallback
+    # (same code path as a never-refit param). The Fisher contribution
+    # for that param thus matches the GP exactly. The raw dict
+    # (`refits_raw`) is retained so the scorecard / per-param summary
+    # can still document what PySR produced — including the dropped eqs.
+    REL_ERR_THRESHOLD = 0.05  # 5%
+    refits = dict(refits_raw)
+    dropped: list[str] = []
+    drop_reasons: dict[str, str] = {}
+    for pname, r in list(refits_raw.items()):
+        if r is None:
+            continue
+        has_x0 = "x0" in r.equation_str
+        lf_ok = (np.isfinite(r.lf_train_mean_rel_err)
+                 and r.lf_train_mean_rel_err < REL_ERR_THRESHOLD)
+        hf_ok = (np.isfinite(r.hf_train_mean_rel_err)
+                 and r.hf_train_mean_rel_err < REL_ERR_THRESHOLD)
+        if not (has_x0 and lf_ok and hf_ok):
+            reasons = []
+            if not has_x0:
+                reasons.append("no x0 term")
+            if not lf_ok:
+                reasons.append(f"LF rel-err={r.lf_train_mean_rel_err*100:.2g}% "
+                               f">= {REL_ERR_THRESHOLD*100:.0f}%")
+            if not hf_ok:
+                reasons.append(f"HF rel-err={r.hf_train_mean_rel_err*100:.2g}% "
+                               f">= {REL_ERR_THRESHOLD*100:.0f}%")
+            reason_str = "; ".join(reasons)
+            print(f"[gate] WARNING: dropping refit for {pname!r} "
+                  f"({reason_str}). Param will route through "
+                  f"GP-slice fallback in the hybrid model.")
+            refits[pname] = None
+            dropped.append(pname)
+            drop_reasons[pname] = reason_str
+    if dropped:
+        print(f"[gate] {len(dropped)} refit(s) dropped: {dropped}. "
+              f"{sum(r is not None for r in refits.values())} refit(s) kept.")
+
     # Pull k_grid + z range from any one refit (they all share the same).
-    sample = next(r for r in refits.values() if r is not None)
+    # Use the raw dict so this still works even if the gate dropped every
+    # refit — the script then degrades to a pure-GP forecast (hybrid ==
+    # GP) but still produces a scorecard.
+    sample = next(r for r in refits_raw.values() if r is not None)
     k_grid = np.asarray(sample.k_grid, dtype=float)
     z_min = float(sample.z_min); z_max = float(sample.z_max)
     z_grid_kodiaq = np.array([2.6, 2.8, 3.0, 3.2, 3.4, 3.6, 3.8, 4.0, 4.2])
@@ -107,10 +156,13 @@ def main():
     from priya_forecast.models.gp_model import GPModel
     gp_hf = GPModel(basedir=args.basedir, fidelity="hf", kf=k_grid)
 
-    # Build hybrid (only over the params with refits).
-    refits_loaded = {p: r for p, r in refits.items() if r is not None}
+    # Build hybrid. Pass the FULL gated dict (with `None` entries) so the
+    # model routes never-refit and gate-dropped params through GP-slice
+    # fallback. Filtering Nones out here would silently turn those
+    # params into "fixed at fid" and wipe their Fisher gradient — that
+    # was the original BLOCKER 1 symptom.
     hybrid = MultiZAdditiveTaylorModel(
-        gp=gp_hf, fid=fid, refits=refits_loaded,
+        gp=gp_hf, fid=fid, refits=refits,
         k_grid=k_grid, z_grid=z_grid_use,
     )
     max_rel = 0.0
@@ -159,9 +211,10 @@ def main():
         ))
         print(f"\nRunning multi-z Fisher with KSData covariance: "
               f"single fisher call, kodiaq k-grid ({len(ks_k_grid)} bins ≤ {args.k_max}).")
-        # Rebuild hybrid on kodiaq k-grid.
+        # Rebuild hybrid on kodiaq k-grid. Pass the FULL gated dict
+        # (with `None` entries) — see the synthetic-cov branch comment.
         hybrid_ks = MultiZAdditiveTaylorModel(
-            gp=gp_hf, fid=fid, refits=refits_loaded,
+            gp=gp_hf, fid=fid, refits=refits,
             k_grid=ks_k_grid, z_grid=z_grid_use,
         )
         lk_gp_ks = KSDataLikelihood(
@@ -229,26 +282,43 @@ def main():
         f"cov: {cov_label}",
         f"priors: {priors_sigma if priors_sigma else 'none'}",
         f"hybrid vs HF GP at fid (max over z): {max_rel*100:.4f}%",
+    ]
+    if dropped:
+        lines.append(
+            f"refits dropped by quality gate (routed via GP-slice): "
+            + ", ".join(f"{p} ({drop_reasons[p]})" for p in dropped)
+        )
+    lines += [
         "",
-        "| param | GP σ | hybrid σ | hybrid/GP ratio | LF rel-err | HF rel-err | x0? | complexity |",
-        "|---|---|---|---|---|---|---|---|",
+        "| param | GP σ | hybrid σ | hybrid/GP ratio | LF rel-err | HF rel-err | x0? | complexity | route |",
+        "|---|---|---|---|---|---|---|---|---|",
     ]
     for i, pp in enumerate(fisher_params):
         pname = pp.name
-        r = refits.get(pname)
+        r_raw = refits_raw.get(pname)
+        r_gated = refits.get(pname)
         sigma_gp = fr_gp.sigma[i]
         sigma_hy = fr_hy.sigma[i]
         ratio = sigma_hy / sigma_gp if sigma_gp > 0 else float("inf")
-        if r is not None:
-            lf = f"{r.lf_train_mean_rel_err*100:.2f}%"
-            hf = f"{r.hf_train_mean_rel_err*100:.2f}%"
-            cplx = str(r.pareto_complexity)
-            has_x0 = "✓" if "x0" in r.equation_str else "✗"
+        # Diagnostics from the *raw* refit so the dropped eqs still get
+        # documented (their rel-err / missing x0 explain the drop).
+        if r_raw is not None:
+            lf = f"{r_raw.lf_train_mean_rel_err*100:.2f}%"
+            hf = f"{r_raw.hf_train_mean_rel_err*100:.2f}%"
+            cplx = str(r_raw.pareto_complexity)
+            has_x0 = "✓" if "x0" in r_raw.equation_str else "✗"
         else:
             lf = hf = "—"; cplx = "—"; has_x0 = "—"
+        # Route: which path the hybrid actually uses for this param.
+        if r_gated is not None:
+            route = "PySR"
+        elif r_raw is not None:
+            route = "GP-slice (gated)"
+        else:
+            route = "GP-slice"
         lines.append(
             f"| {pname} | {sigma_gp:.3g} | {sigma_hy:.3g} | "
-            f"**{ratio:.2f}×** | {lf} | {hf} | {has_x0} | {cplx} |"
+            f"**{ratio:.2f}×** | {lf} | {hf} | {has_x0} | {cplx} | {route} |"
         )
     lines.append("")
     lines.append(f"## Target subset {target}")
@@ -289,8 +359,13 @@ def main():
         print(f"  (corner plot skipped: {e})")
 
     # Per-param summary + resolution-correction deliverables (paper artifacts).
+    # per_param_summary uses the *raw* refits (so dropped eqs still
+    # appear in diagnostics) but resolution_correction / hold-out
+    # validation use the gated refits — broken eqs would otherwise blow
+    # up these plots.
+    refits_for_summary = {p: r for p, r in refits_raw.items() if r is not None}
     refits_loaded_dict = {p: r for p, r in refits.items() if r is not None}
-    summary_lines = per_param_summary_lines(refits_loaded_dict)
+    summary_lines = per_param_summary_lines(refits_for_summary)
     (args.output / "per_param_summary.md").write_text("\n".join(summary_lines) + "\n")
     write_resolution_correction_outputs(
         refits_loaded_dict, k_grid, fid, args.output,

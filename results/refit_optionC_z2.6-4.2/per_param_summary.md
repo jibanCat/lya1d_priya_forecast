@@ -1,5 +1,3 @@
-## Per-param 1D PySR fits at z = 3.4000000000000004
-
 ## Per-param fit statistics
 
 | param | complexity | flux_norm loss | LF rel-err | HF rel-err | LF max | HF max | x0? | x3? |

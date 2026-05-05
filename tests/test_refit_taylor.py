@@ -22,10 +22,12 @@ from priya_forecast.parameters import (
     fiducial_vector,
     get_param,
 )
+from priya_forecast.models.normalization import MultiZNormalizationSpec
 from priya_forecast.refit_1d_pysr import Refit1DResult, HF_RESOLUTION, LF_RESOLUTION
 from priya_forecast.refit_taylor import (
     AdditiveTaylorModel,
     HF_RESOLUTION_FOR_COMBINE,
+    MultiZAdditiveTaylorModel,
     STUDENT_FID_NORM,
     compute_global_normalization,
 )
@@ -282,3 +284,165 @@ def test_gp_slice_fallback_recovers_gp_marginal_for_unrefit_param():
     p_gp_slice = gp.predict(theta, k, z)
     expected = global_norm.mean_flux + (p_gp_slice - p_gp_fid)
     np.testing.assert_allclose(p_shifted, expected, rtol=1e-10, atol=1e-10)
+
+
+# -----------------------------------------------------------------------
+# MultiZAdditiveTaylorModel: partial-param routing (per-1D Taylor for
+# good refits, GP-slice fallback for refits explicitly set to None,
+# e.g. by the aggregator's quality gate).
+# -----------------------------------------------------------------------
+
+
+def _hand_multiz_refit(
+    pname: str,
+    *,
+    equation_str: str,
+    k_grid: np.ndarray,
+    z_grid: np.ndarray,
+    mean_flux: float = 50.0,
+    std_flux: float = 5.0,
+) -> Refit1DResult:
+    """Build a multi-z Refit1DResult with a hand-written equation.
+
+    The bundled `MultiZNormalizationSpec` is constant across (z, k) so the
+    test math stays simple: predict() = (eq_value · std + mean).
+    """
+    p = get_param(pname)
+    n_z, n_k = z_grid.size, k_grid.size
+    norm = MultiZNormalizationSpec(
+        param_min=float(p.prior[0]), param_max=float(p.prior[1]),
+        k_min=float(k_grid.min()), k_max=float(k_grid.max()),
+        z_grid=np.asarray(z_grid, dtype=float),
+        mean_flux=np.full((n_z, n_k), mean_flux, dtype=float),
+        std_flux=np.full((n_z, n_k), std_flux, dtype=float),
+        k_grid=np.asarray(k_grid, dtype=float),
+    )
+    return Refit1DResult(
+        param_name=pname,
+        z=float((z_grid[0] + z_grid[-1]) / 2.0),
+        equation_str=equation_str,
+        pareto_complexity=3, pareto_loss=0.0,
+        pareto_complexities=[3], pareto_losses=[0.0],
+        x_param_min=float(p.prior[0]), x_param_max=float(p.prior[1]),
+        k_min=float(k_grid.min()), k_max=float(k_grid.max()),
+        lf_resolution=LF_RESOLUTION, hf_resolution=HF_RESOLUTION,
+        fid_value=p.fid, norm=norm, k_grid=np.asarray(k_grid, dtype=float),
+        wall_time_s=0.0,
+        lf_train_mean_rel_err=0.0, hf_train_mean_rel_err=0.0,
+        lf_train_max_rel_err=0.0, hf_train_max_rel_err=0.0,
+        z_min=float(z_grid[0]), z_max=float(z_grid[-1]),
+    )
+
+
+def test_multi_z_partial_routing_gp_slice_for_unrefit_param():
+    """Refits set to None route through the GP-slice fallback.
+
+    Construct a MultiZAdditiveTaylorModel with one good refit ('ns') and
+    one explicitly-None refit ('Ap'). Vary 'Ap': the change in predicted
+    P_F should equal the GP-slice deviation `P_GP(fid|Ap=θ_Ap) −
+    P_GP(fid)`. Vary 'ns': should equal the per-1D Taylor deviation.
+    """
+    gp = MockGPModel()
+    k = np.linspace(0.001, 0.02, 35)
+    z_grid = np.array([3.4, 3.6, 3.8])
+    z = 3.6
+    fid = np.array(fiducial_vector(), dtype=float)
+
+    # 'ns' has a good refit (linear in x0). 'Ap' is set to None → GP-slice.
+    refits = {pn: None for pn in PARAM_NAMES}
+    refits["ns"] = _hand_multiz_refit(
+        "ns", equation_str="3.0 * x0",
+        k_grid=k, z_grid=z_grid, mean_flux=50.0, std_flux=5.0,
+    )
+    # All others (incl. 'Ap') stay None.
+
+    model = MultiZAdditiveTaylorModel(
+        gp=gp, fid=fid, refits=refits, k_grid=k, z_grid=z_grid,
+    )
+
+    # 1) At fid: hybrid == P_GP(fid) exactly (every deviation cancels).
+    p_at_fid = model.predict(fid, k, z)
+    p_gp_fid = gp.predict(fid, k, z)
+    np.testing.assert_allclose(p_at_fid, p_gp_fid, rtol=1e-12, atol=1e-12)
+
+    # 2) Vary 'Ap' (no refit → GP-slice path): hybrid - P_GP(fid)
+    #    should equal P_GP(fid|Ap=θ_Ap) - P_GP(fid).
+    p_ap = get_param("Ap")
+    theta = fid.copy()
+    theta[PARAM_NAMES.index("Ap")] = p_ap.prior[0] + 0.7 * p_ap.width()
+    p_hy = model.predict(theta, k, z)
+    p_gp_slice_ap = gp.predict(theta, k, z)
+    np.testing.assert_allclose(
+        p_hy - p_gp_fid, p_gp_slice_ap - p_gp_fid,
+        rtol=1e-10, atol=1e-10,
+    )
+
+    # 3) Vary 'ns' (per-1D Taylor path): hybrid - P_GP(fid) should equal
+    #    [eq_ns(θ_ns) - eq_ns(fid_ns)] · std + 0  =  3·Δ(x0) · std.
+    p_ns = get_param("ns")
+    theta2 = fid.copy()
+    theta2[PARAM_NAMES.index("ns")] = p_ns.prior[0] + 0.5 * p_ns.width()
+    p_hy2 = model.predict(theta2, k, z)
+    fid_ns_norm = (p_ns.fid - p_ns.prior[0]) / p_ns.width()
+    expected_delta = (3.0 * (0.5 - fid_ns_norm)) * 5.0
+    np.testing.assert_allclose(
+        p_hy2 - p_gp_fid, expected_delta, rtol=1e-10, atol=1e-10,
+    )
+
+
+def test_multi_z_partial_routing_gated_refit_matches_gp_slice():
+    """Simulating the aggregator's gate: a previously-loaded refit set to
+    None must route through GP-slice — its Fisher gradient becomes the
+    GP's gradient, NOT the broken eq's gradient.
+
+    Compare two models built on the same fid but with different refit
+    dicts:
+      A) refits['Ap'] = good_refit            -> per-1D Taylor for Ap
+      B) refits['Ap'] = None                  -> GP-slice for Ap
+    Both should agree at fid. Off-fid for Ap, A and B should disagree by
+    exactly  [eq_Ap(θ_Ap) - eq_Ap(fid_Ap)]·std  -  [P_GP_slice - P_GP(fid)].
+    """
+    gp = MockGPModel()
+    k = np.linspace(0.001, 0.02, 35)
+    z_grid = np.array([3.4, 3.6, 3.8])
+    z = 3.6
+    fid = np.array(fiducial_vector(), dtype=float)
+
+    good_refit = _hand_multiz_refit(
+        "Ap", equation_str="2.0 * x0",
+        k_grid=k, z_grid=z_grid, mean_flux=30.0, std_flux=4.0,
+    )
+    refits_A = {pn: None for pn in PARAM_NAMES}
+    refits_A["Ap"] = good_refit
+    refits_B = {pn: None for pn in PARAM_NAMES}  # 'Ap' explicitly None
+
+    model_A = MultiZAdditiveTaylorModel(
+        gp=gp, fid=fid, refits=refits_A, k_grid=k, z_grid=z_grid,
+    )
+    model_B = MultiZAdditiveTaylorModel(
+        gp=gp, fid=fid, refits=refits_B, k_grid=k, z_grid=z_grid,
+    )
+
+    # At fid: both must equal P_GP(fid).
+    p_gp_fid = gp.predict(fid, k, z)
+    np.testing.assert_allclose(model_A.predict(fid, k, z), p_gp_fid,
+                                rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(model_B.predict(fid, k, z), p_gp_fid,
+                                rtol=1e-12, atol=1e-12)
+
+    # Off-fid: A uses per-1D Taylor, B uses GP-slice.
+    p_ap = get_param("Ap")
+    theta = fid.copy()
+    theta[PARAM_NAMES.index("Ap")] = p_ap.prior[0] + 0.6 * p_ap.width()
+    p_A = model_A.predict(theta, k, z)
+    p_B = model_B.predict(theta, k, z)
+
+    # B should equal the GP-slice deviation exactly.
+    p_gp_slice = gp.predict(theta, k, z)
+    np.testing.assert_allclose(p_B, p_gp_slice, rtol=1e-10, atol=1e-10)
+
+    # A should equal the per-1D Taylor deviation: linear-in-x0, std=4.
+    fid_ap_norm = (p_ap.fid - p_ap.prior[0]) / p_ap.width()
+    expected_taylor_delta = (2.0 * (0.6 - fid_ap_norm)) * 4.0
+    np.testing.assert_allclose(p_A - p_gp_fid, expected_taylor_delta,
+                                rtol=1e-10, atol=1e-10)
