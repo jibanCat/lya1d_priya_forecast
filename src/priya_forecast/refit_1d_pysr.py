@@ -87,42 +87,46 @@ DEFAULT_PYSR_KWARGS: dict[str, Any] = dict(
 )
 
 
-# Phase 1.5 "smart refit" config for params whose default eqs blow up off-fid
-# or have spurious gradient curvature at fid. Three architectural fixes:
+# Phase 1.5 "smart refit" config for production runs. Architectural levers
+# (NOT search-depth ones) that prevent the emulator from blowing up or
+# producing spurious gradients at fid. Three fixes (per user direction
+# 2026-05-05):
 #
-#   1. Drop `inv` and `sqrt` from unary operators — both have sharp curvature
-#      near 0 and produce mal-behaved gradients near prior boundaries.
-#   2. Drop `^` from binary operators entirely. This is the main "blow up" fix:
-#      `feature^feature` patterns (e.g. `k_norm^θ_Ap_norm`) have derivative
-#      `k^θ · log(k)` which diverges as k→0; PySR readily picks these because
-#      the per-sample MSE is small but the gradient at fid is then off the
-#      true GP gradient. Dropping `^` forces additive/multiplicative + smooth
-#      analytic structures, which have well-defined Lipschitz behavior over
-#      the full prior cube.
+#   1. Drop `inv` and `sqrt` from unary operators — sharp curvature near 0
+#      produces mal-behaved gradients near prior boundaries.
+#   2. Restrict the `^` binary operator with `constraints={"^": (-1, 0)}`:
+#      LHS unrestricted (-1), RHS must have complexity 0 = a literal
+#      constant. So `x^2` and `k^c` are allowed (legitimate polynomial /
+#      power-law fits), but `k^θ` and `feature^feature` patterns are
+#      forbidden. The latter were the exact source of Ap's σ_PySR/σ_GP =
+#      0.79× pathology at fid: `k_norm^θ_Ap_norm` has derivative
+#      `k^θ · log(k)` that diverges as k→0, giving spurious gradient at
+#      fid (especially near the prior boundary). Full `^` drop overshot —
+#      Ap's σ went to 3.52× σ_GP (4.5× too shallow). Constraint `(-1, 0)`
+#      keeps the polynomial expressivity without the boundary blow-up.
 #   3. Replace MSE elementwise loss with the dim-balanced ANOVA loss
-#      (penalizes batch-level main effects on dropped features → forces PySR
-#      to use θ even when (k, z, r) alone could lower the per-sample MSE).
+#      (penalizes batch-level main effects on dropped features → forces
+#      PySR to use θ even when (k, z, r) alone could lower per-sample MSE).
 #
-# niter stays at 50 — these are architectural levers, not search-depth ones.
-# Documented in PAPER_NOTES.md § D3 + D5.5.
+# Documented in PAPER_NOTES.md § D3 + D5.5 + D8.
 SMART_REFIT_PYSR_KWARGS: dict[str, Any] = dict(DEFAULT_PYSR_KWARGS)
-SMART_REFIT_PYSR_KWARGS["binary_operators"] = ["+", "-", "*", "/"]   # drop `^`
+# Keep `^` available with constraint: rhs must be complexity 0 (literal).
+SMART_REFIT_PYSR_KWARGS["binary_operators"] = ["+", "-", "*", "/", "^"]
 SMART_REFIT_PYSR_KWARGS["unary_operators"] = ["exp", "log", "square"]
 SMART_REFIT_PYSR_KWARGS["extra_sympy_mappings"] = {}
-# Removing `^` makes its constraints + complexity weight unused; clean them up
-# so the kwargs dict stays in sync with the actual operator set.
-SMART_REFIT_PYSR_KWARGS.pop("constraints", None)
-SMART_REFIT_PYSR_KWARGS.pop("complexity_of_operators", None)
+SMART_REFIT_PYSR_KWARGS["constraints"] = {"^": (-1, 0)}
+# Slightly discourage `^` so PySR prefers polynomials when they fit equally
+# well (complexity_of_operators is a soft Pareto cost; (-1, 0) is the hard
+# blow-up guard).
+SMART_REFIT_PYSR_KWARGS["complexity_of_operators"] = {"^": 3}
 # PySR can't take both `elementwise_loss` and `loss_function`; swap them.
 SMART_REFIT_PYSR_KWARGS.pop("elementwise_loss", None)
 from priya_forecast.dim_balanced_loss import JULIA_LOSS_FUNCTION  # noqa: E402
 SMART_REFIT_PYSR_KWARGS["loss_function"] = JULIA_LOSS_FUNCTION
 
-# Default smart-refit set. Phase 1 closure flagged heref/herei/alphaq for
-# wrong fid-curvature; Phase 1.5 retro-analysis (2026-05-05) added Ap because
-# its eq used `k_norm^θ_Ap_norm` which has σ_PySR/σ_GP=0.79× at fid (too steep)
-# AND 1.62× at θ_target_simdat (too shallow) — symptoms of a bad ^-operator
-# pick made worse by Ap fid being at norm=0.186 (near low prior boundary).
+# Default smart-refit set. Phase 1 closure flagged heref/herei/alphaq;
+# Phase 1.5 retro-analysis added Ap because its eq used `k_norm^θ_Ap_norm`
+# (the exact pattern `constraints={"^": (-1, 0)}` now forbids).
 SMART_REFIT_PARAMS: tuple[str, ...] = ("heref", "herei", "alphaq", "Ap")
 
 
