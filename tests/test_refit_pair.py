@@ -6,8 +6,7 @@ import numpy as np
 import pytest
 
 from priya_forecast.models.normalization import MultiZNormalizationSpec
-from priya_forecast.parameters import PARAM_NAMES, fiducial_vector, get_param
-from priya_forecast.refit_1d_pysr import Refit1DResult
+from priya_forecast.parameters import PARAM_NAMES, PARAMS_11D, fiducial_vector, get_param
 from priya_forecast.refit_pair import (
     HF_RESOLUTION_FOR_COMBINE,
     MultiZPairCoupledModel,
@@ -180,6 +179,60 @@ def test_cross_difference_is_zero_for_axis_separable_eq():
     np.testing.assert_allclose(cd, np.zeros_like(k), atol=1e-12)
 
 
+def test_cross_difference_is_zero_for_no_x0_eq():
+    """PAPER_NOTES § D8.5 'no-x0 (pair) failure mode': if the saved eq
+    drops x0 entirely (uses only x1, k, r, z), cross_diff is identically
+    0 by symbolic algebra — the saved pair is a graceful no-op,
+    contributing nothing to Fisher in the θ_i direction.
+
+    Concretely the v2 `tau0×Ap` production fit fell into this mode
+    (after 3 retries failed to find an eq using both x0 AND x1, the
+    best-anyway eq used x1 but not x0)."""
+    pair = _make_pair(pair_names=("tau0", "Ap"), eq="x1 + 0.1 * x2 - x4")
+    k = pair.k_grid
+    z = float(pair.norm.z_grid[1])
+    cd = pair.cross_difference((1.05, 0.95), k, HF_RESOLUTION_FOR_COMBINE, z)
+    np.testing.assert_allclose(cd, np.zeros_like(k), atol=1e-12)
+
+
+def test_cross_difference_is_zero_for_no_x1_eq():
+    """Symmetric to the no-x0 case (PAPER_NOTES § D8.5): an eq dropping
+    x1 still produces an identically-zero cross_diff. The v1 tau0×Ap
+    fit took this route before the LF/HF normalization fix (PR #2
+    review item #3)."""
+    pair = _make_pair(pair_names=("tau0", "Ap"), eq="x0 + 0.1 * x2 - x4")
+    k = pair.k_grid
+    z = float(pair.norm.z_grid[1])
+    cd = pair.cross_difference((1.05, 0.95), k, HF_RESOLUTION_FOR_COMBINE, z)
+    np.testing.assert_allclose(cd, np.zeros_like(k), atol=1e-12)
+
+
+def test_pickle_round_trip_strips_lambdify_cache():
+    """`__getstate__` / `__setstate__` must drop the lambdified callable
+    from the pickle (lambdas don't pickle reliably, and loading a stale
+    cache from another process is a footgun). After round-trip, predict()
+    rebuilds the cache lazily and produces the same values as the
+    original."""
+    import pickle as _pickle
+    pair = _make_pair(pair_names=("tau0", "ns"), eq="x0 * x1 + 0.1 * x2")
+    k = pair.k_grid
+    z = float(pair.norm.z_grid[1])
+    # Populate the lambdify cache on the source.
+    out_src = pair.predict_normalized((1.05, 0.95), k, HF_RESOLUTION_FOR_COMBINE, z)
+    assert pair._fn_cache is not None
+    # Round-trip.
+    restored = _pickle.loads(_pickle.dumps(pair))
+    assert restored._fn_cache is None, (
+        "Pickled pair must drop _fn_cache (lambdas are not portable "
+        "across processes)."
+    )
+    out_restored = restored.predict_normalized(
+        (1.05, 0.95), k, HF_RESOLUTION_FOR_COMBINE, z,
+    )
+    np.testing.assert_allclose(out_restored, out_src)
+    assert restored._fn_cache is not None, "predict() should rebuild cache lazily."
+
+
 def test_feature_count_uses_word_boundary():
     """`feature_count` should count distinct xN tokens, with word-boundary
     (so x1 doesn't match x10, x11, etc.)."""
@@ -308,3 +361,57 @@ def test_pair_model_with_no_pairs_is_identity_to_base():
         p_base = base.predict(theta, k_grid, float(z))
         p_paired = model.predict(theta, k_grid, float(z))
         np.testing.assert_allclose(p_paired, p_base)
+
+
+def test_pair_coupled_fisher_at_fid_matches_base_fisher():
+    """End-to-end integration check: at θ=fid, the Fisher matrix is
+    *identical* whether we use the Phase-1 base or its
+    `MultiZPairCoupledModel` wrap. This locks in the
+    rank-additivity claim from `refit_pair.py:258` ("Fisher rank
+    ≥ rank(Phase 1) + |pairs|") at the boundary case where no
+    pair contributes.
+
+    Argument: each Fisher diagonal entry F_ii = (∂_i m)·C⁻¹·(∂_i m)
+    perturbs only θ_i; that keeps θ_j = fid_j ∀ j ≠ i, so every
+    pair containing θ_i has cross_diff(θ_i, fid_j) ≡ 0 by the ANOVA
+    identity. Off-diagonal F_ij is computed from the same
+    single-axis ∂_i m and ∂_j m, so identity holds there too.
+    """
+    from priya_forecast.fisher import fisher_matrix
+    from priya_forecast.likelihood import GaussianLikelihood
+
+    k_grid = np.linspace(0.005, 0.064, 16)
+    z_grid = np.array([2.6, 3.6, 4.2])
+    gp = _MockGP()
+    base = _make_phase1_base(k_grid, z_grid, gp)
+    pair = _make_pair(
+        pair_names=("tau0", "ns"), eq="x0 * x1",
+        k_grid=k_grid, z_grid=z_grid,
+    )
+    coupled = MultiZPairCoupledModel(base=base, pairs=[pair])
+
+    fid = np.array(fiducial_vector(), dtype=float)
+    params_active = tuple(p for p in PARAMS_11D if p.name != "dtau0")
+    param_indices = [PARAM_NAMES.index(p.name) for p in params_active]
+    z_eval = float(z_grid[1])
+
+    # Pass our k_grid + a synthetic diagonal cov so the likelihood
+    # doesn't try to load eBOSS data on a 35-bin grid the model wasn't
+    # built for.
+    lk_base = GaussianLikelihood(
+        model=base, z=z_eval, mock_data="gp", theta_fid=fid,
+        k_grid=k_grid, cov_diag_frac=0.05,
+    )
+    lk_coupled = GaussianLikelihood(
+        model=coupled, z=z_eval, mock_data="gp", theta_fid=fid,
+        k_grid=k_grid, cov_diag_frac=0.05,
+    )
+    fr_base = fisher_matrix(
+        likelihood=lk_base, theta_fid=fid, params=params_active,
+        param_indices=param_indices, step_frac=0.01, max_halvings=1,
+    )
+    fr_coupled = fisher_matrix(
+        likelihood=lk_coupled, theta_fid=fid, params=params_active,
+        param_indices=param_indices, step_frac=0.01, max_halvings=1,
+    )
+    np.testing.assert_allclose(fr_coupled.F, fr_base.F, rtol=1e-10, atol=1e-12)

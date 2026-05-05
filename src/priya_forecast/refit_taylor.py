@@ -218,15 +218,21 @@ class MultiZAdditiveTaylorModel(P1DModel):
             )
         p_gp_fid = self._p_gp_fid_per_z[z_key]
         out = p_gp_fid.copy()
-        # Per-1D Taylor contribution for params with a refit.
+        # Per-1D Taylor contribution for params with a refit. Use
+        # relative tolerance for the at-fid skip (matches the pattern
+        # in `Refit2DPairResult.cross_difference`); strict `==` would
+        # miss callers passing `theta = fid + 1e-16` from numpy
+        # arithmetic and fall through to a redundant predict +
+        # subtraction at machine-precision cancellation.
         for pname, r in self.refits.items():
             if r is None:
                 continue
             i = PARAM_NAMES.index(pname)
-            if float(theta[i]) == float(self.fid[i]):
+            ti, fi = float(theta[i]), float(self.fid[i])
+            if abs(ti - fi) <= max(abs(fi), 1.0) * 1e-12:
                 continue
             p_at_theta = r.predict(
-                theta_phys=float(theta[i]), k=self.k_grid,
+                theta_phys=ti, k=self.k_grid,
                 resolution=HF_RESOLUTION_FOR_COMBINE, z=z_key,
             )
             out = out + (p_at_theta - self._eq_at_fid_pf[(pname, z_key)])
@@ -238,7 +244,8 @@ class MultiZAdditiveTaylorModel(P1DModel):
             if r is not None:
                 continue
             i = PARAM_NAMES.index(pname)
-            if float(theta[i]) == float(self.fid[i]):
+            ti, fi = float(theta[i]), float(self.fid[i])
+            if abs(ti - fi) <= max(abs(fi), 1.0) * 1e-12:
                 continue
             t_only = self.fid.copy()
             t_only[i] = theta[i]

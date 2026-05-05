@@ -19,8 +19,9 @@
 >    drops `^` entirely + drops `inv`/`sqrt` from unary; uses ANOVA
 >    dim-balanced loss." See § D8 for the full rationale. The original
 >    intent was "RHS-literal-only `^`" but in PySR's complexity
->    convention this is equivalent to "drop `^`" (verified on 14 of
->    14 production fits, see § D8 verdict cell).
+>    convention this is equivalent to "drop `^`" (verified on 15 of
+>    15 trained production fits — 11 per-1D + 4 pair; see § D8
+>    verdict cell).
 > 5. **What NOT to overclaim**: the IGM thermal block (`herei`,
 >    `heref`, `alphaq`) σ-ratios of 3-5× include genuine non-Gaussian
 >    posteriors (σ_GP/σ_MCMC = 1.6-4.5× at θ_target_simdat); the
@@ -333,8 +334,9 @@ with `α = 5` (default). Catches any systematic feature dependence
 (linear, quadratic, sigmoidal, piecewise) the residual still has after
 the eq's contribution — which is the feature-dropping failure mode.
 Wired into `SMART_REFIT_PYSR_KWARGS` as
-`loss_function = JULIA_LOSS_FUNCTION_ANOVA`. **All 14 production fits
-(10 per-1D + 4 pair) used this loss.**
+`loss_function = JULIA_LOSS_FUNCTION_ANOVA`. **All 15 trained
+production fits (11 per-1D + 4 pair) used this loss; 14 are
+Fisher-active (dtau0 is fixed at 0 by Kim convention, see § D1).**
 
 Empirical evidence ANOVA loss is doing real work: `bhfeedback`
 recovered an x0-using eq under ANOVA loss + option B operators where
@@ -749,8 +751,10 @@ with PySR and SymbolicRegression.jl." *arXiv:2305.01582*. (PySR's
 PySR receives via the `loss_function` kwarg. Tests in
 `tests/test_dim_balanced_loss.py` cover both forms.
 
-**Production confirmation** (2026-05-05): all 14 production fits
-(10 per-1D Phase 2 + 4 pair) used `JULIA_LOSS_FUNCTION_ANOVA`. The
+**Production confirmation** (2026-05-05): all 15 trained production
+fits (11 per-1D Phase 2 + 4 pair) used `JULIA_LOSS_FUNCTION_ANOVA`;
+14 of those contribute to Fisher (dtau0 is fixed at 0 by Kim
+convention, see § D1). The
 `bhfeedback` recovery (Phase 1 dropped x0 with MSE; Phase 2 has
 x0-using eq with ANOVA + option B operators) is direct empirical
 evidence the loss is active and effective. Cost: ~3× slower than MSE
@@ -1074,7 +1078,7 @@ underconfident). Both pathologies traced back to the `^` operator.
 |---|---|---|
 | operator | `binary_operators` whitelist | omit `^` from the list. Direct kill switch; equivalent to the production policy below in PySR's default complexity convention. |
 | operator | `unary_operators` whitelist | drop `inv` (1/x diverges at 0), `sqrt` (sharp curvature near 0) |
-| **operator** | **`constraints={"^": (-1, 0)}`** | **chosen.** Verdict: in PySR's complexity convention, leaves (constants AND variables) cost ≥ 1 by default → RHS-complexity ≤ 0 admits **no expression**, so this constraint **drops `^` entirely** (option A in practice). To allow `x^c` (constant-exponent only) one must additionally set `complexity_of_constants=0`; we did NOT — production smart fits have **0 occurrences of `^` across 14 of 14 fits** (10 per-1D Phase 2 + 4 pair). Net effect: the production policy is "drop `^` entirely; rely on `square` for x²" |
+| **operator** | **`constraints={"^": (-1, 0)}`** | **chosen.** Verdict: in PySR's complexity convention, leaves (constants AND variables) cost ≥ 1 by default → RHS-complexity ≤ 0 admits **no expression**, so this constraint **drops `^` entirely** (option A in practice). To allow `x^c` (constant-exponent only) one must additionally set `complexity_of_constants=0`; we did NOT — production smart fits have **0 occurrences of `^` across 15 of 15 trained fits** (11 per-1D Phase 2 + 4 pair). Net effect: the production policy is "drop `^` entirely; rely on `square` for x²" |
 | operator | `complexity_of_operators={"^": 3}` | soft Pareto discouragement (soft-pref polynomials over `^`) |
 | loss | `loss_function=JULIA_LOSS_FUNCTION_ANOVA` | full-batch dim-balanced loss; penalizes batch-level main effects on dropped features |
 | Pareto pick | `is_eq_well_behaved` (in `pareto_filters.py`) | rejects NaN/inf or `\|pred\|>100·y_range` over training X |
@@ -1088,7 +1092,8 @@ underconfident). Both pathologies traced back to the `^` operator.
    only" (so `x²`, `k^c` allowed; `k^θ` forbidden). In PySR's default
    complexity convention this is equivalent to **dropping `^` entirely**
    (RHS complexity ≤ 0 admits no expression because leaves cost ≥ 1).
-   Empirically: ZERO `^` operators in 14 of 14 production fits. PySR
+   Empirically: ZERO `^` operators in 15 of 15 trained production fits
+   (11 per-1D + 4 pair). PySR
    uses `square` from the unary set for `x²`; that's enough.
 2. **`unary_operators = ["exp", "log", "square"]`** — no `inv`, no `sqrt`.
 3. **`loss_function = JULIA_LOSS_FUNCTION_ANOVA`** — see § D3.
