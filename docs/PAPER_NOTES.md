@@ -623,6 +623,83 @@ Worth doing once at the end.
 
 ---
 
+## D7. Phase 2 (planned): per-pair PySR cross-coupling on top of Phase 1
+
+Phase 1 (the headline result of this PR) is per-1D PySR + additive-Taylor
+combine, structurally rank-correct but cannot capture cross-coupling
+between parameters. Multi-D PySR over the joint subset failed (§ D5.5)
+because PySR's Pareto rewards rank-1 shared-`exp(·)` groups.
+
+**Phase 2 design** (full plan in `docs/PAIR_FIT_PLAN.md`): keep Phase 1
+unchanged; add one small PySR equation per parameter pair, fit on the
+*residual* after subtracting Phase 1's prediction. Each pair adds one new
+gradient direction by construction (a "pure 2-way ANOVA interaction"
+term that vanishes whenever either θᵢ=fidᵢ or θⱼ=fidⱼ). Fisher rank stays
+full; if a pair's signal is weak, its `Ĝ_ij` fits to ≈ 0 and Fisher is
+unchanged — graceful degradation.
+
+**Pair selection from synthetic-data MCMC** (real-data MCMC compresses
+correlations because posteriors hit prior boundaries). Cached at
+`results/simdat_ind15_truth.npz`; top |ρ_simdata| ≥ 0.2:
+
+| pair | ρ_simdata | tier |
+|---|---|---|
+| **tau0 × ns** | **−0.92** | must-have |
+| Ap × alphaq | +0.68 | should-have |
+| tau0 × Ap | −0.66 | should-have |
+| ns × Ap | +0.55 | maybe |
+| tau0 × alphaq | −0.55 | maybe |
+| ns × alphaq | +0.43 | maybe |
+| heref × alphaq | +0.29 | maybe |
+| **herei × alphaq** | **−0.22** | must-have (Phase 5 IGM coupling headline) |
+
+`dtau0` pairs skipped (dtau0 fixed at 0, § D1). Phase 2 starts with the
+two must-have pairs; escalates to should-have only if the off-fid corner
+remains discrepant from σ_MCMC_simdat.
+
+**Validation strategy** is GP-Fisher vs PySR-Fisher head-to-head at the
+synthetic-target θ_target_simdat (Data Index 15 of the closure suite),
+with σ_MCMC_simdat as the truth overlay. We do **not** validate against
+the real-data MCMC chain because its posteriors hit prior boundaries and
+the resulting σ are driven by the prior not the likelihood.
+
+**Phase 1 closure to σ_MCMC_simdat** (motivates pair selection — these
+will be re-pulled after PR #1's BLOCKER #1 fix; current numbers are from
+`results/refit_optionC_z2.6-4.2_ksdata/scorecard.md`):
+
+| param | σ_PySR / σ_MCMC | flag |
+|---|---|---|
+| ns | 1.0× | ✓ closed |
+| tau0, hub, bhfeedback | 1.4–1.5× | OK |
+| herei | 3.4× | needs pair |
+| **heref** | **14×** | biggest miss; possibly needs per-1D refit at niter=200 first |
+| alphaq, omegamh2 | 0.6× | overconfident — possibly fitting GP interpolation noise |
+| hireionz | broken eq → 1e12× | BLOCKER #1 fix routes to GP-slice |
+
+The `heref × 14×` and overconfidence on `alphaq, omegamh2` are the
+strongest motivations for adding pair coupling. `tau0 × ns` is also
+needed: Phase 1 cannot capture the dominant ρ = −0.92 cosmology
+degeneracy regardless of how good the per-1D fits are.
+
+**Cost**: ~1 h SLURM per pair (5-D PySR fit on Sobol residuals,
+embarrassingly parallel via SLURM array). 2 must-have pairs ≈ 1 h wall;
+4 must+should ≈ 1 h wall. Full Phase 2 = ~2 days end-to-end including
+validation plots.
+
+**Fallback (Option β)**: if the residual fits emulator noise (signal too
+weak), use PySR's `TemplateExpressionSpec`
+(https://github.com/MilesCranmer/PySR/discussions/787) — fixes the outer
+form (additive per-1D + per-pair) and lets PySR jointly fit all
+sub-expressions. ~12 h SLURM, untested API, used only if Option α fails.
+
+**Future-future work (not Phase 2)**: subclass
+`lyaemu.likelihood.CobayaLikelihoodClass` to swap the GP for the PySR
+hybrid → full MCMC with the symbolic emulator. Tests whether PySR is
+faithful for *nonlinear* sampling, not just Cramer-Rao at fid. Reserved
+for follow-up paper or appendix.
+
+---
+
 ## Pipeline summary (for the methods section)
 
 For each of the 11 PRIYA cosmological + IGM parameters, we train a 1D
