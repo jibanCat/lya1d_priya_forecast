@@ -29,18 +29,31 @@ from priya_forecast.dim_balanced_loss import (
 # ---------------------------------------------------------------------------
 # Numeric-knob extraction: parse the Julia source for α and B and assert on
 # the *parsed numbers* rather than the literal substrings. This addresses
-# Copilot review (PR #2 inline comment, 2026-05-05): a substring assertion
-# on `"L(5.0) * pen"` would (a) fail on harmless reformats like `L(5)` or
-# whitespace changes, AND (b) pass on real bugs like changing the math to
-# `L(5.0) * pen / 2` (α effectively halved). Regex extraction with numeric
-# assertions catches the math change and ignores the formatting change.
+# GitHub Copilot's review on PR #2 (2026-05-05): a substring assertion on
+# `"L(5.0) * pen"` had two failure modes:
+#   (a) false positives — fails on harmless reformats like `L(5)` vs
+#       `L(5.0)` or whitespace changes (no math change).
+#   (b) false negatives — passes on math changes like `L(5.0) * pen / 2`
+#       (α effectively halved while the substring still matches).
+# Regex extraction with numeric assertions + the post-`pen` lookahead
+# below addresses both modes.
 # ---------------------------------------------------------------------------
 
 # `L(α) * pen` — α is the penalty weight; bare integer or float, optional
-# whitespace inside the L(…) call, optional `.0` suffix, multiplication
-# either side.
+# whitespace inside the L(…) call, optional `.0` suffix.
+#
+# The negative lookahead `(?!\s*[*/^])` rejects matches where `pen` is
+# followed by a scaling operator (`L(5.0) * pen / 2`, `L(5.0) * pen * 2`,
+# `L(5.0) * pen ^ 2`). Without this, a math change that effectively
+# scales α by an external divisor/multiplier would still parse the
+# literal `5.0` from the L(...) call and pass the equality assertion —
+# the false-negative class GitHub Copilot called out in the PR #2
+# review. Additive followups (`L(5.0) * pen + 0.001`, `... - small`,
+# end-of-line, end-of-statement) are *allowed* because `+`/`-` after
+# `pen` doesn't scale α.
 _ALPHA_RE = re.compile(
-    r"L\(\s*(\d+(?:\.\d+)?)\s*\)\s*\*\s*pen", re.IGNORECASE
+    r"L\(\s*(\d+(?:\.\d+)?)\s*\)\s*\*\s*pen\b(?!\s*[*/^])",
+    re.IGNORECASE,
 )
 
 # `n_bins = B` at module scope; whitespace tolerated.
@@ -111,28 +124,59 @@ def test_julia_anova_string_uses_full_batch_loss_signature():
     ("L(5) * pen", 5.0),                    # integer literal also OK
     ("L( 5.0 ) * pen", 5.0),                # whitespace inside L(…)
     ("L(5.0)*pen", 5.0),                    # no surrounding whitespace
-    ("return mse + L(5.0) * pen + extra", 5.0),  # embedded in a longer expr
+    ("return mse + L(5.0) * pen", 5.0),     # the production form
+    ("return mse + L(5.0) * pen\n", 5.0),   # trailing newline
+    ("L(5.0) * pen + 0.001", 5.0),          # additive followup is fine (no α scale)
+    ("L(5.0) * pen - tiny", 5.0),           # subtractive followup is also fine
     ("L(7.5) * pen", 7.5),                  # different value parses correctly
     ("L(2) * pen", 2.0),                    # different value parses correctly
 ])
 def test_alpha_regex_handles_formatting_variations(snippet, expected):
     """The same numeric α must parse identically across plausible Julia
-    formatting choices. Documents what the regex tolerates."""
+    formatting choices. Documents what the regex tolerates: integer
+    vs float literal, whitespace inside `L(…)`, multiplication
+    spacing, additive followups (which don't scale α)."""
     assert _extract_alpha(snippet) == expected
 
 
 @pytest.mark.parametrize("snippet", [
+    # Standard "no pattern" cases (regex-not-found).
     "no_alpha_pattern_here",
     "L(5.0)+pen",                           # not a multiplication
     "L(5.0)",                               # missing `* pen`
     "alpha * pen",                          # missing `L(…)` wrapper
+    # Critical: the Copilot false-negative class. Multiplicative or
+    # divisor followups effectively scale α; the regex MUST reject
+    # them so the test fails loudly rather than silently parsing 5.0
+    # while the math has α=2.5 / α=10 / etc.
+    "L(5.0) * pen / 2",                     # α effectively halved
+    "L(5.0) * pen * 2",                     # α effectively doubled
+    "L(5.0) * pen ^ 2",                     # α^2 — Julia uses ^ for power
+    "L(5.0) * pen/2.0",                     # no whitespace before /
+    "L(5.0)*pen*foo",                       # multiplicative chain
 ])
 def test_alpha_regex_raises_when_pattern_absent(snippet):
-    """If the Julia source doesn't match `L(<num>) * pen`, the extractor
-    raises AssertionError so the test fails loudly with a useful message
-    rather than silently returning a default."""
+    """If the Julia source doesn't match `L(<num>) * pen` (anchored
+    against post-`pen` scaling operators), the extractor raises
+    AssertionError. This is the "no false-negatives" half of the
+    Copilot review fix."""
     with pytest.raises(AssertionError, match="L\\(<num>\\) \\* pen"):
         _extract_alpha(snippet)
+
+
+def test_alpha_regex_rejects_external_multiplicative_scaling():
+    """Direct test of GitHub Copilot's exact false-negative example
+    (PR #2 review, 2026-05-05): the substring `"L(5.0) * pen"` would
+    appear in `L(5.0) * pen / 2` (α effectively halved) and in
+    `L(5.0) * pen * 2` (α effectively doubled). The substring-based
+    assertion would silently pass on these; the regex with the
+    post-`pen` `(?!\\s*[*/^])` lookahead does not."""
+    halved = "return mse + L(5.0) * pen / 2"
+    doubled = "return mse + L(5.0) * pen * 2"
+    powered = "return mse + L(5.0) * pen ^ 2"
+    for src in (halved, doubled, powered):
+        with pytest.raises(AssertionError, match="L\\(<num>\\) \\* pen"):
+            _extract_alpha(src)
 
 
 @pytest.mark.parametrize("snippet,expected", [
