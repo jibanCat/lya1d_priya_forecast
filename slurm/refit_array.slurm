@@ -66,6 +66,7 @@ cd "$REPO"
     --param "$PARAM" \
     --payload-dir "$PAYLOAD_DIR" \
     --output-dir "$OUTPUT_DIR" \
-    --niter 50 --maxsize 20 --max-retries 4 --seed 42
+    --niter 50 --maxsize 20 --max-retries 2 --seed 42 \
+    --smart
 
 echo "[slurm] $PARAM done"

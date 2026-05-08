@@ -40,6 +40,8 @@ from priya_forecast.refit_1d_pysr import (
     HF_RESOLUTION,
     LF_RESOLUTION,
     Refit1DResult,
+    SMART_REFIT_PARAMS,
+    SMART_REFIT_PYSR_KWARGS,
     _build_training_matrix_multiz,
     _validate_per_fidelity_from_payload_multiz,
 )
@@ -53,6 +55,7 @@ from priya_forecast.parameters import (
 def _fit_once(
     *, param_name: str, payload: dict, norm, k_grid: np.ndarray,
     z_min: float, z_max: float, pysr_kwargs: dict, seed: int,
+    smart: bool = False,
 ) -> Refit1DResult:
     from pysr import PySRRegressor  # type: ignore[import-not-found]
     param_idx = PARAM_NAMES.index(param_name)
@@ -60,7 +63,8 @@ def _fit_once(
         payload=payload, param_idx=param_idx, norm=norm,
         z_min=z_min, z_max=z_max,
     )
-    args = dict(DEFAULT_PYSR_KWARGS)
+    base = SMART_REFIT_PYSR_KWARGS if smart else DEFAULT_PYSR_KWARGS
+    args = dict(base)
     args.update(pysr_kwargs or {})
     args["random_state"] = seed
     t0 = time.time()
@@ -139,12 +143,25 @@ def main():
                    help="Initial PySR random seed; retries use seed+1, +2, ...")
     p.add_argument("--max-retries", type=int, default=4,
                    help="Number of seed-bumped retries if eq lacks x0.")
+    p.add_argument("--smart", action="store_true",
+                   help="Use SMART_REFIT_PYSR_KWARGS (ANOVA loss + "
+                        "restricted operators {exp, log, square}) — "
+                        "Phase 1.5 fix for heref/herei/alphaq.")
+    p.add_argument("--auto-smart", action="store_true",
+                   help="Enable --smart automatically when --param is in "
+                        f"{list(SMART_REFIT_PARAMS)} (default Phase 1.5 set).")
     args = p.parse_args()
+    use_smart = bool(args.smart or (args.auto_smart and args.param in SMART_REFIT_PARAMS))
+    if use_smart:
+        print(f"[{args.param}] SMART refit ENABLED: ANOVA loss + "
+              "operators={exp, log, square}")
 
     out_refits = args.output_dir / "refits"
     out_refits.mkdir(parents=True, exist_ok=True)
     out_path = out_refits / f"{args.param}.pkl"
-    if out_path.exists():
+    # Smart refits intentionally ignore the cache — they're a Phase 1.5
+    # rerun of an already-fitted param with different operators/loss.
+    if out_path.exists() and not use_smart:
         with open(out_path, "rb") as fh:
             existing = pickle.load(fh)
         if "x0" in existing.equation_str:
@@ -176,7 +193,7 @@ def main():
             payload=bundle["payload"], norm=bundle["norm"],
             k_grid=bundle["k_grid"],
             z_min=bundle["z_min"], z_max=bundle["z_max"],
-            pysr_kwargs=pysr_kwargs, seed=seed,
+            pysr_kwargs=pysr_kwargs, seed=seed, smart=use_smart,
         )
         has_x0 = "x0" in result.equation_str
         rel_err_ok = (

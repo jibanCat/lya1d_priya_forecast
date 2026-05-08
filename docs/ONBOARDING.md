@@ -1,476 +1,542 @@
-# priya-forecast onboarding
+# priya-forecast onboarding (math-first, up to Phase 1.5)
 
-This guide walks a new student through running a Lyman-α P1D forecast from
-PySR equations they trained themselves. The framework's job is to take the
-equations + the eBOSS DR14 covariance + the GP emulator (as ground truth /
-fallback model), and report what 1σ constraints those equations would
-yield on the 11 PRIYA parameters.
+This guide is for who wants to **understand
+the math** behind the forecast, not the pipeline plumbing. After reading,
+you should be able to reproduce the Phase 1.5 σ-table given a
+trained PySR equation set.
 
----
-
-## 1. What the forecast does (in one paragraph)
-
-For a model `m(θ, k)` and eBOSS DR14 measurement `d ± C` at one redshift,
-the framework computes the Gaussian likelihood
-
-    log L(θ) = -0.5 (d - m(θ))ᵀ C⁻¹ (d - m(θ))
-
-Then either the **Fisher matrix** at fiducial (a fast Gaussian
-approximation) or **MCMC** (full posterior) gives 1σ marginalized errors
-on each of the 11 parameters. You can swap `m` between the **GP emulator**
-(the published PRIYA model) and a **PySR equation set** (your analytic
-fits). The point of the comparison is: if PySR equations give nearly the
-same constraints as the GP, then the equations are publishable as a
-drop-in interpretable replacement.
+The reading map at the bottom points you at the **theory-bearing source
+files** (the ones whose top-of-file docstrings spell out the formulas).
+Skip the scripts in `scripts/` for now — they're orchestration around the
+math in `src/priya_forecast/`.
 
 ---
 
-## 2. Setup (one-time)
+## 1. What the forecast computes
+
+We have a PRIYA Lyman-α flux power spectrum `P_F(θ; k, z)` parameterized
+by 11 cosmology + IGM-thermal parameters θ. We have a measurement
+covariance C (KSData, Karaçaylı+ 2021) on a fixed `(k, z)` grid. The
+question is: **how tightly do those data constrain each θ_i?**
+
+For a Gaussian likelihood with parameter-independent covariance,
+the **Fisher information matrix** is
 
 ```
-git clone <this repo>
-cd priya-forecast
-pip install -e ".[forecast,pysr,gp,dev]"
+              ⎛ ∂m ⎞ᵀ      ⎛ ∂m ⎞
+  F_{ij}  =   ⎜ ── ⎟   C⁻¹ ⎜ ── ⎟
+              ⎝ ∂θᵢ⎠       ⎝ ∂θⱼ⎠
 ```
 
-You also need the upstream `lyaemu` package (sbird/lya_emulator) on your
-PYTHONPATH for the real GP. On Greatlakes it's already cloned at
-`/home/mfho/student_projects/lya_emulator_full`. Set:
+where `m(θ)` is the model prediction `P_F(θ; k, z)` **stacked over the
+full `(k, z)` grid into one long vector**, and `C` is the KSData
+covariance over that same stacked layout. The **marginalized 1σ error**
+on θ_i is `σ_i = sqrt((F⁻¹)_{ii})`.
 
-```
-export PYTHONPATH=/home/mfho/student_projects/lya_emulator_full:$PWD/src
-```
+> Quick mental model: `F` is the local curvature of `−log L` at `θ=fid`.
+> Diagonal entries `F_{ii}` measure how sharply the log-likelihood
+> bends in the θ_i direction (large = data is informative about θ_i);
+> off-diagonals encode parameter degeneracies. Inverting `F` and taking
+> the i-th diagonal gives the **marginal** 1σ — i.e., after profiling
+> out the other 10 parameters' uncertainty, including their
+> correlations with θ_i. This is the Cramér-Rao / Gaussian-posterior
+> approximation; it equals the MCMC marginal width whenever the
+> posterior is locally Gaussian at fid.
 
-The eBOSS DR14 data + covariance is vendored inside the repo
-(`src/priya_forecast/_vendored/data/boss_dr14_data/`); you don't need to
-download anything.
+> Important: do not split the sum into a per-z block sum. The KSData
+> covariance is **not block-diagonal in redshift** (`ksdata_likelihood.py:17`
+> calls this out explicitly), so cross-z entries of `C⁻¹` matter. Use one
+> full stacked dot product, not `Σ_z (∂m_z)ᵀ C_z⁻¹ (∂m_z)`.
+
+Both Fisher and the KSData likelihood are computed in **physical
+`P_F(k, z)` space**, the same space the covariance lives in. The PySR
+training target (§ 3b) is normalized flux, but predictions are
+de-normalized back to physical `P_F` before any derivative is taken —
+the Fisher derivative must always be in the data's units, not in the
+surrogate's training units.
+
+The whole project is "what should we use for `m(θ)`?":
+- **GP emulator** = upstream PRIYA emulator (the ground truth, expensive,
+  opaque).
+- **Phase 1.5 hybrid** = per-1D PySR equations stitched together by an
+  **"additive Taylor combine"**, with a **GP-slice fallback** for
+  parameters whose PySR fit fails a quality gate.
+
+> The codebase calls this combine "additive Taylor" (the class is
+> literally `MultiZAdditiveTaylorModel`) — but mathematically it is
+> **not** a literal first-order Taylor expansion. Each per-axis
+> equation `eq_i(θ_i, ...)` is itself a nonlinear function of θ_i;
+> what's truncated is *interaction order between parameters*, not
+> Taylor order in any one parameter. The correct technical name is
+> **additive main-effect model** (or "first-order functional ANOVA"):
+> we model `P_F(θ)` as the sum of per-parameter univariate responses,
+> dropping all pair, triple, ... interaction terms. We keep the
+> historical "Taylor" name for code-grep continuity but explain the
+> math in § 2.
+
+Phase 1.5's job is to make σ_PySR ≈ σ_GP, parameter by parameter.
+
+> Theory file: `src/priya_forecast/fisher.py`. Read its top docstring for
+> the 5-point-stencil derivative formula and the adaptive step-halving
+> rule.
 
 ---
 
-## 3. The end-to-end flow
+## 2. The forward model: additive Taylor combine of per-1D PySR
+
+The Phase 1.5 prediction at any θ is
 
 ```
-[your PySR training run]                     [this framework]
-
-hall_of_fame_*.csv  ────────────┐
-mean_flux_low_*.txt  ────────┐  │
-std_flux_low_*.txt   ──┐     │  │
-                       │     │  │
-                       ▼     ▼  ▼
-                ┌────────────────────────────┐
-                │  configs/eqns/my_pysr.yaml │  ← you write this
-                └────────────┬───────────────┘
-                             │
-                ┌────────────▼───────────────────┐
-                │  priya-forecast run            │  ← framework runs
-                │      Fisher / MCMC             │
-                │  vs GP emulator + eBOSS cov    │
-                └────────────┬───────────────────┘
-                             │
-                ┌────────────▼───────────────────┐
-                │ results/<run>/                 │
-                │   fisher.npz                   │
-                │   chain.h5                     │
-                │   figures/*.png                │
-                └────────────────────────────────┘
+                                   ┌                              ┐
+  P̂(θ; k, z)  =  P_GP(fid; k, z) + Σ ⎢ eq_i(θ_i, k, z) − eq_i(fid_i, k, z) ⎥
+                                  i └                              ┘
 ```
+
+(at HF resolution `r = 0.8`; the LF case is handled symmetrically). Each
+`eq_i` is a single PySR equation in **four normalized inputs**:
+
+```
+  eq_i ( x0 = θ_i_norm,    x1 = k_norm,    x2 = resolution,    x3 = z_norm )
+```
+
+with all four mapped to `[0, 1]`. **Notation note**: every `eq_i(θ_i, k, z)`
+in this and the following formulas means the **de-normalized** equation
+output (round-trip from § 3b applied), so the sum is in physical
+`P_F(k, z)` units — the same space as `P_GP` and the KSData covariance.
+PySR itself outputs `flux_norm`; we always de-normalize before
+combining.
+
+The combine has three properties worth remembering:
+
+1. **Anchored at fid.** Every bracket is `eq_i(fid_i) − eq_i(fid_i) = 0`,
+   so `P̂(fid) ≡ P_GP(fid)`. The forecast is exactly the GP at the
+   fiducial point by construction.
+2. **Axis-wise exact w.r.t. the chosen 1D surrogate.** If only `θ_i` is
+   perturbed, every `j ≠ i` term vanishes and the prediction reduces to
+   `P_GP(fid) + eq_i(θ_i) − eq_i(fid_i)`. Note this is "exact" with
+   respect to the per-1D PySR equation we picked for θ_i — *not* with
+   respect to the GP. Along-axis accuracy relative to the GP is set
+   by the quality of that 1D fit (the 5%-rel-err quality gate, § 4) or
+   is exactly the GP if that param is GP-sliced.
+3. **Approximate off-axis (cross terms dropped).** The combine is **not**
+   a literal first-order Taylor expansion — each `eq_i(θ_i)` is a
+   nonlinear function of θ_i. What is dropped is **cross-parameter
+   interaction**: pair, triple, and higher functional-ANOVA terms. The
+   correct framing is "additive main-effect / first-order functional
+   ANOVA model". Missing cross terms can make Fisher constraints either
+   too tight or too loose depending on the geometry of the omitted
+   interactions; the sign is not a priori. (Phase 2 adds pair
+   cross-terms; Phase 1.5 does not.)
+
+> Theory file: `src/priya_forecast/refit_taylor.py`. The
+> `MultiZAdditiveTaylorModel.predict` method (line 206) is the combine
+> in code; the top-of-file docstring is the formal recipe.
+
+### The "GP-slice fallback"
+
+If a parameter's PySR fit fails the quality gate (training-set mean
+LF or HF rel-err ≥ 5%, or the equation drops `x0` and contributes no
+gradient — see § 4 below for the full criteria), we route that
+parameter through a **GP slice** instead of a PySR equation:
+
+```
+  P̂_phase1.5(θ; k, z)  =  P_GP(fid)
+       +  Σ          [ eq_i(θ_i)       − eq_i(fid_i)    ]    ← PySR-routed
+         i ∈ pysr
+       +  Σ          [ P_GP(θ_i, others=fid) − P_GP(fid) ]    ← GP-sliced
+         i ∈ slice
+```
+
+A GP-sliced parameter uses the GP response along its own axis, so the
+**data-space derivative vector** `∂P̂/∂θ_i` matches the GP's by
+construction (at the same stencil step and covariance). Therefore the
+**diagonal Fisher contribution** also matches:
+
+```
+  F_{ii}  =  (∂P̂/∂θ_i)ᵀ  C⁻¹  (∂P̂/∂θ_i)    ≡   F_{ii}^{GP}
+```
+
+This is the "fixed-others" or unmarginalized 1σ. The **marginalized
+error** `σ_i = sqrt((F⁻¹)_{ii})`, however, depends on the full inverse,
+which mixes in every column `∂P̂/∂θ_j` for `j ≠ i` — including the
+PySR-routed ones. So `σ_i` can drift slightly from the all-GP value
+through cross-correlations. This is why the σ-table in § 6 shows
+GP-sliced params at e.g. 0.99× / 1.01× / 1.02× rather than literal
+1.00×.
+
+The cost of GP-slicing is interpretability — a sliced parameter has no
+symbolic equation. In Phase 1.5 the typical slice list is
+`{omegamh2, heref, hireionz, bhfeedback}` — parameters whose PySR fit
+either drops `x0` (eq doesn't depend on θ_i, so its gradient is zero)
+or fails the 5%-rel-err quality gate. Phase 2 shrinks this list by
+extending the smart operator/loss policy to all 11 params (`heref`
+and `bhfeedback` get real PySR equations in Phase 2).
 
 ---
 
-## 4. Writing your YAML
+## 3. Per-1D PySR fit (the key training step)
 
-For each parameter you trained PySR on, point the YAML at your
-`hall_of_fame_<param>_z<z>.csv` and pick which row of the Pareto front to
-use:
+This is the only PySR call in the whole forecast. For each of the 11
+parameters, repeat:
 
-```yaml
-# configs/eqns/my_pysr.yaml
-name: my_pysr
-model: pysr
-redshift: 3.6
-combine: multiplicative                         # or additive / joint
-fiducial_p1d: data/priya_fiducial/p1d_z3.6.npz  # cached GP at fid
+### 3a. Build the training set
 
-parameters:
-  bhfeedback:
-    pareto_csv: pysr_outputs/hall_of_fame_bhfeedback_z3.6.csv
-    pick: best_loss             # or complexity_le:15 / accuracy_at:1e-3 / row:I
-    fiducial: 0.05              # PHYSICAL units, not normalized
-    variables: [bhfeedback, k, resolution]   # column order PySR was trained on
-  ns:
-    pareto_csv: pysr_outputs/hall_of_fame_ns_z3.6.csv
-    pick: complexity_le:15
-    fiducial: 0.983
-  # ... 11 entries total
+1. Sample over the product `(θ_i, z)` **2D Sobol-style**, with all other
+   10 parameters held at fid. (Both θ_i and z must vary because the eq
+   carries a `z_norm` feature; PySR needs joint coverage to discover
+   z-dependence.)
+2. Query the GP at every `(θ_i, k_grid, z, resolution=0.4)` (LF) and
+   `(θ_i, k_grid, z, resolution=0.8)` (HF). The LF/HF distinction lets
+   PySR *learn* the resolution correction inside the equation (via
+   the `x2 = resolution` feature) instead of being told it.
+3. Stack: `X = [(θ_i_norm, k_norm, 0.4, z_norm)_LF;
+                (θ_i_norm, k_norm, 0.8, z_norm)_HF]`.
+
+### 3b. Normalize the flux per `(z, k)` — the "at-fid anchor"
+
+Within each (z, k) bin, normalize the training flux to
+
+```
+  flux_norm  =  ( P_F − mean_{z,k} ) / std_{z,k}
 ```
 
-### `pick:` rules
+with **two distinct sources** for mean and std (`refit_1d_pysr.py:707-714`):
 
-| Rule                    | What it picks |
-|-------------------------|---------------|
-| `best_loss`             | the row with the lowest `Loss` value |
-| `complexity_le:N`       | among rows with `Complexity ≤ N`, the one with lowest `Loss` |
-| `accuracy_at:tol`       | among rows with `Loss ≤ tol`, the one with smallest `Complexity` |
-| `row:I`                 | the I-th row, by 0-indexed position |
+- `mean_{z,k}` = `P_GP^LF(fid; k, z)` — the **LF** GP prediction at the
+  fiducial parameter vector. This is the **"at-fid anchor"**. Two
+  consequences, depending on which resolution row you look at:
+  - For an **LF training row** at `θ = fid` (resolution `x2 = 0.4`),
+    `P_F = mean_{z,k}` exactly, so the normalized target is zero.
+    Any nonzero target value at `θ ≠ fid` therefore *must* be
+    explained by the eq's dependence on `x0 = θ_i_norm`.
+  - For an **HF training row** at `θ = fid` (resolution `x2 = 0.8`),
+    the target is `P_F^HF(fid) − P_F^LF(fid)`, which is generally
+    nonzero. PySR learns this LF→HF gap through the `x2` feature —
+    that's how the resolution correction enters the equation.
 
-`accuracy_at:` is the right choice for the paper — "the smallest equation
-that still hits target loss." Use `complexity_le:15` if you've decided in
-advance how interpretable the equation should be.
+  So the LF anchor strips the gross k/z flux shape out of the symbolic
+  target, while leaving the LF→HF correction visible. Without the
+  anchor, PySR's genetic search latches onto k/z/resolution-only
+  patterns and drops `x0` (observed empirically: 6/11 parameters lost
+  x0 dependence under naive empirical-Sobol-mean anchoring).
+- `std_{z,k}` = empirical std across the Sobol training sample at that z.
+  Just a per-(z,k) scale so the target is O(1).
 
-### `combine:` rules
+At inference time we round-trip via `flux_phys = flux_norm · std_{z,k} +
+mean_{z,k}`. Both `mean_{z,k}` and `std_{z,k}` are arrays of shape
+`(n_z, n_k)`, NOT scalars. This normalization choice is non-obvious and
+consequential — see `docs/PAPER_NOTES.md § 4` for the full design log.
 
-The forecast is built from per-parameter equations in one of three ways:
+> Subtle point worth internalizing: the at-fid anchor `mean_{z,k}` is
+> **purely a training-time device**. In the additive combine of § 2,
+> `eq_i(θ_i) − eq_i(fid_i)` causes the per-(z,k) mean to **cancel
+> exactly** (it's the same constant on both sides), so the prediction
+> `P̂(θ)` is independent of how `mean_{z,k}` was chosen. The anchor's
+> only purpose is to push PySR's genetic search toward x0-using
+> equations during training.
 
-- `multiplicative`: `P(θ, k) = P_fid(k) · ∏ᵢ [fᵢ(θᵢ, k) / fᵢ(θᵢ_fid, k)]`
-- `additive`     : `P(θ, k) = P_fid(k) + Σᵢ [fᵢ(θᵢ, k) - fᵢ(θᵢ_fid, k)]`
-- `joint`        : a single equation in (θ_1, ..., θ_11, k); set `joint_expression:`.
+### 3c. PySR config — Phase 1.5's "smart kwargs" (option B)
 
-Multiplicative is exact when each parameter scales the amplitude
-independently (often the case for cosmology); additive is exact when the
-true response is a sum of independent terms. The repo ships a justification
-test (`tests/test_combine_justification.py`) that lets you compare both on
-synthetic ground truth before deciding.
+Two policies running together, both essential:
 
-### `normalization:` block (passed at construction time, not in YAML)
-
-The framework supports three modes:
-
-- `{"mode": "auto"}`: derive (mean_k, std_k) by sweeping the chosen
-  parameter via the GP at fixed-fiducial-rest. Reproduces the student's
-  `mf_*.py` recipe but uses the GP instead of simulations.
-- `{"mode": "files", "mean_flux": ".../mean_flux_low_<subset>.txt", "std_flux": ".../std_flux_low_<subset>.txt"}`:
-  load the `.txt` files your PySR training script saved.
-- `{"mode": "identity"}`: no normalization (equation is in physical units).
-
-Default is `identity` — set explicitly if your equations were trained on
-normalized inputs (the usual case).
-
-### `fix:` map for non-forecast inputs
-
-If your PySR equations were trained on `(θ, k, resolution)`, the
-`resolution` column isn't a forecast parameter. Declare it inside the
-normalization block:
+**(i) Operator policy "option B"** — production drops oscillatory
+operators and explicit unary inversion / sqrt operators that wreck
+Fisher conditioning:
 
 ```python
-{"mode": "auto", "fix": {"resolution": 0.8}}
+binary_operators  = ["+", "-", "*", "/", "^"]
+unary_operators   = ["exp", "log", "square"]      # NO sin, cos, sqrt, inv
+constraints       = {"^": (-1, 0)}   # base unconstrained; exponent cannot contain nested operators
+complexity_of_operators = {"^": 3}    # mild parsimony penalty per `^`
 ```
 
-The framework refuses to compile any equation with a free variable other
-than its parameter and `k`, so silent misuse is impossible.
+A note on PySR's `constraints` semantics: the tuple `(left, right)` bounds
+the **subtree complexity** of the two operands, not their numeric
+values. `-1` means "no bound" (the left operand / base may be any
+expression); `0` means "the operand cannot contain nested operators" —
+in practice, a leaf such as a constant or a single input variable. So
+`(-1, 0)` reads as *"base arbitrary, exponent must be leaf-like (e.g.
+the literal `2`, or `x0`, or a fitted constant)"*. This forbids
+`(complex)^(complex)` patterns without forbidding `x^2` or `x^c` for
+fitted `c`. (The exact boundary between "leaf" and "near-leaf" can drift
+between PySR versions — check the docs for your installed version if
+you need a hard guarantee.)
+
+**Why these operators**:
+- Trig oscillates: derivatives flip sign repeatedly across the prior
+  box, so the 5-point stencil sees noise and Fisher conditioning
+  collapses.
+- Explicit `inv` (`1/x`) has a pole at `x=0`; `sqrt(x)` has a branch
+  point and ill-defined derivatives there. Both can be inside the prior
+  box for normalized features.
+- Unconstrained `^` is the worst: PySR's genetic search readily finds
+  `(complex)^(complex)` patterns that fit fid well but blow up by orders
+  of magnitude at the prior boundaries.
+- **Note that binary `/` is still allowed.** It can in principle
+  produce the same kind of singularity as `inv`, but the
+  finite-prediction filter and 5%-rel-err quality gate (§ 4) screen
+  out divisions that misbehave on the prior box. The empirical finding
+  was that the explicit *unary* `inv` was disproportionately tempting
+  to the symbolic search; binary `/` paired with sensible operands has
+  been fine in practice.
+
+The dropped operators have been tried in ablations and found to break
+σ-conditioning; see `docs/PAPER_NOTES.md § 2` for the log.
+
+**(ii) Dimension-balanced ANOVA loss** (more principled, marginal in
+practice):
+
+```
+  L(prediction, target, X)  =  MSE  +  α · Σ_d  corr²( residual, X_d )
+                                       d
+```
+
+`corr` is Pearson correlation across the batch. The intent: weakly-coupled
+θ (`omegamh2`, `hireionz`, `bhfeedback`) give per-θ residual variance
+that's small relative to the (k, z, r)-driven variance, so plain-MSE
+PySR is tempted to drop `x0` (parsimony beats the tiny MSE win of
+using it). The penalty explicitly punishes any leftover
+`corr(residual, x0)`, pushing the search toward x0-using equations.
+
+> **Honest assessment of the loss's impact.** It's a more principled
+> objective than plain MSE — it directly targets the failure mode
+> ("x0 dropped because residual-x0 correlation didn't lower MSE
+> enough"). But in practice it doesn't move the headline σ-table much.
+> The parameter the loss actually unlocks is `bhfeedback` (the AGN
+> feedback term), which is **already heavily prior-bound**
+> (`σ_prior = 0.005` is tight relative to its data information). So
+> whether `bhfeedback` routes through PySR or through GP-slice, its σ
+> is dominated by the prior either way — the σ-ratio sits at 1.00–1.02×
+> regardless. `omegamh2` and `hireionz` are similarly priored or
+> weakly-constrained. So we use the ANOVA loss because it's the
+> theoretically right thing to do (and avoids the embarrassment of
+> ablation reviewers asking why we didn't), but don't expect it to
+> swing the headline σ on the cosmologically interesting parameters.
+
+> Theory files: `src/priya_forecast/refit_1d_pysr.py` (training recipe,
+> 999 lines, top docstring lists steps 1–6 verbatim);
+> `src/priya_forecast/dim_balanced_loss.py` (ANOVA penalty math);
+> `src/priya_forecast/models/normalization.py` (per-(z,k) round-trip).
 
 ---
 
-## 5. Running the forecast
+## 4. Picking the equation from PySR's Pareto front
 
-```
-priya-forecast run \
-    --config configs/default.yaml \
-    --eqn configs/eqns/my_pysr.yaml \
-    --mode fisher \
-    --output results/my_run_2026_04_28/
-```
+PySR returns a Pareto front: ~20 equations of increasing complexity,
+each the best of its complexity. We never just take "lowest loss" — we
+filter, then rank.
 
-Outputs:
+**Filter** (`is_fisher_stencil_safe` in `pareto_filters.py` for the
+finite-prediction check; the gate itself runs in
+`scripts/multi_z_aggregate.py:111-129` after the per-1D refits land):
+- Drop eqs whose prediction is non-finite at any prior-box extreme
+  (i.e., evaluating at the corners of the θ_i prior, swept across the
+  full `(k, z)` grid). This catches eqs that blow up at boundaries.
+- Drop eqs that don't reference `x0` (i.e. don't depend on θ_i) — those
+  have `∂eq/∂θ_i ≡ 0` along the parameter axis and contribute nothing
+  to that param's Fisher entry.
+- Drop eqs whose **training-set mean** LF or HF flux rel-err exceeds
+  **5%** (`REL_ERR_THRESHOLD = 0.05` in `multi_z_aggregate.py:111`).
+  The gate is on the *training* rel-err, not a separately held-out
+  Sobol set; the held-out validation is the multi-D Sobol hold-out
+  reported in § 6, which evaluates the *whole hybrid model*, not a
+  single per-1D fit.
 
-- `fisher.npz` — Fisher matrix, covariance, σ vector, correlation matrix.
-- `fisher_table.md` — human-readable 1σ summary, one row per parameter.
-- `figures/*.png` — diagnostic figures (see the gallery below).
+**Rank** survivors by:
+1. Most-θ-used (eqs that reference all 4 of `x0..x3` are preferred over
+   ones that drop `x2` or `x3`).
+2. Among ties, simplest (lowest complexity).
 
-Use `--mode mcmc` for the full posterior (slower; minutes-to-hours).
+If no eq survives → the parameter is routed to GP-slice fallback (§ 2).
 
-To compare every YAML in `configs/eqns/` against the GP baseline:
-
-```
-priya-forecast compare --eqn-dir configs/eqns/ --output results/compare/
-```
-
----
-
-## 6. Diagnostic figures (gallery)
-
-The repo regenerates a sample set under `docs/figures/` via
-`scripts/regen_sample_figures.py`. Each forecast run produces the same set
-under its own output directory.
-
-### `fig01_gp_at_fiducial.png` — sanity check
-Overlay of the GP prediction at fiducial vs the eBOSS DR14 data points
-with ±σ error bars at `z=3.6`. **If the line doesn't track the points
-within their errors, something is wrong upstream** (wrong z-bin, wrong
-covariance, wrong fiducial values).
-
-### `fig02_gp_param_sensitivity.png` — what the data sees
-For each of the 11 parameters, `d ln P_F / dθ̂` per prior-width.
-Parameters with large absolute values are well-constrained; parameters
-sitting near zero across the k-grid are essentially unconstrained.
-
-### `fig03_fisher_1d.png` — single-parameter constraint
-1σ marginalized error from a 1D forecast (only that parameter floats;
-others held at fid), normalized to the prior width. This is the
-"if I knew everything else, how well would I measure this?" lower bound.
-
-### `fig04_fisher_2d.png` / `fig05_fisher_3d.png` / `fig06_fisher_4d.png`
-Same bar chart but jointly marginalizing over 2 / 3 / 4 parameters. Watch
-how individual σ's grow as more degeneracies are opened — that growth
-*is* the science of degeneracy-breaking.
-
-### `fig07_fisher_corner.png` — full-cov visualization
-Fisher-Gaussian corner: 1D marginals on the diagonal, 1σ confidence
-ellipses off-diagonal. Identifies which parameter pairs are most
-correlated (visually, the most-elongated ellipses).
-
-When you have multiple equation sets to compare (PySR-v1, PySR-v2, GP),
-overlay them in this corner — same axes, different colors. If the PySR
-contour overlaps the GP contour, your equations are forecast-equivalent
-to the emulator.
+> Theory file: `src/priya_forecast/pareto_filters.py` (158 lines).
 
 ---
 
-## 7. Common gotchas
+## 5. Computing Fisher
 
-**1. "PySR equation references unknown symbols [...]"**
-Your YAML declared `variables: [ns, k]` but the equation also uses `r` or
-`x2`. Either add the missing variable to `variables:` and put it in
-`fix:`, or hand-edit the equation.
+With `P̂(θ; k, z)` defined by § 2, Fisher is
 
-**2. "Covariance not positive-definite"**
-You set `cov_scale` very small. The DR14 covariance is fine; the scale
-multiplier dropped you below the numerical floor.
+```
+  F_{ij}  =  ( ∂P̂/∂θ_i )ᵀ  C⁻¹  ( ∂P̂/∂θ_j )
+```
 
-**3. "Fisher matrix not invertible"**
-You're varying parameters with zero gradient (e.g., the equation doesn't
-depend on `bhfeedback`). Drop them from the `params=` list in your
-forecast call. The 4-parameter `(ns, Ap, hub, omegamh2)` subset is a safe
-starting point; the others typically need many redshifts to constrain.
+where `∂P̂/∂θ_i` and `∂P̂/∂θ_j` are gradient vectors over the **full
+stacked `(k, z)` grid** and `C` is the full KSData covariance over the
+same layout (not block-diagonal in z — see § 1).
 
-**4. "z=X.X not in emulator's z-grid"**
-The GP emulator is trained at z = 2.2, 2.4, ..., 4.6 in steps of 0.2.
-Snap your `redshift:` config entry to one of those.
+**Gaussian priors**. An independent Gaussian prior on `θ_i` with std
+`σ_{prior,i}` adds an information term to the diagonal of `F`:
 
-**5. The MCMC chain is short — sigma's look weird**
-Look for `MCMC may not be converged: chain length ... < 50 * tau_max`
-in the warnings. Bump `n_steps:` in `configs/default.yaml`.
+```
+  F_{ii}  ←  F_{ii}  +  1 / σ²_{prior,i}
+```
+
+(This is the well-known result that Gaussian priors compose additively
+with the data Fisher when both are Gaussian — the inverse-variances
+sum.) Phase 1.5 adds these for `hub` (σ=0.015), `omegamh2` (σ=0.001),
+`bhfeedback` (σ=0.005), and `tau0` (σ=0.331); see
+`docs/PAPER_NOTES.md § 5c` for where each value comes from (Kim+
+mean-flux constraints + the prior-width convention used elsewhere in
+PRIYA).
+
+The derivatives are **5-point centered stencils**:
+
+```
+                  −P̂(θ + 2h ê_i) + 8 P̂(θ + h ê_i) − 8 P̂(θ − h ê_i) + P̂(θ − 2h ê_i)
+  ∂P̂/∂θ_i ≈ ─────────────────────────────────────────────────────────────────────────
+                                              12 h_i
+```
+
+**Adaptive step halving**: `h_i` starts at `step_frac · (prior_hi − prior_lo)`
+and halves until the relative change in the diagonal `F_{ii}` drops
+below `rel_tol`. Each parameter halves independently because curvature
+scales differ wildly (e.g. omegamh2 vs hireionz).
+
+The output bundle: `F` (matrix), `cov = F⁻¹`, `σ = sqrt(diag(cov))`,
+`corr` (correlation), `steps` (converged h_i — useful diagnostic).
+
+> Theory file: `src/priya_forecast/fisher.py` (417 lines, top docstring
+> is the math reference).
 
 ---
 
-## 8. Where the tests live
+## 6. Phase 1.5 production scope and headline numbers
 
-Every module has unit tests + property-based tests under `tests/`:
+**Configuration**:
+- Emulator: `kodiaq_2_2_4_6-48-48` (KODIAQ-SQUAD + XQ-100 multi-fidelity).
+- z-grid: 9 bins `[2.6, 2.8, 3.0, 3.2, 3.4, 3.6, 3.8, 4.0, 4.2]`.
+- k-grid: `linspace(0.005, 0.064, 32)` s/km. (Covers cosmic-variance
+  floor < 0.005, peculiar-velocity dip near 0.02, LF resolution loss
+  > 0.04.)
+- Covariance: KSData (Karaçaylı+ 2021), conservative=True, k ≤ 0.064.
+- Gaussian priors on `hub σ=0.015, omegamh2 σ=0.001, bhfeedback σ=0.005,
+  tau0 σ=0.331` (Kim mean-flux × prior width).
+- `dtau0 = 0` fixed (Kim USE_TAU0_ONLY convention).
+- **Smart kwargs** (option B operators + ANOVA loss) for the **IGM
+  thermal block only**: herei, heref, alphaq, hireionz, bhfeedback.
+  Cosmology block (tau0, ns, Ap, hub, omegamh2) uses default kwargs.
+- **No pair coupling.** That's Phase 2.
 
-- `test_parameters.py` — the 11 PRIYA params, fiducial + prior bounds
-- `test_config.py` — YAML loaders + validation
-- `test_data.py` — eBOSS DR14 load + binning
-- `test_normalization.py` — round-trip of mean_flux/std_flux
-- `test_pysr_model.py` — sympy whitelist + Pareto pick + combine math
-- `test_gp_model.py` — Mock + real GP adapter
-- `test_likelihood.py` — Gaussian chi² + cov_scale + NaN rejection
-- `test_fisher.py` — closed-form check on linear models
-- `test_mcmc.py` — recovers fiducial within 4σ on a 2D toy
-- `test_combine_justification.py` — additive vs multiplicative on synthetic + MockGP
-
-Run all of them with:
-
+**Phase 1.5 headline** (11-θ joint Sobol hold-out at z=3.6, n=64):
 ```
-PYTHONPATH=src python -m pytest tests/ -q
+  mean rel-err  =  3.27 %
+  p99  rel-err  = 12.08 %
+  max  rel-err  = 23.93 %
 ```
 
-Adding a new feature? Add a unit test + at least one `hypothesis`
-property-based test in the same PR. The repo has a CI rule that requires
-both.
+**Phase 1.5 σ-table** (selected, σ_PySR / σ_GP):
+
+| param      | ratio   | route      |
+|------------|---------|------------|
+| ns         | 1.40×   | PySR       |
+| Ap         | 0.79×   | PySR       |
+| tau0       | 1.26×   | PySR       |
+| hub        | 1.26×   | PySR       |
+| omegamh2   | 0.99×   | GP-slice   |
+| herei      | 5.90×   | PySR       |
+| heref      | 0.88×   | GP-slice (gated) |
+| alphaq     | 1.30×   | PySR       |
+| hireionz   | 1.01×   | GP-slice   |
+| bhfeedback | 1.00×   | GP-slice (gated) |
+
+The IGM thermal block ratios > 1× are partly **intrinsic** to those
+parameters: their posteriors are non-Gaussian, so the Fisher
+approximation (which assumes a Gaussian posterior at the fiducial
+point) does not match the MCMC marginal width — even when the model is
+the GP itself. The mismatch can go in either direction depending on
+curvature, priors, and parameter-space boundaries; for these params it
+manifests as σ_GP / σ_MCMC = 1.6–4.5× at θ_target_simdat. See
+`docs/PAPER_NOTES.md § D8.5` for the full decomposition.
+
+**Where to read the results yourself**:
+- `results/refit_optionC_z2.6-4.2_phase1_5_ksdata/scorecard.md` —
+  per-parameter σ-table + route + x0-usage flag.
+- `results/refit_optionC_z2.6-4.2_phase1_5_ksdata/per_param_summary.md`
+  — the actual chosen PySR equations, one per parameter.
+- `results/refit_optionC_z2.6-4.2_phase1_5_ksdata/corner.pdf` —
+  Fisher corner plot.
+- `results/holdout_multid_phase1_5/holdout_multid.md` — the 11-θ
+  Sobol hold-out table the headline numbers come from.
+- `results/closure_at_simdat_ind15_phase1_5_ksdata/scorecard.md` —
+  off-fid Fisher closure at θ_target_simdat (σ_PySR / σ_MCMC).
 
 ---
 
-## 9. The reward loop: `scripts/train_and_forecast.py`
+## 7. Reading map (theory files, in math order)
 
-This is the script you run after every PySR retraining. It takes your
-equation set and produces a production scorecard with three gauges:
+Read in this order — each file's top docstring states the math it
+implements; the code is below that. **Skip the `scripts/` directory
+entirely** until you understand all of these.
 
-```
-PYTHONPATH=/home/mfho/student_projects/lya_emulator_full:src \
-    python scripts/train_and_forecast.py \
-        --params dtau0 Ap ns alphaq \
-        --equations path/to/your_pysr.yaml \
-        --output results/run_$(date +%Y%m%d)/
-```
+| # | File | What math it carries |
+|---|------|---------------------|
+| 1 | `src/priya_forecast/parameters.py` | The 11 PRIYA params: names, fid, prior bounds. (One-page contract.) |
+| 2 | `src/priya_forecast/models/base.py` | `P1DModel` ABC: `predict(θ, k, z) → P_F`. The whole forecast plugs in here. |
+| 3 | `src/priya_forecast/models/normalization.py` | The per-(z,k) flux normalization round-trip. Read first because everything else imports it. |
+| 4 | `src/priya_forecast/refit_1d_pysr.py` | Per-1D PySR training: Sobol sample, normalize, stack LF+HF, hand to PySR, save best Pareto eq. § 3 of this doc. |
+| 5 | `src/priya_forecast/dim_balanced_loss.py` | ANOVA main-effect penalty: `L = MSE + α·Σ corr²(res, X_d)`. § 3c(ii). |
+| 6 | `src/priya_forecast/pareto_filters.py` | Pareto-pick rules (`is_fisher_stencil_safe`, x0 used, max-rel-err gate). § 4. |
+| 7 | `src/priya_forecast/models/pysr_model.py` | Wraps a saved equation back into a `P1DModel`. Closes the loop from training back to forecasting. |
+| 8 | `src/priya_forecast/refit_taylor.py` | The 1D → multi-D additive Taylor combine. `MultiZAdditiveTaylorModel.predict` (line 206) is the formula in code. § 2. |
+| 9 | `src/priya_forecast/likelihood.py` | Gaussian log-L `−½ (d−m)ᵀ C⁻¹ (d−m)`. |
+| 10 | `src/priya_forecast/ksdata_likelihood.py` | KSData covariance loader. |
+| 11 | `src/priya_forecast/fisher.py` | The Fisher computation: 5-point stencil + adaptive step halving + diagonal-convergence rule. § 5. |
 
-The scorecard reports three numbers per parameter, plus geometric means:
+After all 11, you can read any script in `scripts/` and immediately
+recognize it as orchestration around these primitives.
 
-| Gauge | What it tells you |
-|---|---|
-| **σ_student / σ_perfect_1D** | how far you are from the 1D-product upper bound. Target < 1.5 (geomean). |
-| σ_perfect_1D / σ_gp | always ≈ 1 at Fisher level by chain rule — sanity check, not actionable. |
-| **off-fid MSE ratio** | residuals vs GP at random off-fid Sobol points, in eBOSS-σ² units. Target < 2. |
+---
 
-Built-in references:
+## 8. Running things (one-time setup, brief)
 
-```
---equations none        # only score the references
---equations published   # the four equations from the user-quoted paper draft
---equations <path.yaml> # your YAML
-```
-
-### What the scorecard tells you to do
-
-- If `σ_student / σ_perfect_1D` is large (currently ~6× geomean for the
-  published equations): your PySR runs are under-trained. Try larger
-  `maxsize` (30+), more `niterations` (200+), and `model_selection="accuracy"`
-  with a tight target loss.
-- If `off-fid MSE ratio` is large (currently ~66× for published): even at
-  fid the gradients look OK but extrapolation breaks down. Train on a
-  denser Sobol set covering more of the prior, not just near fid.
-- If both are small: you've saturated 1D-product. Now train *joint*
-  multi-D equations (`combine: joint` with a single equation in all
-  varying params) and rerun. Phase 5's coupling-matrix heatmap will show
-  where the joint approach actually buys you something.
-
-### Why σ_perfect_1D = σ_gp at Fisher level
-
-By the chain rule, at the fiducial point:
-`∂P_pysr/∂θ_i = P_fid · (1/f_i_fid) · df_i/dθ_i = ∂GP/∂θ_i` whenever the
-1D slice f_i matches the GP at fid. So Fisher cannot see the cost of the
-1D-factorization assumption — that cost shows up only at off-fid points
-(in the off-fid MSE gauge above) or in MCMC posteriors with non-Gaussian
-curvature.
-
-## 10. Multi-D PySR — `scripts/run_multid_pysr.py`
-
-When `train_and_forecast.py` says "graduate to multi-D PySR" (i.e. your
-1D equations are converged and you want the cross-term gain), run the
-multi-D trainer. It samples Sobol points in your chosen subspace,
-evaluates the GP, runs **real PySR** to discover a single joint
-equation in (θ_1, ..., θ_k, k), then scores it via the same scorecard:
-
-```
-PYTHON_JULIAPKG_PROJECT=$HOME/.julia_env \
-JULIA_DEPOT_PATH=$HOME/.julia \
-PYTHONPATH=/home/mfho/student_projects/lya_emulator_full:src \
-    python scripts/run_multid_pysr.py \
-        --params dtau0 Ap \
-        --n-train 128 --niter 200 --maxsize 30 \
-        --output results/multid_2d_dtau0_Ap/
+```bash
+git clone <this repo> && cd priya-forecast
+pip install -e ".[forecast,pysr,gp,dev]"
+# Point PYTHONPATH at the upstream lya_emulator clone + this repo's src/.
+# On Greatlakes the upstream repo is already at
+#   /home/mfho/student_projects/lya_emulator_full
+# On a fresh machine, clone https://github.com/sbird/lya_emulator first.
+export PYTHONPATH=/path/to/lya_emulator_full:$PWD/src
 ```
 
-- `--params`: forecast subspace (start with 2 or 3 — 4D is hard for
-  PySR at modest budgets).
-- `--n-train`: Sobol training-set size (more = better fit, slower).
-- `--niter`: PySR iterations. 30 is a smoke test; 200+ is real.
-- `--maxsize`: Pareto-front complexity cap. 25 is a reasonable starting
-  point; 40 if you want richer equations.
+To reproduce a Phase 1.5 result, the canonical pipeline is:
 
-The script saves the discovered Pareto CSV to `<output>/hall_of_fame.csv`
-and the chosen equation's scorecard to `<output>/scorecard.md`. Iterate
-on (`niter`, `maxsize`, `n_train`) until σ_student / σ_perfect_1D drops
-below ~1.5 across the chosen subspace.
+1. **Train**: `scripts/refit_all_11_params.py` (calls
+   `refit_1d_pysr.py` per parameter; produces 4-feature multi-z
+   `Refit1DResult` objects with `variables = (θ_i, k, resolution,
+   z_norm)`).
+2. **Aggregate**: `scripts/multi_z_aggregate.py` (loads the per-1D
+   refits, applies the 5%-rel-err quality gate from § 4, builds
+   `MultiZAdditiveTaylorModel`, computes Fisher).
+3. **Validate**: `scripts/holdout_multid.py` (multi-D Sobol hold-out,
+   the headline rel-err in § 6).
+4. **Off-fid closure**: `scripts/closure_at_simdat_target.py`
+   (σ_PySR vs σ_MCMC at θ_target_simdat).
 
-A small budget (n_train=32, niter=30, maxsize=25, params=4) is enough
-to confirm the plumbing but produces equations that miss most of the
-parameter dependence (e.g., alphaq dropped by parsimony). For
-publishable runs, expect to spend tens of minutes per equation.
+> **Do NOT use `scripts/train_and_forecast.py` to score Phase 1.5
+> equations.** That script is the simpler **single-z student-recipe**
+> reward loop (eBOSS DR14 covariance, 2- or 3-feature equations
+> trained at one z); it cannot consume the multi-z 4-feature
+> production refits because its YAML schema and hard-coded `fix:`
+> block don't allow a `z_norm` feature. See `README.md` for what the
+> student loop actually scores.
 
-## 11. The coupling-matrix diagnostic — `scripts/run_coupling_matrix.py`
+**Do not start by reading any of these scripts** — read the theory
+files in § 7 first, then the scripts will be self-explanatory.
 
-This is the script that produces the **headline science figure** for
-the paper: a coupling matrix that quantifies how much information the
-1D-factorization assumption is losing for each parameter pair.
+---
 
-```
-PYTHONPATH=/home/mfho/student_projects/lya_emulator_full:src \
-    python scripts/run_coupling_matrix.py \
-        --params dtau0 tau0 ns Ap herei heref alphaq hub omegamh2 hireionz bhfeedback \
-        --order 4 --n-train 96 --n-test 256 \
-        --output results/coupling_matrix/
-```
+## 9. Where to ask for help
 
-The script:
-1. Sweeps Sobol points per (θ_i, θ_j) pair on the GP at fid-others.
-2. Fits a 1D polynomial per param (multiplicatively combined into a
-   1D-product baseline).
-3. Fits a 2D polynomial per pair (the joint reference).
-4. Computes `coupling[i,j] = (MSE_1D-product − MSE_2D-joint) / MSE_1D-product`
-   on a held-out 2D Sobol test set.
-5. Renders the 11×11 heatmap.
+- Math / methodology questions → check `docs/PAPER_NOTES.md` first
+  (§ 1–6 = Phase 1 design, § D1–D9 = production design decisions, with
+  reasoning for every choice). Then ask the team.
+- Code / bug reports → file in this repo's GitHub issues.
+- Upstream GP emulator → `lya_emulator_full` repo (sbird).
+- PySR training pipeline (the student's original recipe) →
+  `priya_pysr` repo.
 
-**Polynomial backend**: total runtime for all 55 pairs at n_train=96,
-order=4 is ~5-10 minutes. Real PySR backend is much slower; see Phase 6
-HPO + `scripts/run_multid_pysr.py` for that path.
-
-**Reading the matrix**: cells near 0 mean "1D-factorization is fine for
-this pair"; dark cells mean "you need joint multi-D PySR for this pair
-to capture the GP's response correctly." The mode of the matrix's
-distribution tells you whether the paper's 1D approach is structurally
-sound or needs a redo.
-
-If a few specific cells are dark (e.g., omegamh2 × hub), the paper
-should report those pairs as known limitations. If most cells are
-dark, the 1D approach itself is broken at the chosen z and the paper
-needs a multi-D rerun.
-
-## 12. PySR hyperparameter tuning — `scripts/run_pysr_hpo.py`
-
-The HPO module is intentionally **independent of the rest of the
-forecast** so you can use it on any future symbolic-regression project,
-not just PRIYA P1D. It takes raw `(X_train, y_train, X_val, y_val)`
-arrays and a search space, and returns the top configurations sorted by
-your chosen metric.
-
-```
-PYTHON_JULIAPKG_PROJECT=$HOME/.julia_env \
-JULIA_DEPOT_PATH=$HOME/.julia \
-PYTHONPATH=/home/mfho/student_projects/lya_emulator_full:src \
-    python scripts/run_pysr_hpo.py \
-        --param ns --n-train 64 --n-val 256 \
-        --space configs/hpo/quick.yaml \
-        --strategy random --n-trials 6 \
-        --metric val_mse \
-        --output results/hpo_ns/
-```
-
-Three metrics:
-
-- `val_mse` — straight MSE on the held-out validation set.
-- `complexity_at_target` — minimum Pareto complexity such that
-  validation loss ≤ `--target-loss`. Best for the paper's
-  "smallest-yet-accurate equation" objective.
-- `pareto_area` — area under the (complexity, log loss) curve.
-  Captures whole-Pareto quality, not just one point.
-
-Three strategies:
-
-- `grid` — exhaustive (capped at 200 configs).
-- `random` — uniform sample of `--n-trials` configs.
-- `bayesian` — optuna-driven if installed; else falls back to random
-  with a warning. Optuna is **not** a hard dependency.
-
-**Caching.** The script writes each trained model to
-`<output>/cache/<hash>.pkl`. Re-running with the same data + config
-hits the cache and skips PySR. Without this, exploratory iteration on
-`niterations / maxsize / parsimony` is unusable because each fit
-takes minutes.
-
-**Output**:
-- `hpo1_top.png` — bar chart of top-10 configs by metric.
-- `hpo2_hyperparam_scatter.png` — metric vs each numeric hyperparam.
-- `hpo3_pareto.png` — Pareto-front overlay of the top-5 configs.
-- `hpo4_walltime.png` — wall-time vs metric (efficiency frontier).
-- `hpo_top10.md` — scoreboard markdown.
-
-**Reading the figures**:
-- If `hpo2_hyperparam_scatter.png` shows a clear trend (metric improves
-  with one hyperparam), you've under-budgeted that parameter — widen
-  the range and rerun.
-- If the Pareto fronts in `hpo3_pareto.png` overlap heavily, your search
-  space is roughly converged. Pick the leftmost (lowest-complexity)
-  curve as your equation.
-- If `hpo4_walltime.png` shows a Pareto frontier (some configs are
-  fast AND good), pick from the lower-left corner.
-
-**Reusing on other projects.** Pass `--data path/to.npz` (with arrays
-`X_train, y_train, X_val, y_val`) instead of `--param`. The script then
-runs the HPO sweep on whatever symbolic-regression target you give it.
-
-## 13. Where to ask for help
-
-- Code questions / bugs → file in this repo's GitHub issues.
-- PySR training pipeline questions → upstream `priya_pysr` repo.
-- GP emulator questions → upstream `lya_emulator_full` repo (sbird).
-- Forecast methodology → check `tests/test_combine_justification.py`
-  for the additive-vs-multiplicative numbers, then the PRIYA paper.
+For Phase 2 (per-pair PySR cross-coupling) and Phase 3 (Ap σ-ratio
+remediation), come back here once Phase 1.5 makes sense — those build on
+top of everything above.

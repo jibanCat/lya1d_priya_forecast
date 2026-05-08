@@ -87,6 +87,50 @@ DEFAULT_PYSR_KWARGS: dict[str, Any] = dict(
 )
 
 
+# Phase 1.5 "smart refit" config for production runs. Architectural levers
+# (NOT search-depth ones) that prevent the emulator from blowing up or
+# producing spurious gradients at fid. Three fixes (per user direction
+# 2026-05-05):
+#
+#   1. Drop `inv` and `sqrt` from unary operators — sharp curvature near 0
+#      produces mal-behaved gradients near prior boundaries.
+#   2. Restrict the `^` binary operator with `constraints={"^": (-1, 0)}`.
+#      Original intent: LHS unrestricted, RHS literal constant only —
+#      so `x^2`, `k^c` allowed but `k^θ` forbidden. **In practice (PySR
+#      complexity convention)**: RHS complexity ≤ 0 admits no expression
+#      (leaves cost ≥ 1 unless `complexity_of_constants=0` is also set,
+#      which we don't do). So this configuration **drops `^` entirely**
+#      — verified: 14 of 14 production fits (10 per-1D, 4 pair) have
+#      zero `^` operators. PySR uses `square` from the unary set for
+#      `x²` instead. This fix kills the `k^θ_Ap` boundary blow-up that
+#      gave Phase 1's Ap σ_PySR/σ_GP = 0.79× pathology at fid (`k^θ`
+#      derivative is `k^θ·log(k)` which diverges as k→0).
+#   3. Replace MSE elementwise loss with the dim-balanced ANOVA loss
+#      (penalizes batch-level main effects on dropped features → forces
+#      PySR to use θ even when (k, z, r) alone could lower per-sample MSE).
+#
+# Documented in PAPER_NOTES.md § D3 + D5.5 + D8.
+SMART_REFIT_PYSR_KWARGS: dict[str, Any] = dict(DEFAULT_PYSR_KWARGS)
+# Keep `^` available with constraint: rhs must be complexity 0 (literal).
+SMART_REFIT_PYSR_KWARGS["binary_operators"] = ["+", "-", "*", "/", "^"]
+SMART_REFIT_PYSR_KWARGS["unary_operators"] = ["exp", "log", "square"]
+SMART_REFIT_PYSR_KWARGS["extra_sympy_mappings"] = {}
+SMART_REFIT_PYSR_KWARGS["constraints"] = {"^": (-1, 0)}
+# Slightly discourage `^` so PySR prefers polynomials when they fit equally
+# well (complexity_of_operators is a soft Pareto cost; (-1, 0) is the hard
+# blow-up guard).
+SMART_REFIT_PYSR_KWARGS["complexity_of_operators"] = {"^": 3}
+# PySR can't take both `elementwise_loss` and `loss_function`; swap them.
+SMART_REFIT_PYSR_KWARGS.pop("elementwise_loss", None)
+from priya_forecast.dim_balanced_loss import JULIA_LOSS_FUNCTION  # noqa: E402
+SMART_REFIT_PYSR_KWARGS["loss_function"] = JULIA_LOSS_FUNCTION
+
+# Default smart-refit set. Phase 1 closure flagged heref/herei/alphaq;
+# Phase 1.5 retro-analysis added Ap because its eq used `k_norm^θ_Ap_norm`
+# (the exact pattern `constraints={"^": (-1, 0)}` now forbids).
+SMART_REFIT_PARAMS: tuple[str, ...] = ("heref", "herei", "alphaq", "Ap")
+
+
 @dataclass
 class Refit1DResult:
     """Bundles a per-param PySR equation + the metadata needed to evaluate
