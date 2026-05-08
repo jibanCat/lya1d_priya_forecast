@@ -2,6 +2,63 @@
 
 > **For the local paper-writing Claude (or human) reading this**:
 >
+> ---
+>
+> **🎯 TL;DR — quotable single result for the paper headline** (added 2026-05-06)
+>
+> If the paper quotes ONE main number, use **Phase 2 v2**:
+>
+> > *"A 4-pair PySR cross-coupling emulator achieves 2.35% mean /
+> > 7.05% p99 / 12.11% max relative error on an 11-θ joint Sobol
+> > hold-out (n=64) at z=3.6 on the KSData k-grid (0.005–0.064 s/km)."*
+>
+> Source: `results/holdout_multid_phase2_production/holdout_multid.md`.
+>
+> **Why Phase 2 over Phase 1.5**: 28% better mean rel-err (2.35% vs
+> 3.27%) and 42% better p99 (7.05% vs 12.08%). More importantly,
+> Phase 2 **actually PySR-routes `heref` and `bhfeedback`** instead of
+> falling back to GP-slice — so Phase 1.5's better-looking σ-ratios on
+> those two params are 1.0× free passes through the GP, not symbolic
+> representations. Phase 2 only loses on **Ap** (σ_PySR/σ_GP = 2.62×
+> vs 0.79×); this is a known limitation with a diagnosed cause
+> (smooth-only operators give shallower slope-at-fid than GP truth) —
+> see § D8.6 + `docs/AP_REMEDIATION_PLAN.md`.
+>
+> **Why not wait for Phase 3**: it is unimplemented and unverified.
+> Budget the paper for Phase 2; treat Phase 3 (grad-matching loss term
+> or `TemplateExpressionSpec` split-learning eq) as future work in the
+> discussion. If Phase 3 lands and recovers Ap before submission, swap
+> the headline then.
+>
+> **What Phase 2 changed (vs Phase 1.5)** — full design in § D7:
+> 1. **Extended `SMART_REFIT_PYSR_KWARGS` to ALL 11 per-1D refits**
+>    (Phase 1.5 only used it for the IGM thermal block). The smart
+>    kwargs encode option B operator policy
+>    (`constraints={"^": (-1, 0)}` + drop `inv`/`sqrt` from unary) and
+>    the dim-balanced **ANOVA main-effect penalty loss** (§ D3). This
+>    alone unlocked a usable PySR eq for `bhfeedback` that Phase 1.5's
+>    MSE loss could not find.
+> 2. **Added per-pair PySR cross-coupling** for 4 pairs selected from
+>    the simdata MCMC posterior correlation matrix:
+>    `tau0×ns, Ap×alphaq, herei×alphaq, tau0×Ap`. Implemented via
+>    `MultiZPairCoupledModel` with a **rank-additive ANOVA combine** —
+>    each pair contributes only the cross-component its eq actually
+>    captures, and a pair with no signal is a graceful no-op
+>    (exactly what `tau0×Ap` v2 hit, by design).
+> 3. **Added off-fid closure validation** at `θ_target_simdat`
+>    (`scripts/closure_at_simdat_target.py --pair-refits-dir ...`).
+>    Cosmology block is strong: `ns` σ_PySR/σ_MCMC = **0.94×** (vs
+>    0.69× Phase 1.5), `Ap` = **1.19×** (vs 1.47×).
+> 4. **Added an 11-θ joint Sobol hold-out** (n=64) which is the
+>    headline table source above.
+>
+> Reproducibility: all numbers regenerable from
+> `results/refit_phase2_production_v2_ksdata/scorecard.md`,
+> `results/holdout_multid_phase2_production/holdout_multid.md`, and
+> `results/closure_at_simdat_ind15_phase2_v2_ksdata/scorecard.md`.
+>
+> ---
+>
 > 1. **Skim section anchors first.** Sections 1–6 = Phase 1 design (the
 >    *baseline* per-1D + additive Taylor pipeline that PR #1 shipped).
 >    Sections D1–D9 = the *production* design decisions (what the paper

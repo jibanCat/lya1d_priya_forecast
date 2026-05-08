@@ -192,8 +192,13 @@ def build_from_yaml(*, gp, fid, k_grid, z, yaml_path, label_prefix="from_yaml"):
         raise ValueError(
             f"YAML redshift {cfg.redshift} != requested z {z}. Pick a matching YAML."
         )
+    if cfg.combine in ("multiplicative", "additive") and cfg.fiducial_p1d:
+        fid_npz = Path(cfg.fiducial_p1d)
+        if not fid_npz.exists():
+            fid_npz.parent.mkdir(parents=True, exist_ok=True)
+            np.savez(fid_npz, k=k_grid, p1d=gp.predict(fid, k_grid, z))
     block = {"mode": "auto", "fix": {"r": 0.8}}
-    pysr_model = PySRModel(eqn_cfg=cfg, k_grid=k_grid, normalization_block=block)
+    pysr_model = PySRModel(eqn_cfg=cfg, k_grid=k_grid, gp_model=gp, normalization_block=block)
     return pysr_model, cfg
 
 
