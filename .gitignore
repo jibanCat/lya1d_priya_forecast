@@ -8,6 +8,13 @@ outputs/
 
 # Forecast-run artifacts that aren't checked-in samples
 results/_cache/
+results/single_z_example/
+
+# Single-z pipeline derived data: regenerate via scripts/prep_kodiaq_gp.py.
+data/kodiaq_gp/
+
+# SLURM stdout from cluster jobs.
+slurm-*.out
 
 # C extensions
 *.so

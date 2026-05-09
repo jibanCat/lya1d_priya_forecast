@@ -6,8 +6,8 @@ production paper's `KSData(conservative=True)` (Karacayli et al. 2021)
 
 The KSData layout is z-major: 14 z bins × 13 k bins per z = 182 rows,
 ordered (z=2.0; k₀…k₁₂), (z=2.2; k₀…k₁₂), …, (z=4.6; k₀…k₁₂). For our
-forecast we filter to z ∈ [z_min, z_max] AND k ≤ k_max, extract the
-matched cov sub-matrix, and pre-Cholesky for fast log-likelihood
+forecast we filter to z ∈ [z_min, z_max] AND k_min ≤ k ≤ k_max, extract
+the matched cov sub-matrix, and pre-Cholesky for fast log-likelihood
 evaluation.
 
 `model_at(theta)` predicts P_F at each unique z in the kept set (one GP
@@ -81,6 +81,10 @@ class KSDataLikelihood:
         range 2.6 → 4.2.
     k_max : float
         Discard k bins above this (default 0.064 — production range).
+    k_min : float
+        Discard k bins below this (default 0.0 — keep everything KSData
+        already exposes; with `conservative=True` the lowest retained k
+        is ≈0.0055 s/km, so values ≤ that have no effect).
     cov_scale : float
         Multiplies the KSData covariance (sanity-check knob).
     mock_data : {"gp", "kodiaq"}
@@ -100,11 +104,16 @@ class KSDataLikelihood:
         z_min: float = 2.6,
         z_max: float = 4.2,
         k_max: float = 0.064,
+        k_min: float = 0.0,
         cov_scale: float = 1.0,
         mock_data: str = "gp",
         theta_fid: np.ndarray | None = None,
         conservative: bool = True,
     ) -> None:
+        if k_min < 0:
+            raise ValueError(f"k_min must be >= 0, got {k_min}.")
+        if k_min >= k_max:
+            raise ValueError(f"k_min ({k_min}) must be < k_max ({k_max}).")
         try:
             from lyaemu.lyman_data import KSData  # type: ignore[import-not-found]
         except ImportError as e:
@@ -122,12 +131,14 @@ class KSDataLikelihood:
         kept_mask = (
             (all_z >= z_min - 1e-6)
             & (all_z <= z_max + 1e-6)
+            & (all_k >= k_min - 1e-6)
             & (all_k <= k_max + 1e-6)
         )
         kept_idx = np.where(kept_mask)[0]
         if kept_idx.size == 0:
             raise ValueError(
-                f"No KSData rows match z ∈ [{z_min}, {z_max}], k ≤ {k_max}."
+                f"No KSData rows match z ∈ [{z_min}, {z_max}], "
+                f"k ∈ [{k_min}, {k_max}]."
             )
 
         kept_z = all_z[kept_idx]
@@ -160,7 +171,7 @@ class KSDataLikelihood:
         except la.LinAlgError as e:
             raise ValueError(
                 f"KSData covariance not positive-definite at z=[{z_min},{z_max}], "
-                f"k_max={k_max}, cov_scale={cov_scale}: {e}"
+                f"k=[{k_min},{k_max}], cov_scale={cov_scale}: {e}"
             ) from e
 
         n = len(d)
@@ -182,6 +193,7 @@ class KSDataLikelihood:
         self.z_min = float(z_min)
         self.z_max = float(z_max)
         self.k_max = float(k_max)
+        self.k_min = float(k_min)
         self.mock_data = mock_data
         self.cov_scale = cov_scale
 
