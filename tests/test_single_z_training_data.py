@@ -45,6 +45,11 @@ def test_write_load_1pvar_roundtrip(tmp_path):
     assert got["params_lf"].shape == (n_points, 11)
     assert got["kfkms_lf_min"] == pytest.approx(0.001)
     assert got["kfkms_lf_max"] == pytest.approx(0.04)
+    # The raw-P_F storage convention is recorded in the file attrs.
+    import h5py
+
+    with h5py.File(tmp_path / "lf_ns_npoints50.hdf5", "r") as fh:
+        assert fh.attrs["flux_units"] == "raw_P_F"
 
 
 def test_load_1pvar_missing_file(tmp_path):
