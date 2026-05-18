@@ -36,3 +36,76 @@ def test_per_param_local_norm_degenerate_std_floored():
         flux_lf_z=flux_lf, k_grid=k_grid, param_min=0.0, param_max=1.0,
     )
     assert np.all(norm.std_flux > 0)
+
+
+def test_build_refit_from_pareto(tmp_path):
+    """A Pareto CSV + regenerated 1pvar data → a usable Refit1DResult."""
+    import pandas as pd
+
+    from priya_forecast.single_z.training_data import write_1pvar_hdf5
+    from priya_forecast.single_z.forecast import build_refit_from_pareto
+
+    # synthetic 1pvar data for param 'ns' across 3 z-bins
+    n_points, n_z, n_k = 50, 3, 8
+    k_grid = np.linspace(0.001, 0.04, n_k)
+    kfkms = np.broadcast_to(k_grid, (n_points, n_z, n_k)).copy()
+    rng = np.random.default_rng(1)
+    flux = rng.random((n_points, n_z, n_k)) + 1.0
+    params = np.tile(np.array([p.fid for p in __import__(
+        "priya_forecast.parameters", fromlist=["PARAMS_11D"]).PARAMS_11D]),
+        (n_points, 1))
+    zout = np.array([3.2, 3.4, 3.6])
+    for fid in ("lf", "hf"):
+        write_1pvar_hdf5(tmp_path / f"{fid}_ns_npoints50.hdf5",
+                         params=params, kfkms=kfkms, flux_vectors=flux, zout=zout)
+
+    # a minimal Pareto CSV: safe equations in x0 (θ_norm)
+    csv = tmp_path / "pareto_ns.csv"
+    pd.DataFrame({
+        "Complexity": [1, 3, 5],
+        "Loss": [1.0, 0.1, 0.05],
+        "Equation": ["x0", "x0 + x1", "x0 + x1 + 0.1*x2"],
+    }).to_csv(csv, index=False)
+
+    refit = build_refit_from_pareto(
+        param_name="ns", z=3.6, pareto_csv=csv, pick_rule="best_loss",
+        data_1pvar_dir=tmp_path,
+    )
+    assert refit.param_name == "ns"
+    assert refit.z == 3.6
+    # best_loss picks the min-Loss row that survives the safety filter
+    assert refit.equation_str in {"x0 + x1", "x0 + x1 + 0.1*x2"}
+    # the reconstructed result evaluates without error
+    pred = refit.predict(theta_phys=0.98, k=k_grid)
+    assert pred.shape == k_grid.shape
+    assert np.all(np.isfinite(pred))
+
+
+def test_build_refit_from_pareto_all_filtered_raises(tmp_path):
+    """If every Pareto row is Fisher-pathological, fail loud naming the param."""
+    import pandas as pd
+
+    from priya_forecast.single_z.training_data import write_1pvar_hdf5
+    from priya_forecast.single_z.forecast import build_refit_from_pareto
+    from priya_forecast.parameters import PARAMS_11D
+
+    n_points, n_z, n_k = 50, 1, 6
+    k_grid = np.linspace(0.001, 0.04, n_k)
+    kfkms = np.broadcast_to(k_grid, (n_points, n_z, n_k)).copy()
+    flux = np.ones((n_points, n_z, n_k)) + 1.0
+    params = np.tile(np.array([p.fid for p in PARAMS_11D]), (n_points, 1))
+    for fid in ("lf", "hf"):
+        write_1pvar_hdf5(tmp_path / f"{fid}_ns_npoints50.hdf5",
+                         params=params, kfkms=kfkms, flux_vectors=flux,
+                         zout=np.array([3.6]))
+    csv = tmp_path / "pareto_ns.csv"
+    # equation with a huge pathological constant — filtered out
+    pd.DataFrame({
+        "Complexity": [3], "Loss": [0.01],
+        "Equation": ["x0 + 1e9"],
+    }).to_csv(csv, index=False)
+    with pytest.raises(ValueError, match="ns"):
+        build_refit_from_pareto(
+            param_name="ns", z=3.6, pareto_csv=csv, pick_rule="best_loss",
+            data_1pvar_dir=tmp_path,
+        )
