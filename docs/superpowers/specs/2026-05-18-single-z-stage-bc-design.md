@@ -127,13 +127,12 @@ against the kodiaq-squad emulator, so the refit must train on the
   a thin driver around it, following the `precompute_payloads.py`
   warm-load pattern.
 - Write `{lf,hf}_{param}_npoints50.hdf5` into a gitignored
-  `data/single_z_1pvar/`. **Schema caveat:** the legacy 1pvar files
-  store `k·P_F/π`, whereas `_generate_1pvar_inline` returns raw `P_F`.
-  The `regen_1pvar.py` writer and its loader must be co-designed around
-  one explicit convention (raw `P_F` preferred) — do not blindly mirror
-  the legacy `flux_vectors` schema, or consumers will double-undo the
-  `k·P/π` transform. Use the emulator's true 13-bin z-grid, not the
-  stale 9-bin `z_grid_kodiaq` constant in `refit_1d_pysr.py:557`.
+  `data/single_z_1pvar/`. **Storage convention:** store raw `P_F` — the
+  quantity PySR fits. The legacy `k·P_F/π` convention is *not* used;
+  `regen_1pvar.py`'s writer and its loader both work in raw `P_F`, so
+  there is no `k·P/π` transform anywhere to undo. Use the emulator's
+  true 13-bin z-grid, not the stale 9-bin `z_grid_kodiaq` constant in
+  `refit_1d_pysr.py:557`.
 
 **Verified:** `data/kodiaq_gp/` (the Stage-A `gp.basedir`) is a stripped
 copy of `~/lya_emulator_full/kodiaq_2_2_4_6-48-48/` — identical
@@ -206,20 +205,24 @@ Per-z-bin flow (`run_forecast_only(cfg)`, one z):
    `CompiledEquation` (`pysr_model.py:227` — sympy-whitelist parse +
    lambdify) → `eq_i(θ_i_norm, k_norm, r)`.
 4. **Build the combined model** `P_F(θ, k)` in `combine.py`, a thin
-   wrapper over `refit_taylor.AdditiveTaylorModel` (the additive Taylor
-   combine is already implemented and tested there). Default is the
-   additive 1st-order Taylor combine (`student_pysr_contract` item 5):
+   wrapper over `refit_taylor.AdditiveTaylorModel` in **`local_anchored`
+   mode** (found to forecast better than `multi_d`): the combine is
+   anchored on the GP prediction at fiducial θ, and the per-D PySR
+   equations supply only the deviations —
 
    ```
-   P_norm(θ, k) = Σ_i [eq_i(θ_i_norm, k_norm, 0.8) − eq_i(0.5, k_norm, 0.8)]
-                + (1/n) Σ_i eq_i(0.5, k_norm, 0.8)
-   P_F(θ, k)    = P_norm(θ, k) · std_k_global + mean_k_global
+   P_F(θ, k) = P_GP(θ_fid, k)
+             + Σ_i [eq_i(θ_i, k, 0.8) − eq_i(θ_i_fid, k, 0.8)]
    ```
 
-   `multiplicative` and `joint` remain selectable via the YAML
-   `combine:` field; the `config.py` `VALID_COMBINES` default flips from
-   `multiplicative` to `additive`. `0.5` is the per-param fid_norm
-   approximation the student hard-codes; `0.8` is HF resolution.
+   The 1st-order additive-Taylor deviation structure is
+   `student_pysr_contract` item 5; the deliberate difference from the
+   student's `multi_d` formula is the anchor — GP-at-fiducial instead of
+   the equation mean. `AdditiveTaylorModel` handles the `(mean_k,
+   std_k)` normalization internally. `multiplicative` and `joint` remain
+   selectable via the YAML `combine:` field; the `config.py`
+   `VALID_COMBINES` default flips from `multiplicative` to `additive`.
+   `0.8` is HF resolution.
 5. **Three Fisher forecasts** on the kodiaq-squad `(k)` grid for that z:
    - `σ_GP` — full emulator (reuses Stage-A `run_gp_only` machinery).
    - `σ_perfect_1D` — the emulator's exact 1D responses fed through the
@@ -333,10 +336,9 @@ Mirrors Stage A's `tests/test_single_z_pipeline.py` conventions (unit +
 hypothesis tests, slow end-to-end smokes gated behind env vars). No new
 dependencies (per `build_conventions`).
 
-- `combine.py` — unit tests with known-input/known-output. Note
-  `AdditiveTaylorModel` recovers the GP anchor at θ=fid only in
-  `local_anchored` mode, not `multi_d` mode (the contract formula is
-  `multi_d`); the test assertion must match the mode `combine.py` uses.
+- `combine.py` — unit tests with known-input/known-output. Assert the
+  combine returns the GP anchor exactly at θ=fid; this identity holds in
+  `AdditiveTaylorModel`'s `local_anchored` mode, which `combine.py` uses.
 - `refit_one_param_single_z` — fast test with PySR mocked; a real run
   gated behind a `RUN_SLOW_*` env var.
 - `aggregate_z.py` — tested on fixture per-z directories (pure
