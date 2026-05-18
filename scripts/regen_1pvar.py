@@ -51,8 +51,6 @@ def main() -> None:
                    help="Max k (s/km) of the training grid.")
     p.add_argument("--nk", type=int, default=48,
                    help="Number of log-spaced k points.")
-    p.add_argument("--n-points", type=int, default=50,
-                   help="Sweep points per parameter.")
     p.add_argument("--params", nargs="+", default=list(PARAM_NAMES),
                    help="Subset of parameters (default: all 11).")
     args = p.parse_args()
@@ -75,7 +73,7 @@ def main() -> None:
         t0 = time.time()
         gen = regenerate_param(
             gp_lf=gp_lf, gp_hf=gp_hf, param_name=pname,
-            z_grid=Z_GRID_13, k_grid=k_grid, n_points=args.n_points,
+            z_grid=Z_GRID_13, k_grid=k_grid,
         )
         for fidelity in ("lf", "hf"):
             write_1pvar_hdf5(
@@ -86,7 +84,8 @@ def main() -> None:
                 zout=gen["zout"],
             )
         print(f"  [{time.time() - t0:.1f}s] {pname} -> "
-              f"{out_dir}/{{lf,hf}}_{pname}_npoints50.hdf5", flush=True)
+              f"{out_dir}/lf_{pname}_npoints50.hdf5, "
+              f"{out_dir}/hf_{pname}_npoints50.hdf5", flush=True)
 
     print(f"Done. {len(args.params)} params x 2 fidelities written to {out_dir}.")
 
