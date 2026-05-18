@@ -159,11 +159,7 @@ def run_forecast_only(cfg: PipelineConfig) -> dict:
     except FileNotFoundError:
         pysr_available = False
 
-    results = _fc.run_three_fisher(
-        gp=gp, fid=fid, refits=refits, parameters=cfg.parameters,
-        redshift=cfg.redshift, combine_mode=cfg.combine,
-        step_frac=cfg.fisher.step_frac, rel_tol=cfg.fisher.rel_tol,
-    )
+    results = _fc.run_three_fisher(cfg=cfg, gp=gp, fid=fid, refits=refits)
 
     sigmas = {label: fr.sigma for label, fr in results.items()}
     corner_labels = ["GP", "perfect_1D"] + (["PySR"] if pysr_available else [])

@@ -362,7 +362,7 @@ def test_forecast_only_perfect_1d_end_to_end(tmp_path: Path):
         gp=GPConfig(basedir=str(GP_BASEDIR)),
         parameters=["ns", "Ap"],
         k_range=KRange(min=0.001, max=0.04),
-        data=DataConfig(source="eboss_dr14"),
+        data=DataConfig(source="kodiaq"),
     )
     result = run(cfg)
     for label in ("GP", "perfect_1D"):

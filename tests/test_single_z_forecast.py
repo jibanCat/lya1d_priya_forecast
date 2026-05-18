@@ -160,19 +160,23 @@ def test_resolve_pareto_csvs_missing_raises(tmp_path):
 
 
 def test_run_three_fisher_with_mock_gp():
-    """run_three_fisher returns 3 FisherResults; refits=None path == perfect_1D."""
+    """run_three_fisher returns 3 comparable FisherResults (eBOSS path, offline)."""
     from priya_forecast.models.gp_model import MockGPModel
     from priya_forecast.parameters import PARAM_NAMES, fiducial_vector
     from priya_forecast.fisher import FisherResult
+    from priya_forecast.single_z.config import PipelineConfig, DataConfig, FisherConfig
     from priya_forecast.single_z.forecast import run_three_fisher
 
     gp = MockGPModel()
     fid = np.asarray(fiducial_vector(), dtype=float)
+    cfg = PipelineConfig(
+        mode="forecast_only", redshift=3.6, parameters=["ns", "Ap"],
+        combine="additive",
+        data=DataConfig(source="eboss_dr14"),
+        fisher=FisherConfig(step_frac=0.05, rel_tol=0.05),
+    )
     results = run_three_fisher(
-        gp=gp, fid=fid, refits={n: None for n in PARAM_NAMES},
-        parameters=["ns", "Ap"], redshift=3.6,
-        combine_mode="additive",
-        step_frac=0.05, rel_tol=0.05,
+        cfg=cfg, gp=gp, fid=fid, refits={n: None for n in PARAM_NAMES},
     )
     assert set(results) == {"GP", "perfect_1D", "PySR"}
     for label, fr in results.items():
@@ -180,9 +184,7 @@ def test_run_three_fisher_with_mock_gp():
         assert fr.sigma.shape == (2,)
         assert np.all(np.isfinite(fr.sigma))
         assert np.all(fr.sigma > 0)
-    # All three use the same covariance → perfect_1D σ must equal GP σ
-    # at fiducial (perfect_1D combine == GP anchor when θ=fid), confirming
-    # a shared covariance rather than a synthetic per-model one.
+    # All three share one covariance → perfect_1D σ == GP σ at fiducial.
     np.testing.assert_allclose(
         results["perfect_1D"].sigma, results["GP"].sigma, rtol=1e-6,
     )

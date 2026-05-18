@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 
 from priya_forecast.fisher import FisherResult, fisher_matrix
+from priya_forecast.ksdata_likelihood import KSDataLikelihood
 from priya_forecast.likelihood import GaussianLikelihood
 from priya_forecast.models.normalization import NormalizationSpec
 from priya_forecast.parameters import get_param, PARAM_NAMES, PARAMS_11D
@@ -171,6 +172,36 @@ def resolve_pareto_csvs(cfg: PipelineConfig) -> dict[str, Path]:
     return out
 
 
+def _build_likelihood(cfg, model):
+    """Build the likelihood for `model` per `cfg.data.source`.
+
+    kodiaq → KSDataLikelihood (real KODIAQ-SQUAD covariance, Karaçaylı+ 2021).
+    eboss_dr14 → GaussianLikelihood (eBOSS DR14).
+    """
+    if cfg.data.source == "kodiaq":
+        return KSDataLikelihood(
+            model=model,
+            z_min=cfg.redshift,
+            z_max=cfg.redshift,
+            k_min=cfg.k_range.min,
+            k_max=cfg.k_range.max,
+            cov_scale=cfg.data.cov_scale,
+            mock_data=cfg.data.mock_data,
+            conservative=cfg.data.conservative,
+        )
+    return GaussianLikelihood(
+        model=model, z=cfg.redshift, cov_scale=cfg.data.cov_scale,
+        mock_data="gp",
+    )
+
+
+def _likelihood_k_grid(like):
+    """The k-grid a likelihood evaluates models on (KSData vs eBOSS)."""
+    if hasattr(like, "kept_k"):
+        return np.asarray(like.kept_k, dtype=float)
+    return np.asarray(like.inputs.k_eboss, dtype=float)
+
+
 def _fisher_for_likelihood(like, *, parameters, step_frac, rel_tol):
     """Run `fisher_matrix` for a pre-built likelihood over a parameter subset."""
     indices = [PARAM_NAMES.index(n) for n in parameters]
@@ -184,44 +215,39 @@ def _fisher_for_likelihood(like, *, parameters, step_frac, rel_tol):
 
 def run_three_fisher(
     *,
+    cfg,
     gp,
     fid: np.ndarray,
     refits: dict,
-    parameters: list[str],
-    redshift: float,
-    combine_mode: str,
-    step_frac: float = 0.01,
-    rel_tol: float = 0.01,
 ) -> dict[str, FisherResult]:
     """Compute σ_GP, σ_perfect_1D, σ_PySR as a dict of FisherResults.
 
-    All three Fisher forecasts use the SAME eBOSS likelihood covariance and
-    the SAME k-grid — they differ only in the forward model — so the σ's are
-    directly comparable.
-
-    - GP         : Fisher of the raw GP emulator.
-    - perfect_1D : combine built with all-None refits (GP 1D-slice fallback).
-    - PySR       : combine built with the reconstructed `refits`.
+    All three Fisher forecasts use the SAME likelihood covariance
+    (KODIAQ-SQUAD when `cfg.data.source == "kodiaq"`, else eBOSS DR14) and
+    the SAME k-grid — they differ only in the forward model — so the σ's
+    are directly comparable.
     """
     fid = np.asarray(fid, dtype=float)
-    # Reference GP likelihood — its native k-grid + covariance are shared by
-    # all three forecasts, so the combined models are built on that grid.
-    like_gp = GaussianLikelihood(model=gp, z=redshift)
-    k_grid = np.asarray(like_gp.inputs.k_eboss, dtype=float)
+    like_gp = _build_likelihood(cfg, gp)
+    k_grid = _likelihood_k_grid(like_gp)
 
     none_refits = {n: None for n in PARAM_NAMES}
     perfect_model = build_combined_model(
-        combine_mode=combine_mode, gp=gp, fid=fid, refits=none_refits,
-        k_grid=k_grid, z=redshift,
+        combine_mode=cfg.combine, gp=gp, fid=fid, refits=none_refits,
+        k_grid=k_grid, z=cfg.redshift,
     )
     pysr_model = build_combined_model(
-        combine_mode=combine_mode, gp=gp, fid=fid, refits=refits,
-        k_grid=k_grid, z=redshift,
+        combine_mode=cfg.combine, gp=gp, fid=fid, refits=refits,
+        k_grid=k_grid, z=cfg.redshift,
     )
-    like_perfect = GaussianLikelihood(model=perfect_model, z=redshift)
-    like_pysr = GaussianLikelihood(model=pysr_model, z=redshift)
+    like_perfect = _build_likelihood(cfg, perfect_model)
+    like_pysr = _build_likelihood(cfg, pysr_model)
 
-    common = dict(parameters=parameters, step_frac=step_frac, rel_tol=rel_tol)
+    common = dict(
+        parameters=cfg.parameters,
+        step_frac=cfg.fisher.step_frac,
+        rel_tol=cfg.fisher.rel_tol,
+    )
     return {
         "GP": _fisher_for_likelihood(like_gp, **common),
         "perfect_1D": _fisher_for_likelihood(like_perfect, **common),
