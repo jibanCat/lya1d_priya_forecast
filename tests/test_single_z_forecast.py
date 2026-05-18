@@ -157,3 +157,26 @@ def test_resolve_pareto_csvs_missing_raises(tmp_path):
     )
     with pytest.raises(FileNotFoundError, match="ns"):
         resolve_pareto_csvs(cfg)
+
+
+def test_run_three_fisher_with_mock_gp():
+    """run_three_fisher returns 3 FisherResults; refits=None path == perfect_1D."""
+    from priya_forecast.models.gp_model import MockGPModel
+    from priya_forecast.parameters import PARAM_NAMES, fiducial_vector
+    from priya_forecast.fisher import FisherResult
+    from priya_forecast.single_z.forecast import run_three_fisher
+
+    gp = MockGPModel()
+    fid = np.asarray(fiducial_vector(), dtype=float)
+    results = run_three_fisher(
+        gp=gp, fid=fid, refits={n: None for n in PARAM_NAMES},
+        parameters=["ns", "Ap"], redshift=3.6,
+        k_range=(0.001, 0.04), combine_mode="additive",
+        step_frac=0.05, rel_tol=0.05,
+    )
+    assert set(results) == {"GP", "perfect_1D", "PySR"}
+    for label, fr in results.items():
+        assert isinstance(fr, FisherResult)
+        assert fr.sigma.shape == (2,)
+        assert np.all(np.isfinite(fr.sigma))
+        assert np.all(fr.sigma > 0)
