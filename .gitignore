@@ -13,6 +13,9 @@ results/single_z_example/
 # Single-z pipeline derived data: regenerate via scripts/prep_kodiaq_gp.py.
 data/kodiaq_gp/
 
+# Single-z 1pvar training data: regenerate via scripts/regen_1pvar.py.
+data/single_z_1pvar/
+
 # SLURM stdout from cluster jobs.
 slurm-*.out
 

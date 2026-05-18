@@ -106,3 +106,46 @@ def test_regenerate_param_stacks_z(monkeypatch):
     np.testing.assert_allclose(out["flux_lf"][:, 1, :], 3.4)
     np.testing.assert_allclose(out["flux_hf"][:, 2, :], 2.0 * 3.6)
     np.testing.assert_allclose(out["zout"], z_grid)
+
+
+# --------------------------------------------------------------------------
+# Gated end-to-end smoke — needs the real emulator.
+# --------------------------------------------------------------------------
+
+RUN_SLOW_REGEN = os.environ.get("RUN_SLOW_REGEN_1PVAR") == "1"
+GP_BASEDIR = Path(__file__).parent.parent / "data" / "kodiaq_gp"
+
+try:
+    import lyaemu  # noqa: F401
+
+    LYAEMU_AVAILABLE = True
+except ImportError:
+    LYAEMU_AVAILABLE = False
+
+
+@pytest.mark.skipif(
+    not (RUN_SLOW_REGEN and LYAEMU_AVAILABLE and GP_BASEDIR.exists()),
+    reason="gated on RUN_SLOW_REGEN_1PVAR=1 + lyaemu + data/kodiaq_gp/",
+)
+def test_regen_1pvar_end_to_end(tmp_path):
+    """Run scripts/regen_1pvar.py for one param; load it back, check shapes."""
+    import subprocess
+    import sys
+
+    repo = Path(__file__).parent.parent
+    proc = subprocess.run(
+        [
+            sys.executable, str(repo / "scripts" / "regen_1pvar.py"),
+            "--basedir", str(GP_BASEDIR),
+            "--output", str(tmp_path),
+            "--params", "ns",
+            "--nk", "12",
+        ],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    got = load_1pvar(param_name="ns", z=3.6, data_dir=tmp_path)
+    assert got["flux_lf_z"].shape == (50, 12)
+    assert got["flux_hf_z"].shape == (50, 12)
+    assert np.all(np.isfinite(got["flux_lf_z"]))
+    assert np.all(got["flux_lf_z"] > 0)
