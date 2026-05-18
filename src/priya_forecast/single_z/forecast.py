@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 
 from priya_forecast.models.normalization import NormalizationSpec
+from priya_forecast.single_z.config import PipelineConfig
 from priya_forecast.models.pysr_model import load_pareto_csv, pick_equation
 from priya_forecast.pareto_filters import (
     has_pathological_constant,
@@ -127,3 +128,41 @@ def build_refit_from_pareto(
         lf_train_max_rel_err=0.0,
         hf_train_max_rel_err=0.0,
     )
+
+
+# Vendored baseline Pareto CSVs (populated once Stage C produces them).
+_BUNDLED_BASELINE_DIR = (
+    Path(__file__).resolve().parents[2]
+    / "priya_forecast" / "_vendored" / "data" / "pareto_baseline"
+)
+
+
+def resolve_pareto_csvs(cfg: PipelineConfig) -> dict[str, Path]:
+    """Map each selected parameter to its Pareto-CSV path, per `pareto_csvs.source`.
+
+    - `per_parameter`    → the path in each `ParetoEntry`.
+    - `from_refit`       → `<output_dir>/refit/z{z}/pareto_{param}.csv`.
+    - `bundled_baseline` → the vendored `_vendored/data/pareto_baseline/z{z}/`.
+
+    Raises FileNotFoundError naming the parameter if a CSV is absent.
+    """
+    src = cfg.pareto_csvs.source
+    z_tag = f"z{cfg.redshift}"
+    out: dict[str, Path] = {}
+    for param in cfg.parameters:
+        if src == "per_parameter":
+            entry = cfg.pareto_csvs.per_parameter[param]
+            path = Path(entry.pareto_csv)
+        elif src == "from_refit":
+            path = Path(cfg.output_dir) / "refit" / z_tag / f"pareto_{param}.csv"
+        elif src == "bundled_baseline":
+            path = _BUNDLED_BASELINE_DIR / z_tag / f"pareto_{param}.csv"
+        else:  # pragma: no cover - config.validate already guards this
+            raise ValueError(f"unknown pareto_csvs.source {src!r}.")
+        if not path.exists():
+            raise FileNotFoundError(
+                f"Pareto CSV for parameter {param!r} not found at {path} "
+                f"(pareto_csvs.source={src!r})."
+            )
+        out[param] = path
+    return out

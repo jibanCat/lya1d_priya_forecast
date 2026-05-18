@@ -109,3 +109,51 @@ def test_build_refit_from_pareto_all_filtered_raises(tmp_path):
             param_name="ns", z=3.6, pareto_csv=csv, pick_rule="best_loss",
             data_1pvar_dir=tmp_path,
         )
+
+
+def test_resolve_pareto_csvs_per_parameter(tmp_path):
+    from priya_forecast.single_z.config import (
+        PipelineConfig, ParetoCSVsConfig, ParetoEntry,
+    )
+    from priya_forecast.single_z.forecast import resolve_pareto_csvs
+
+    csv = tmp_path / "ns.csv"
+    csv.write_text("Complexity,Loss,Equation\n1,0.1,x0\n")
+    cfg = PipelineConfig(
+        mode="forecast_only", parameters=["ns"],
+        pareto_csvs=ParetoCSVsConfig(
+            source="per_parameter",
+            per_parameter={"ns": ParetoEntry(pareto_csv=str(csv))},
+        ),
+    )
+    paths = resolve_pareto_csvs(cfg)
+    assert paths["ns"] == csv
+
+
+def test_resolve_pareto_csvs_from_refit(tmp_path):
+    from priya_forecast.single_z.config import PipelineConfig, ParetoCSVsConfig
+    from priya_forecast.single_z.forecast import resolve_pareto_csvs
+
+    refit_dir = tmp_path / "out" / "refit" / "z3.6"
+    refit_dir.mkdir(parents=True)
+    (refit_dir / "pareto_ns.csv").write_text("Complexity,Loss,Equation\n1,0.1,x0\n")
+    cfg = PipelineConfig(
+        mode="forecast_only", redshift=3.6, parameters=["ns"],
+        output_dir=str(tmp_path / "out"),
+        pareto_csvs=ParetoCSVsConfig(source="from_refit"),
+    )
+    paths = resolve_pareto_csvs(cfg)
+    assert paths["ns"] == refit_dir / "pareto_ns.csv"
+
+
+def test_resolve_pareto_csvs_missing_raises(tmp_path):
+    from priya_forecast.single_z.config import PipelineConfig, ParetoCSVsConfig
+    from priya_forecast.single_z.forecast import resolve_pareto_csvs
+
+    cfg = PipelineConfig(
+        mode="forecast_only", redshift=3.6, parameters=["ns"],
+        output_dir=str(tmp_path / "out"),
+        pareto_csvs=ParetoCSVsConfig(source="from_refit"),
+    )
+    with pytest.raises(FileNotFoundError, match="ns"):
+        resolve_pareto_csvs(cfg)
