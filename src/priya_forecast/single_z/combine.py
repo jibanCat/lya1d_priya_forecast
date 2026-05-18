@@ -14,8 +14,7 @@ import numpy as np
 
 from priya_forecast.models.base import P1DModel
 from priya_forecast.refit_taylor import AdditiveTaylorModel
-
-VALID_COMBINE_MODES = ("additive", "multiplicative", "joint")
+from priya_forecast.single_z.config import VALID_COMBINES as VALID_COMBINE_MODES
 
 
 def build_combined_model(
