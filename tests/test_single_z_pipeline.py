@@ -61,7 +61,7 @@ def test_shipped_example_yaml_loads_and_validates():
     assert cfg.k_range.min == 0.001
     assert cfg.k_range.max == 0.04
     assert cfg.data.source == "kodiaq"
-    assert cfg.combine == "multiplicative"
+    assert cfg.combine == "additive"
     assert set(cfg.parameters) == set(PARAM_NAMES)
 
 
@@ -298,6 +298,25 @@ try:
     LYAEMU_AVAILABLE = True
 except ImportError:
     LYAEMU_AVAILABLE = False
+
+
+def test_combine_defaults_to_additive(tmp_path: Path):
+    """forecast_only's combine default is additive (the student contract)."""
+    basedir = _basedir(tmp_path)
+    p = _write(tmp_path, "c.yaml", f"gp:\n  basedir: {basedir}\n")
+    cfg = load_config(p)
+    assert cfg.combine == "additive"
+
+
+def test_top_level_pick_default_and_validation(tmp_path: Path):
+    """PipelineConfig has a top-level `pick` rule, default best_loss; bad rule rejected."""
+    basedir = _basedir(tmp_path)
+    good = _write(tmp_path, "g.yaml", f"gp:\n  basedir: {basedir}\n")
+    assert load_config(good).pick == "best_loss"
+    bad = _write(tmp_path, "b.yaml",
+                 f"pick: nonsense\ngp:\n  basedir: {basedir}\n")
+    with pytest.raises(ValueError, match="pick"):
+        load_config(bad)
 
 
 @pytest.mark.skipif(

@@ -35,7 +35,7 @@ Schema (with defaults):
       maxsize: 20
       seed: 0
 
-    combine: multiplicative        # multiplicative | additive | joint
+    combine: additive              # multiplicative | additive | joint
     fiducial_p1d_cache: null       # path to .npz; auto-create if null
 
     pareto_csvs:
@@ -199,7 +199,8 @@ class PipelineConfig:
     gp: GPConfig = field(default_factory=GPConfig)
     normalization: NormalizationConfig = field(default_factory=NormalizationConfig)
     pysr: PySRConfig = field(default_factory=PySRConfig)
-    combine: str = "multiplicative"
+    combine: str = "additive"
+    pick: str = "best_loss"
     fiducial_p1d_cache: str | None = None
     pareto_csvs: ParetoCSVsConfig = field(default_factory=ParetoCSVsConfig)
     fisher: FisherConfig = field(default_factory=FisherConfig)
@@ -214,6 +215,11 @@ class PipelineConfig:
             raise ValueError(f"Unknown PRIYA parameters: {sorted(unknown)}.")
         if self.combine not in VALID_COMBINES:
             raise ValueError(f"combine must be one of {VALID_COMBINES}.")
+        if not _is_valid_pick(self.pick):
+            raise ValueError(
+                f"pick={self.pick!r} invalid. "
+                f"Valid: best_loss / complexity_le:N / accuracy_at:tol / row:I."
+            )
         self.k_range.validate()
         self.data.validate()
         self.gp.validate()

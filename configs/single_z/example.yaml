@@ -56,7 +56,7 @@ pysr:
   seed: 0
 
 # Only used when mode != gp_only.
-combine: multiplicative     # multiplicative | additive | joint
+combine: additive           # multiplicative | additive | joint
 fiducial_p1d_cache: null    # path to .npz cache; auto-created if null
 
 pareto_csvs:
