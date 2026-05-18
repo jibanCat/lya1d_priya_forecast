@@ -30,6 +30,8 @@ from priya_forecast.parameters import (
     get_param,
 )
 from priya_forecast.single_z.config import PipelineConfig
+from priya_forecast.single_z import forecast as _fc
+from priya_forecast.diagnostics.forecast_plots import plot_fisher_corner
 
 
 def _build_gp(cfg: PipelineConfig) -> GPModel:
@@ -133,7 +135,80 @@ def run_gp_only(cfg: PipelineConfig) -> dict:
 
 
 def run_forecast_only(cfg: PipelineConfig) -> dict:
-    raise NotImplementedError("forecast_only mode lands in Stage B.")
+    """Student CSVs → equations → combined model → σ_GP / σ_perfect_1D / σ_PySR.
+
+    σ_GP and σ_perfect_1D need no equations. σ_PySR needs Pareto CSVs; if none
+    are available the run still emits σ_GP and σ_perfect_1D and notes σ_PySR
+    as unavailable in the scorecard.
+    """
+    out_dir = Path(cfg.output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    gp = _build_gp(cfg)
+    fid = np.asarray(fiducial_vector(), dtype=float)
+
+    # Reconstruct per-parameter refits from Pareto CSVs if available.
+    refits: dict = {name: None for name in PARAM_NAMES}
+    pysr_available = True
+    try:
+        csv_paths = _fc.resolve_pareto_csvs(cfg)
+        for param, csv in csv_paths.items():
+            refits[param] = _fc.build_refit_from_pareto(
+                param_name=param, z=cfg.redshift, pareto_csv=csv,
+                pick_rule=cfg.pick, data_1pvar_dir="data/single_z_1pvar",
+            )
+    except FileNotFoundError:
+        pysr_available = False
+
+    results = _fc.run_three_fisher(
+        gp=gp, fid=fid, refits=refits, parameters=cfg.parameters,
+        redshift=cfg.redshift, combine_mode=cfg.combine,
+        step_frac=cfg.fisher.step_frac, rel_tol=cfg.fisher.rel_tol,
+    )
+
+    sigmas = {label: fr.sigma for label, fr in results.items()}
+    corner_labels = ["GP", "perfect_1D"] + (["PySR"] if pysr_available else [])
+    corner_path = out_dir / "corner.png"
+    plot_fisher_corner(
+        fisher_results={lab: results[lab] for lab in corner_labels},
+        outpath=corner_path,
+        param_subset=cfg.parameters[: min(5, len(cfg.parameters))],
+    )
+
+    table_path = out_dir / "forecast_table.txt"
+    with open(table_path, "w", encoding="utf-8") as f:
+        f.write(f"# single-z forecast_only at z={cfg.redshift}\n")
+        f.write(f"# combine={cfg.combine}  pysr_equations="
+                f"{'yes' if pysr_available else 'NONE'}\n")
+        f.write(f"# {'param':<12s} {'sigma_GP':>12s} {'sigma_perf1D':>14s} "
+                f"{'sigma_PySR':>12s}\n")
+        for i, name in enumerate(cfg.parameters):
+            sp = (f"{sigmas['PySR'][i]:>12.4g}" if pysr_available
+                  else f"{'n/a':>12s}")
+            f.write(f"  {name:<12s} {sigmas['GP'][i]:>12.4g} "
+                    f"{sigmas['perfect_1D'][i]:>14.4g} {sp}\n")
+
+    scorecard_path = out_dir / "scorecard.md"
+    with open(scorecard_path, "w", encoding="utf-8") as f:
+        f.write("# Single-z forecast scorecard — forecast_only\n\n")
+        f.write(f"- z = {cfg.redshift}\n")
+        f.write(f"- combine = {cfg.combine}\n")
+        f.write(f"- PySR equations: "
+                f"{'available' if pysr_available else 'NOT available — σ_PySR omitted'}\n\n")
+        f.write("## σ per parameter\n\n")
+        f.write("| param | σ_GP | σ_perfect_1D | σ_PySR |\n|---|---|---|---|\n")
+        for i, name in enumerate(cfg.parameters):
+            sp = f"{sigmas['PySR'][i]:.4g}" if pysr_available else "n/a"
+            f.write(f"| {name} | {sigmas['GP'][i]:.4g} | "
+                    f"{sigmas['perfect_1D'][i]:.4g} | {sp} |\n")
+
+    return {
+        "sigmas": sigmas,
+        "fisher_results": results,
+        "pysr_available": pysr_available,
+        "table_path": table_path,
+        "scorecard_path": scorecard_path,
+        "corner_path": corner_path,
+    }
 
 
 def run_refit_and_forecast(cfg: PipelineConfig) -> dict:
