@@ -73,3 +73,36 @@ def test_write_1pvar_rejects_bad_params_shape(tmp_path):
             params=np.zeros((2, 5)), kfkms=np.ones((2, 1, 3)),
             flux_vectors=np.ones((2, 1, 3)), zout=np.array([3.6]),
         )
+
+
+def test_regenerate_param_stacks_z(monkeypatch):
+    """regenerate_param loops _generate_1pvar_inline over z, stacks on axis 1."""
+    n_points, n_k = 4, 6
+
+    def fake_inline(*, gp_lf, gp_hf, param_name, z, k_grid, n_points):
+        nk = len(k_grid)
+        return {
+            "params_lf": np.full((n_points, 11), 1.0),
+            "params_hf": np.full((n_points, 11), 1.0),
+            "kfkms_lf_z": np.broadcast_to(k_grid, (n_points, nk)).copy(),
+            "kfkms_hf_z": np.broadcast_to(k_grid, (n_points, nk)).copy(),
+            "flux_lf_z": np.full((n_points, nk), z),
+            "flux_hf_z": np.full((n_points, nk), 2.0 * z),
+        }
+
+    import priya_forecast.refit_1d_pysr as r1d
+    monkeypatch.setattr(r1d, "_generate_1pvar_inline", fake_inline)
+
+    z_grid = np.array([3.2, 3.4, 3.6])
+    k_grid = np.linspace(0.001, 0.04, n_k)
+    out = regenerate_param(
+        gp_lf=None, gp_hf=None, param_name="ns",
+        z_grid=z_grid, k_grid=k_grid, n_points=n_points,
+    )
+    assert out["flux_lf"].shape == (n_points, 3, n_k)
+    assert out["kfkms_hf"].shape == (n_points, 3, n_k)
+    assert out["params_lf"].shape == (n_points, 11)
+    # z axis is axis 1: flux at z-index 1 == 3.4, hf == 2*3.6 at index 2
+    np.testing.assert_allclose(out["flux_lf"][:, 1, :], 3.4)
+    np.testing.assert_allclose(out["flux_hf"][:, 2, :], 2.0 * 3.6)
+    np.testing.assert_allclose(out["zout"], z_grid)
