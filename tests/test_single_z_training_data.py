@@ -45,3 +45,31 @@ def test_write_load_1pvar_roundtrip(tmp_path):
     assert got["params_lf"].shape == (n_points, 11)
     assert got["kfkms_lf_min"] == pytest.approx(0.001)
     assert got["kfkms_lf_max"] == pytest.approx(0.04)
+
+
+def test_load_1pvar_missing_file(tmp_path):
+    with pytest.raises(FileNotFoundError, match="regen_1pvar.py"):
+        load_1pvar(param_name="ns", z=3.6, data_dir=tmp_path)
+
+
+def test_load_1pvar_z_not_in_grid(tmp_path):
+    params = np.zeros((2, 11))
+    kfkms = np.ones((2, 1, 3))
+    flux = np.ones((2, 1, 3))
+    zout = np.array([3.6])
+    for fidelity in ("lf", "hf"):
+        write_1pvar_hdf5(
+            tmp_path / f"{fidelity}_ns_npoints50.hdf5",
+            params=params, kfkms=kfkms, flux_vectors=flux, zout=zout,
+        )
+    with pytest.raises(ValueError, match="not in"):
+        load_1pvar(param_name="ns", z=2.4, data_dir=tmp_path)
+
+
+def test_write_1pvar_rejects_bad_params_shape(tmp_path):
+    with pytest.raises(ValueError, match=r"params must be \(n_points, 11\)"):
+        write_1pvar_hdf5(
+            tmp_path / "lf_ns_npoints50.hdf5",
+            params=np.zeros((2, 5)), kfkms=np.ones((2, 1, 3)),
+            flux_vectors=np.ones((2, 1, 3)), zout=np.array([3.6]),
+        )
