@@ -72,24 +72,38 @@ New / changed files:
 | File | What |
 |------|------|
 | `src/priya_forecast/single_z/pipeline.py` | Implement `run_forecast_only`, `run_refit_and_forecast` (replace stubs) |
+| `src/priya_forecast/single_z/config.py` | Add a top-level `pick:` default; flip the `combine` default to `additive` |
 | `src/priya_forecast/single_z/refit.py` | New — `refit_one_param_single_z` + the 11-param loop |
-| `src/priya_forecast/single_z/combine.py` | New — additive Taylor combine (default) + multiplicative/joint |
+| `src/priya_forecast/single_z/combine.py` | New — thin wrapper over `refit_taylor.AdditiveTaylorModel`; selects additive (default) / multiplicative / joint |
 | `scripts/regen_1pvar.py` | New — regenerate per-param LF/HF 1pvar training data from the emulator |
 | `scripts/run_batch.py` | New — fan one base YAML over the 13 z-bins |
 | `scripts/aggregate_z.py` | New — collect 13 per-z results → across-z σ(z) view |
 | `slurm/single_z_refit.slurm` | New — array job template (`--array=0-10`, parametrized by `Z`) |
+| `scripts/refit_one_param_single_z.py` | New — CLI the array task runs; calls `refit_one_param_single_z` for one `(param, z)` |
 | `src/priya_forecast/_vendored/data/pareto_baseline/` | New — vendored baseline Pareto CSVs (one Stage-C run, all 13 z) |
 | `docs/ONBOARDING.md` | Rewrite — single-z pipeline guide |
 | `notebooks/0{1,2,3}_*.ipynb` | New — per-mode tutorials |
 
-Reused as-is:
+Reused (verified to exist with compatible APIs):
 
-- `plot_fisher_corner` — `src/priya_forecast/diagnostics/forecast_plots.py`
-- `plot_equation_card` (loss–complexity) — `src/priya_forecast/diagnostics/equation_card.py`
-- `pick_equation` — `src/priya_forecast/models/pysr_model.py`
-- `SMART_REFIT_PYSR_KWARGS` — `src/priya_forecast/refit_1d_pysr.py`
+- `plot_fisher_corner` — `src/priya_forecast/diagnostics/forecast_plots.py:269`
+- `pick_equation` — `src/priya_forecast/models/pysr_model.py:150`
+- `compile_equation` / `CompiledEquation` — `src/priya_forecast/models/pysr_model.py:227`
+  (sympy-whitelist parse + lambdify)
+- `AdditiveTaylorModel`, `compute_global_normalization`, `STUDENT_FID_NORM`,
+  `HF_RESOLUTION_FOR_COMBINE` — `src/priya_forecast/refit_taylor.py`
+- the Fisher-safety filters used by `scripts/refit_one_param.py:77-100`
+  (`is_fisher_stencil_safe`, `is_eq_well_behaved`, `has_pathological_constant`)
+- `_generate_1pvar_inline` — `src/priya_forecast/refit_1d_pysr.py:465`
+- `SMART_REFIT_PYSR_KWARGS` / `DEFAULT_PYSR_KWARGS` — `src/priya_forecast/refit_1d_pysr.py`
 - Stage-A Fisher / likelihood machinery — `single_z/pipeline.py`, `ksdata_likelihood.py`
-- Equation porting — `scripts/port_pysr_equations.py`
+
+**NOT reused** (corrections from the technical review):
+
+- `scripts/port_pysr_equations.py` — a 14-line stub (`raise SystemExit`),
+  never implemented. Stage B compiles equations via `compile_equation`.
+- `plot_equation_card` — a LaTeX equation-card renderer, *not* a
+  loss–complexity plot. No Pareto-front plotter exists; Stage B adds one.
 
 ## 3. Data regeneration — `scripts/regen_1pvar.py`
 
@@ -104,11 +118,22 @@ against the kodiaq-squad emulator, so the refit must train on the
 - For each of the 11 PRIYA parameters: build the 1pvar design — the other
   10 parameters pinned at fiducial, this one swept over 50 points across
   its prior range.
-- Evaluate the **emulator at `cfg.gp.basedir`** at LF (`r=0.4`) and HF
-  (`r=0.8`), on the kodiaq-squad k-grid, for all 13 z-bins.
-- Write `{lf,hf}_{param}_npoints50.hdf5` with the same
-  `flux_vectors` / `kfkms` / `params` / `zout` schema as the originals,
-  into a gitignored `data/single_z_1pvar/`.
+- Evaluate **two emulator objects** built from `cfg.gp.basedir` —
+  `GPModel(fidelity="lf")` and `GPModel(fidelity="hf")` — on the
+  kodiaq-squad k-grid, for all 13 z-bins. LF/HF is *not* a resolution
+  argument to `predict`; the `0.4`/`0.8` values are PySR feature-column
+  labels, not emulator inputs. The single-z generation logic already
+  exists as `refit_1d_pysr._generate_1pvar_inline` — `regen_1pvar.py` is
+  a thin driver around it, following the `precompute_payloads.py`
+  warm-load pattern.
+- Write `{lf,hf}_{param}_npoints50.hdf5` into a gitignored
+  `data/single_z_1pvar/`. **Schema caveat:** the legacy 1pvar files
+  store `k·P_F/π`, whereas `_generate_1pvar_inline` returns raw `P_F`.
+  The `regen_1pvar.py` writer and its loader must be co-designed around
+  one explicit convention (raw `P_F` preferred) — do not blindly mirror
+  the legacy `flux_vectors` schema, or consumers will double-undo the
+  `k·P/π` transform. Use the emulator's true 13-bin z-grid, not the
+  stale 9-bin `z_grid_kodiaq` constant in `refit_1d_pysr.py:557`.
 
 **Verified:** `data/kodiaq_gp/` (the Stage-A `gp.basedir`) is a stripped
 copy of `~/lya_emulator_full/kodiaq_2_2_4_6-48-48/` — identical
@@ -128,12 +153,19 @@ Per-z-bin flow (`run_refit_and_forecast(cfg)`, one z):
    normalized from LF; target `flux_norm = (P_F − mean_k) / std_k`, with
    `(mean_k, std_k)` taken from the **multi-D fiducial** (see
    `student_pysr_contract` item 3 — the LF-emulator Sobol over the
-   multi-D prior cube, not a 1D mean).
-2. **Refit 11 params.** Loop `refit_one_param_single_z` with
-   `SMART_REFIT_PYSR_KWARGS` (operators `+ − * / ^`, unary
-   `exp/log/square`, `^` constrained `(-1, 0)`, `niter=50`, `maxsize=20`,
-   `maxdepth=10`). No HPO. `use_anova_loss` stays a config knob, default
-   `false` (`feedback_anova_loss_impact`: marginal in practice).
+   multi-D prior cube, not a 1D mean). This computation is
+   `refit_taylor.compute_global_normalization`; `NormalizationConfig.mode`
+   has no enum value for it, so Stage B/C call it directly rather than
+   routing through `NormalizationConfig`.
+2. **Refit 11 params.** Loop `refit_one_param_single_z` with smart PySR
+   kwargs (unary `exp/log/square`, `^` constrained, `niter=50`,
+   `maxsize=20`, `maxdepth=10`). No HPO. **`use_anova_loss` plumbing:**
+   `SMART_REFIT_PYSR_KWARGS` hardcodes the Julia ANOVA loss, so the
+   default `use_anova_loss: false` requires a non-ANOVA kwargs variant
+   assembled from `DEFAULT_PYSR_KWARGS` (the smart operator policy minus
+   the ANOVA `loss_function`). Stage C selects the variant from the
+   config flag (`feedback_anova_loss_impact`: ANOVA is marginal in
+   practice).
 3. **Emit Pareto CSVs** at `<output_dir>/refit/z{z}/pareto_{param}.csv` —
    full Pareto fronts, never reduced.
 4. **Forecast.** Hand off to the Stage-B path with
@@ -145,9 +177,16 @@ is `slurm/refit_array.slurm` adapted — `--array=0-10` over the 11 params,
 The batch driver submits 13 such jobs (one per z-bin); `regen_1pvar.py`
 runs once up front (it is z-vectorized).
 
-Equation selection from each Pareto front uses the config `pick` rule —
-`best_loss` (default, the Phase 1.5 rule), `complexity_le:N`,
-`accuracy_at:tol`, or `row:I` — already implemented in `pick_equation`.
+Equation selection from each Pareto front is **filter-then-pick**: first
+drop Fisher-pathological rows with the safety filters used by
+`scripts/refit_one_param.py:77-100` (`is_fisher_stencil_safe`,
+`is_eq_well_behaved`, `has_pathological_constant`), then apply the config
+`pick` rule (`best_loss` default — the Phase 1.5 rule — or
+`complexity_le:N`, `accuracy_at:tol`, `row:I`) among the survivors via
+`pick_equation`. This order matches `refit_one_param.py` and the
+`feedback_pysr_operators` memory (oscillatory derivatives wreck Fisher
+conditioning). If filtering empties a front, the run fails loud naming
+the `(z, param)`.
 
 ## 5. Stage B — `forecast_only`
 
@@ -157,11 +196,19 @@ Per-z-bin flow (`run_forecast_only(cfg)`, one z):
    - `bundled_baseline` → vendored `_vendored/data/pareto_baseline/z{z}/`
    - `per_parameter` → student-supplied paths in the YAML
    - `from_refit` → `<output_dir>/refit/z{z}/` (Stage-C handoff)
-2. **Pick one equation per param** — `pick_equation(df, rule)`.
-3. **Compile equations to callables** via `port_pysr_equations.py` →
-   `eq_i(θ_i_norm, k_norm, r)`.
-4. **Build the combined model** `P_F(θ, k)` in `combine.py`. Default is
-   the additive 1st-order Taylor combine (`student_pysr_contract` item 5):
+2. **Select one equation per param** — Fisher-safety filter then
+   `pick_equation` (see Stage C "filter-then-pick" above). The `pick`
+   rule comes from per-entry `ParetoEntry.pick` for `per_parameter`, or
+   from a **new top-level `pick:` config default** (schema addition) for
+   `bundled_baseline` / `from_refit`, which currently have nowhere to
+   specify a rule.
+3. **Compile equations to callables** via `compile_equation` /
+   `CompiledEquation` (`pysr_model.py:227` — sympy-whitelist parse +
+   lambdify) → `eq_i(θ_i_norm, k_norm, r)`.
+4. **Build the combined model** `P_F(θ, k)` in `combine.py`, a thin
+   wrapper over `refit_taylor.AdditiveTaylorModel` (the additive Taylor
+   combine is already implemented and tested there). Default is the
+   additive 1st-order Taylor combine (`student_pysr_contract` item 5):
 
    ```
    P_norm(θ, k) = Σ_i [eq_i(θ_i_norm, k_norm, 0.8) − eq_i(0.5, k_norm, 0.8)]
@@ -170,13 +217,14 @@ Per-z-bin flow (`run_forecast_only(cfg)`, one z):
    ```
 
    `multiplicative` and `joint` remain selectable via the YAML
-   `combine:` field. `0.5` is the per-param fid_norm approximation the
-   student hard-codes; `0.8` is HF resolution.
+   `combine:` field; the `config.py` `VALID_COMBINES` default flips from
+   `multiplicative` to `additive`. `0.5` is the per-param fid_norm
+   approximation the student hard-codes; `0.8` is HF resolution.
 5. **Three Fisher forecasts** on the kodiaq-squad `(k)` grid for that z:
    - `σ_GP` — full emulator (reuses Stage-A `run_gp_only` machinery).
    - `σ_perfect_1D` — the emulator's exact 1D responses fed through the
-     same additive combine; isolates combine-structure loss from PySR-fit
-     loss.
+     **same combine as `σ_PySR`** (whatever `combine:` is set to);
+     isolates combine-structure loss from PySR-fit loss.
    - `σ_PySR` — the fitted-equation combined model.
    - plus ratios `σ_PySR/σ_GP`, `σ_perfect_1D/σ_GP`.
 6. **Deliverables** written to `<output_dir>/z{z}/`:
@@ -186,14 +234,18 @@ Per-z-bin flow (`run_forecast_only(cfg)`, one z):
    - the picked per-D equations
    - per-D resolution correction `eq_i(θ,k,0.8) − eq_i(θ,k,0.4)`
      (`student_pysr_contract` item 6 / `forecast_deliverables`)
-   - loss–complexity diagnostic plot per param (`plot_equation_card`),
-     picked row marked.
+   - loss–complexity diagnostic plot per param — **new plotter**
+     (`plot_equation_card` is a LaTeX equation-card renderer, not a
+     Pareto-front plot), with the picked row marked.
 
-**To verify during implementation, not assumed here:** the exact
-definition of `σ_perfect_1D` and the de-normalization details will be
-cross-checked against `scripts/train_and_forecast.py` and
-`scripts/forecast_original_design.py` before the combine math is locked,
-so Stage B reproduces the established multi-z numbers.
+**Note on `σ_perfect_1D`:** the existing multi-z `perfect_1D` reference
+in `train_and_forecast.py` / `forecast_original_design.py` is computed
+through a *multiplicative* combine, so single-z `σ_perfect_1D` (which
+uses the configured combine, additive by default) is a **different
+estimator** and will not reproduce those numbers — by design. It is the
+combine-consistent ceiling for *this* pipeline, not a back-compat check.
+De-normalization details are inherited from
+`refit_taylor.AdditiveTaylorModel` rather than re-derived.
 
 ### 5.1 Pareto CSV tracking
 
@@ -281,8 +333,10 @@ Mirrors Stage A's `tests/test_single_z_pipeline.py` conventions (unit +
 hypothesis tests, slow end-to-end smokes gated behind env vars). No new
 dependencies (per `build_conventions`).
 
-- `combine.py` — unit tests with known-input/known-output; assert the
-  combine recovers the anchor at fiducial θ.
+- `combine.py` — unit tests with known-input/known-output. Note
+  `AdditiveTaylorModel` recovers the GP anchor at θ=fid only in
+  `local_anchored` mode, not `multi_d` mode (the contract formula is
+  `multi_d`); the test assertion must match the mode `combine.py` uses.
 - `refit_one_param_single_z` — fast test with PySR mocked; a real run
   gated behind a `RUN_SLOW_*` env var.
 - `aggregate_z.py` — tested on fixture per-z directories (pure
@@ -304,7 +358,8 @@ be written against working code:
 2. Stage B `run_forecast_only` (+ tests). Generate and vendor the
    `bundled_baseline` Pareto CSV set once Stage C exists; until then
    Stage B is exercised via `per_parameter` fixtures.
-3. Stage C `refit.py` + `run_refit_and_forecast` + `slurm/single_z_refit.slurm`
+3. Stage C `refit.py` + `run_refit_and_forecast` +
+   `scripts/refit_one_param_single_z.py` + `slurm/single_z_refit.slurm`
    (+ tests). Run it once across all 13 z-bins to produce the vendored
    `bundled_baseline` set.
 4. `run_batch.py` + `aggregate_z.py` (+ tests).
