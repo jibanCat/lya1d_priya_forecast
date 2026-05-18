@@ -69,7 +69,7 @@ def load_1pvar(
     """Load regenerated LF+HF 1pvar data for one param, sliced to one z-bin.
 
     Returns a dict: `params_lf/hf` (n_points, 11), `kfkms_lf_z/hf_z`
-    (n_points, n_k), `flux_lf_z/hf_z` (n_points, n_k, raw P_F),
+    (n_points, n_k), `flux_lf_z/hf_z` (n_points, n_k) — raw P_F,
     `kfkms_lf_min`, `kfkms_lf_max`.
 
     Raises FileNotFoundError if either HDF5 is absent; ValueError if `z` is
@@ -117,6 +117,8 @@ def regenerate_param(
     """
     z_grid = np.asarray(z_grid, dtype=float)
     k_grid = np.asarray(k_grid, dtype=float)
+    if z_grid.size == 0:
+        raise ValueError("z_grid must be non-empty.")
     flux_lf, flux_hf, kf_lf, kf_hf = [], [], [], []
     params_lf = params_hf = None
     for z in z_grid:
