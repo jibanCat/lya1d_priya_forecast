@@ -171,25 +171,8 @@ def resolve_pareto_csvs(cfg: PipelineConfig) -> dict[str, Path]:
     return out
 
 
-def _fisher_for_model(model, *, parameters, redshift, step_frac, rel_tol,
-                      k_grid=None):
-    """Run `fisher_matrix` for a forward `model` over a parameter subset.
-
-    `k_grid` pins the likelihood's k-grid — required for combined models,
-    which only predict on the k_grid they were built with. Pass `None` for
-    the raw GP (it uses the native eBOSS grid).
-
-    When `k_grid` is provided (non-eBOSS grid), a synthetic diagonal
-    covariance is used: sigma_k = 1% * |P_F(fid, k)|. This is the correct
-    API path: `GaussianLikelihood` requires both `k_grid` and `cov_diag_frac`
-    to be either both None (eBOSS) or both provided (synthetic diagonal cov).
-    """
-    if k_grid is not None:
-        like = GaussianLikelihood(
-            model=model, z=redshift, k_grid=k_grid, cov_diag_frac=0.01,
-        )
-    else:
-        like = GaussianLikelihood(model=model, z=redshift)
+def _fisher_for_likelihood(like, *, parameters, step_frac, rel_tol):
+    """Run `fisher_matrix` for a pre-built likelihood over a parameter subset."""
     indices = [PARAM_NAMES.index(n) for n in parameters]
     selected = tuple(PARAMS_11D[i] for i in indices)
     theta_fid_full = np.array([p.fid for p in PARAMS_11D], dtype=float)
@@ -206,19 +189,26 @@ def run_three_fisher(
     refits: dict,
     parameters: list[str],
     redshift: float,
-    k_range: tuple[float, float],
     combine_mode: str,
     step_frac: float = 0.01,
     rel_tol: float = 0.01,
 ) -> dict[str, FisherResult]:
     """Compute σ_GP, σ_perfect_1D, σ_PySR as a dict of FisherResults.
 
+    All three Fisher forecasts use the SAME eBOSS likelihood covariance and
+    the SAME k-grid — they differ only in the forward model — so the σ's are
+    directly comparable.
+
     - GP         : Fisher of the raw GP emulator.
     - perfect_1D : combine built with all-None refits (GP 1D-slice fallback).
     - PySR       : combine built with the reconstructed `refits`.
     """
-    k_grid = np.linspace(k_range[0], k_range[1], 48)
     fid = np.asarray(fid, dtype=float)
+    # Reference GP likelihood — its native k-grid + covariance are shared by
+    # all three forecasts, so the combined models are built on that grid.
+    like_gp = GaussianLikelihood(model=gp, z=redshift)
+    k_grid = np.asarray(like_gp.inputs.k_eboss, dtype=float)
+
     none_refits = {n: None for n in PARAM_NAMES}
     perfect_model = build_combined_model(
         combine_mode=combine_mode, gp=gp, fid=fid, refits=none_refits,
@@ -228,10 +218,12 @@ def run_three_fisher(
         combine_mode=combine_mode, gp=gp, fid=fid, refits=refits,
         k_grid=k_grid, z=redshift,
     )
-    common = dict(parameters=parameters, redshift=redshift,
-                  step_frac=step_frac, rel_tol=rel_tol)
+    like_perfect = GaussianLikelihood(model=perfect_model, z=redshift)
+    like_pysr = GaussianLikelihood(model=pysr_model, z=redshift)
+
+    common = dict(parameters=parameters, step_frac=step_frac, rel_tol=rel_tol)
     return {
-        "GP": _fisher_for_model(gp, **common),
-        "perfect_1D": _fisher_for_model(perfect_model, k_grid=k_grid, **common),
-        "PySR": _fisher_for_model(pysr_model, k_grid=k_grid, **common),
+        "GP": _fisher_for_likelihood(like_gp, **common),
+        "perfect_1D": _fisher_for_likelihood(like_perfect, **common),
+        "PySR": _fisher_for_likelihood(like_pysr, **common),
     }

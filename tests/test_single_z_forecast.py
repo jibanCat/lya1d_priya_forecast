@@ -171,7 +171,7 @@ def test_run_three_fisher_with_mock_gp():
     results = run_three_fisher(
         gp=gp, fid=fid, refits={n: None for n in PARAM_NAMES},
         parameters=["ns", "Ap"], redshift=3.6,
-        k_range=(0.001, 0.04), combine_mode="additive",
+        combine_mode="additive",
         step_frac=0.05, rel_tol=0.05,
     )
     assert set(results) == {"GP", "perfect_1D", "PySR"}
@@ -180,3 +180,9 @@ def test_run_three_fisher_with_mock_gp():
         assert fr.sigma.shape == (2,)
         assert np.all(np.isfinite(fr.sigma))
         assert np.all(fr.sigma > 0)
+    # All three use the same covariance → perfect_1D σ must equal GP σ
+    # at fiducial (perfect_1D combine == GP anchor when θ=fid), confirming
+    # a shared covariance rather than a synthetic per-model one.
+    np.testing.assert_allclose(
+        results["perfect_1D"].sigma, results["GP"].sigma, rtol=1e-6,
+    )
