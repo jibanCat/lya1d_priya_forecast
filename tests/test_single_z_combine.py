@@ -48,3 +48,20 @@ def test_build_combined_model_additive_anchor_identity():
     np.testing.assert_allclose(
         model.predict(fid, k, 3.6), gp.predict(fid, k, 3.6), rtol=1e-9,
     )
+
+
+@pytest.mark.parametrize("mode", ["multiplicative", "joint"])
+def test_build_combined_model_unimplemented_modes(mode):
+    with pytest.raises(NotImplementedError, match="not implemented"):
+        build_combined_model(
+            combine_mode=mode, gp=MockGPModel(), fid=_fid(),
+            refits=_none_refits(), k_grid=np.linspace(0.001, 0.04, 10), z=3.6,
+        )
+
+
+def test_build_combined_model_unknown_mode():
+    with pytest.raises(ValueError, match="unknown combine mode"):
+        build_combined_model(
+            combine_mode="bogus", gp=MockGPModel(), fid=_fid(),
+            refits=_none_refits(), k_grid=np.linspace(0.001, 0.04, 10), z=3.6,
+        )
