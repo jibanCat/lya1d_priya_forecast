@@ -170,6 +170,10 @@ class Refit1DResult:
     # Multi-z: range of z covered by the training set. None for single-z fits.
     z_min: float | None = None
     z_max: float | None = None
+    # Stage 6: SR was trained on log(P_F) rather than raw P_F. When True,
+    # predict() applies exp() before returning and predict_log() returns the
+    # native output directly.
+    log_space: bool = False
 
     @property
     def is_multiz(self) -> bool:
@@ -244,6 +248,21 @@ class Refit1DResult:
                 args.append(np.zeros_like(k))
         return np.broadcast_to(np.asarray(fn(*args), dtype=float), k.shape).copy()
 
+    def _predict_denorm(
+        self,
+        theta_phys: float | np.ndarray,
+        k: np.ndarray,
+        resolution: float = HF_RESOLUTION,
+        z: float | None = None,
+    ) -> np.ndarray:
+        """Denormalized prediction in the training space (log P_F if
+        log_space, else raw P_F)."""
+        flux_norm = self.predict_normalized(theta_phys, k, resolution=resolution, z=z)
+        return self.norm.denormalize_flux(
+            flux_norm, np.asarray(k, dtype=float),
+            z=(z if z is not None else self.z),
+        )
+
     def predict(
         self,
         theta_phys: float | np.ndarray,
@@ -251,17 +270,21 @@ class Refit1DResult:
         resolution: float = HF_RESOLUTION,
         z: float | None = None,
     ) -> np.ndarray:
-        """Raw P_F: `flux_norm · std_k + mean_k` (per-param normalization)."""
-        flux_norm = self.predict_normalized(
-            theta_phys, k, resolution=resolution, z=z,
-        )
-        # Multi-z normalization needs the z to look up the right per-z spec;
-        # single-z normalization ignores z. denormalize_flux signature unified
-        # via the optional `z=` kwarg in NormalizationSpec.
-        return self.norm.denormalize_flux(
-            flux_norm, np.asarray(k, dtype=float),
-            z=(z if z is not None else self.z),
-        )
+        """Raw P_F. exp() applied when the equation was trained on log(P)."""
+        val = self._predict_denorm(theta_phys, k, resolution=resolution, z=z)
+        return np.exp(val) if self.log_space else val
+
+    def predict_log(
+        self,
+        theta_phys: float | np.ndarray,
+        k: np.ndarray,
+        resolution: float = HF_RESOLUTION,
+        z: float | None = None,
+    ) -> np.ndarray:
+        """log(P_F). For a log-trained equation this is the native output;
+        for a linear-trained one it is log() of the raw prediction."""
+        val = self._predict_denorm(theta_phys, k, resolution=resolution, z=z)
+        return val if self.log_space else np.log(val)
 
 
 def _load_1pvar(
@@ -1046,6 +1069,7 @@ def refit_1d_for_param(
         hf_train_mean_rel_err=float("nan"),
         lf_train_max_rel_err=float("nan"),
         hf_train_max_rel_err=float("nan"),
+        log_space=log_space,
     )
     diagnostics = _validate_per_fidelity_from_payload(
         result=result, payload=payload, param_idx=param_idx,

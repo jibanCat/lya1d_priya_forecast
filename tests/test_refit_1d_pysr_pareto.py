@@ -46,3 +46,43 @@ def test_build_training_matrix_log_space():
     assert abs(float(Y.mean())) < 1e-6
     # fidelity_arrays still expose raw flux for diagnostics
     np.testing.assert_allclose(farr["flux_lf"], flux)
+
+
+def _hand_refit_log(equation_str, k, *, log_space):
+    """A Refit1DResult with a hand-written equation, in linear or log space."""
+    import numpy as np
+    from priya_forecast.models.normalization import NormalizationSpec
+    from priya_forecast.refit_1d_pysr import Refit1DResult, HF_RESOLUTION, LF_RESOLUTION
+
+    nk = len(k)
+    norm = NormalizationSpec(
+        param_min=0.8, param_max=1.05, k_min=float(k.min()), k_max=float(k.max()),
+        mean_flux=np.full(nk, 2.0 if log_space else 30.0),
+        std_flux=np.full(nk, 0.5 if log_space else 5.0),
+        k_grid=np.asarray(k, dtype=float),
+    )
+    return Refit1DResult(
+        param_name="ns", z=3.6, equation_str=equation_str,
+        pareto_complexity=3, pareto_loss=0.0,
+        pareto_complexities=[3], pareto_losses=[0.0],
+        x_param_min=0.8, x_param_max=1.05,
+        k_min=float(k.min()), k_max=float(k.max()),
+        lf_resolution=LF_RESOLUTION, hf_resolution=HF_RESOLUTION,
+        fid_value=0.983, norm=norm, k_grid=np.asarray(k, dtype=float),
+        wall_time_s=0.0, lf_train_mean_rel_err=0.0, hf_train_mean_rel_err=0.0,
+        lf_train_max_rel_err=0.0, hf_train_max_rel_err=0.0,
+        log_space=log_space,
+    )
+
+
+def test_refit1dresult_predict_log_consistency():
+    """predict and predict_log are exp/log consistent in both spaces."""
+    import numpy as np
+    k = np.linspace(0.001, 0.04, 10)
+    for log_space in (False, True):
+        r = _hand_refit_log("x0 + x1", k, log_space=log_space)
+        p = r.predict(theta_phys=0.98, k=k)
+        plog = r.predict_log(theta_phys=0.98, k=k)
+        assert np.all(p > 0)                       # raw P_F positive
+        np.testing.assert_allclose(plog, np.log(p), rtol=1e-9)
+        np.testing.assert_allclose(p, np.exp(plog), rtol=1e-9)
