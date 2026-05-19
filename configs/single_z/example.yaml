@@ -57,6 +57,7 @@ pysr:
 
 # Only used when mode != gp_only.
 combine: additive           # multiplicative | additive | joint
+target_space: log           # linear | log  — fit log(P) (Stage 6, recommended)
 fiducial_p1d_cache: null    # path to .npz cache; auto-created if null
 
 pareto_csvs:

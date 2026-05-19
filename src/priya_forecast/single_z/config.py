@@ -66,6 +66,7 @@ VALID_NORM_MODES = ("auto", "identity", "mean_flux")
 VALID_COMBINES = ("multiplicative", "additive", "joint")
 VALID_PARETO_SOURCES = ("bundled_baseline", "per_parameter", "from_refit")
 VALID_PICK_RULES = ("best_loss",)
+VALID_TARGET_SPACES = ("linear", "log")
 VALID_PICK_PREFIXES = ("complexity_le:", "accuracy_at:", "row:")
 
 
@@ -201,6 +202,7 @@ class PipelineConfig:
     pysr: PySRConfig = field(default_factory=PySRConfig)
     combine: str = "additive"
     pick: str = "best_loss"
+    target_space: str = "linear"
     fiducial_p1d_cache: str | None = None
     pareto_csvs: ParetoCSVsConfig = field(default_factory=ParetoCSVsConfig)
     fisher: FisherConfig = field(default_factory=FisherConfig)
@@ -219,6 +221,10 @@ class PipelineConfig:
             raise ValueError(
                 f"pick={self.pick!r} invalid. "
                 f"Valid: best_loss / complexity_le:N / accuracy_at:tol / row:I."
+            )
+        if self.target_space not in VALID_TARGET_SPACES:
+            raise ValueError(
+                f"target_space must be one of {VALID_TARGET_SPACES}."
             )
         self.k_range.validate()
         self.data.validate()

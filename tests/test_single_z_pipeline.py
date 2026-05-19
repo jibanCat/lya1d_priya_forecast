@@ -314,6 +314,20 @@ def test_top_level_pick_default_and_validation(tmp_path: Path):
         load_config(bad)
 
 
+def test_target_space_default_and_validation(tmp_path: Path):
+    """PipelineConfig has target_space, default 'linear'; bad value rejected."""
+    basedir = _basedir(tmp_path)
+    good = _write(tmp_path, "t.yaml", f"gp:\n  basedir: {basedir}\n")
+    assert load_config(good).target_space == "linear"
+    logc = _write(tmp_path, "tl.yaml",
+                  f"target_space: log\ngp:\n  basedir: {basedir}\n")
+    assert load_config(logc).target_space == "log"
+    bad = _write(tmp_path, "tb.yaml",
+                 f"target_space: sqrt\ngp:\n  basedir: {basedir}\n")
+    with pytest.raises(ValueError, match="target_space"):
+        load_config(bad)
+
+
 @pytest.mark.skipif(
     not (RUN_SLOW and LYAEMU_AVAILABLE and GP_BASEDIR.exists()),
     reason="gated on RUN_SLOW_GP_ONLY=1 + lyaemu + data/kodiaq_gp/",
