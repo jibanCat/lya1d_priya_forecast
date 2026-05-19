@@ -819,6 +819,12 @@ def refit_1d_multiz_for_param(
 
     args = dict(DEFAULT_PYSR_KWARGS)
     args.update(pysr_kwargs or {})
+    # PySR forbids specifying both `elementwise_loss` and `loss_function`.
+    # `DEFAULT_PYSR_KWARGS` carries `elementwise_loss` (MSE); a caller that
+    # swaps in a `loss_function` (e.g. SMART_REFIT_PYSR_KWARGS's ANOVA loss)
+    # must not also keep the default MSE — drop it so only one survives.
+    if args.get("loss_function") is not None:
+        args.pop("elementwise_loss", None)
     args["random_state"] = seed
     t0 = time.time()
     model = PySRRegressor(**args)
@@ -966,6 +972,12 @@ def refit_1d_for_param(
 
     args = dict(DEFAULT_PYSR_KWARGS)
     args.update(pysr_kwargs or {})
+    # PySR forbids specifying both `elementwise_loss` and `loss_function`.
+    # `DEFAULT_PYSR_KWARGS` carries `elementwise_loss` (MSE); a caller that
+    # swaps in a `loss_function` (e.g. SMART_REFIT_PYSR_KWARGS's ANOVA loss)
+    # must not also keep the default MSE — drop it so only one survives.
+    if args.get("loss_function") is not None:
+        args.pop("elementwise_loss", None)
     args["random_state"] = seed
     t0 = time.time()
     model = PySRRegressor(**args)
