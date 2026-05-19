@@ -174,10 +174,17 @@ def _write_forecast_deliverables(cfg, out_dir, results, *, pysr_available):
             f.write(f"| {name} | {sigmas['GP'][i]:.4g} | "
                     f"{sigmas['perfect_1D'][i]:.4g} | {sp} |\n")
 
+    fisher_npz = {}
+    for label, fr in results.items():
+        npz_path = out_dir / f"fisher_{label}.npz"
+        fr.save_npz(npz_path)
+        fisher_npz[label] = npz_path
+
     return {
         "table_path": table_path,
         "scorecard_path": scorecard_path,
         "corner_path": corner_path,
+        "fisher_npz": fisher_npz,
     }
 
 

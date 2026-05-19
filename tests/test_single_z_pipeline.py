@@ -399,3 +399,31 @@ def test_refit_and_forecast_end_to_end(tmp_path: Path):
     for p in ("ns", "Ap"):
         assert (tmp_path / "out" / "refit" / "z3.6" / f"pareto_{p}.csv").exists()
     assert (tmp_path / "out" / "corner.png").exists()
+
+
+def test_write_forecast_deliverables_saves_npz(tmp_path: Path):
+    """_write_forecast_deliverables persists each FisherResult as an npz."""
+    import numpy as np
+    from priya_forecast.fisher import FisherResult
+    from priya_forecast.single_z.pipeline import _write_forecast_deliverables
+    from priya_forecast.single_z.config import PipelineConfig
+
+    def _fake_fr(scale):
+        n = 2
+        return FisherResult(
+            F=np.eye(n), cov=np.eye(n) * scale, sigma=np.full(n, scale),
+            corr=np.eye(n), steps=np.full(n, 0.01),
+            param_names=("ns", "Ap"), theta_fid=np.array([0.98, 1.46]),
+        )
+
+    cfg = PipelineConfig(mode="forecast_only", parameters=["ns", "Ap"])
+    results = {"GP": _fake_fr(0.1), "perfect_1D": _fake_fr(0.1),
+               "PySR": _fake_fr(0.2)}
+    out = tmp_path / "out"
+    out.mkdir()
+    _write_forecast_deliverables(cfg, out, results, pysr_available=True)
+    for label in ("GP", "perfect_1D", "PySR"):
+        npz = out / f"fisher_{label}.npz"
+        assert npz.exists()
+        loaded = np.load(npz, allow_pickle=True)
+        assert loaded["sigma"].shape == (2,)
