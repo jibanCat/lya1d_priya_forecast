@@ -63,6 +63,7 @@ def test_shipped_example_yaml_loads_and_validates():
     assert cfg.data.source == "kodiaq"
     assert cfg.combine == "additive"
     assert set(cfg.parameters) == set(PARAM_NAMES)
+    assert cfg.target_space == "log"
 
 
 def test_minimal_yaml_takes_defaults(tmp_path: Path):
