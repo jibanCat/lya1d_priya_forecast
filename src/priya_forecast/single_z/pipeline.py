@@ -31,6 +31,7 @@ from priya_forecast.parameters import (
 )
 from priya_forecast.single_z.config import PipelineConfig
 from priya_forecast.single_z import forecast as _fc
+from priya_forecast.single_z import refit as _refit
 from priya_forecast.diagnostics.forecast_plots import plot_fisher_corner
 
 
@@ -134,33 +135,9 @@ def run_gp_only(cfg: PipelineConfig) -> dict:
     }
 
 
-def run_forecast_only(cfg: PipelineConfig) -> dict:
-    """Student CSVs → equations → combined model → σ_GP / σ_perfect_1D / σ_PySR.
-
-    σ_GP and σ_perfect_1D need no equations. σ_PySR needs Pareto CSVs; if none
-    are available the run still emits σ_GP and σ_perfect_1D and notes σ_PySR
-    as unavailable in the scorecard.
-    """
-    out_dir = Path(cfg.output_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    gp = _build_gp(cfg)
-    fid = np.asarray(fiducial_vector(), dtype=float)
-
-    # Reconstruct per-parameter refits from Pareto CSVs if available.
-    refits: dict = {name: None for name in PARAM_NAMES}
-    pysr_available = True
-    try:
-        csv_paths = _fc.resolve_pareto_csvs(cfg)
-        for param, csv in csv_paths.items():
-            refits[param] = _fc.build_refit_from_pareto(
-                param_name=param, z=cfg.redshift, pareto_csv=csv,
-                pick_rule=cfg.pick, data_1pvar_dir="data/single_z_1pvar",
-            )
-    except FileNotFoundError:
-        pysr_available = False
-
-    results = _fc.run_three_fisher(cfg=cfg, gp=gp, fid=fid, refits=refits)
-
+def _write_forecast_deliverables(cfg, out_dir, results, *, pysr_available):
+    """Write corner.png + forecast_table.txt + scorecard.md from the 3 Fisher
+    results. Returns {table_path, scorecard_path, corner_path}."""
     sigmas = {label: fr.sigma for label, fr in results.items()}
     corner_labels = ["GP", "perfect_1D"] + (["PySR"] if pysr_available else [])
     corner_path = out_dir / "corner.png"
@@ -198,17 +175,83 @@ def run_forecast_only(cfg: PipelineConfig) -> dict:
                     f"{sigmas['perfect_1D'][i]:.4g} | {sp} |\n")
 
     return {
-        "sigmas": sigmas,
-        "fisher_results": results,
-        "pysr_available": pysr_available,
         "table_path": table_path,
         "scorecard_path": scorecard_path,
         "corner_path": corner_path,
     }
 
 
+def run_forecast_only(cfg: PipelineConfig) -> dict:
+    """Student CSVs → equations → combined model → σ_GP / σ_perfect_1D / σ_PySR.
+
+    σ_GP and σ_perfect_1D need no equations. σ_PySR needs Pareto CSVs; if none
+    are available the run still emits σ_GP and σ_perfect_1D and notes σ_PySR
+    as unavailable in the scorecard.
+    """
+    out_dir = Path(cfg.output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    gp = _build_gp(cfg)
+    fid = np.asarray(fiducial_vector(), dtype=float)
+
+    # Reconstruct per-parameter refits from Pareto CSVs if available.
+    refits: dict = {name: None for name in PARAM_NAMES}
+    pysr_available = True
+    try:
+        csv_paths = _fc.resolve_pareto_csvs(cfg)
+        for param, csv in csv_paths.items():
+            refits[param] = _fc.build_refit_from_pareto(
+                param_name=param, z=cfg.redshift, pareto_csv=csv,
+                pick_rule=cfg.pick, data_1pvar_dir="data/single_z_1pvar",
+            )
+    except FileNotFoundError:
+        pysr_available = False
+
+    results = _fc.run_three_fisher(cfg=cfg, gp=gp, fid=fid, refits=refits)
+
+    deliverables = _write_forecast_deliverables(
+        cfg, out_dir, results, pysr_available=pysr_available,
+    )
+    return {
+        "sigmas": {label: fr.sigma for label, fr in results.items()},
+        "fisher_results": results,
+        "pysr_available": pysr_available,
+        **deliverables,
+    }
+
+
 def run_refit_and_forecast(cfg: PipelineConfig) -> dict:
-    raise NotImplementedError("refit_and_forecast mode lands in Stage C.")
+    """Refit single-z PySR per parameter, emit Pareto CSVs, then forecast.
+
+    Loops `refit_one_param_single_z` over `cfg.parameters` in-process, then
+    runs the three Fisher forecasts on the fresh refits.
+    """
+    out_dir = Path(cfg.output_dir)
+    refit_dir = out_dir / "refit" / f"z{cfg.redshift}"
+    refit_dir.mkdir(parents=True, exist_ok=True)
+    fid = np.asarray(fiducial_vector(), dtype=float)
+
+    k_grid = _refit.kodiaq_k_grid(cfg.k_range.min, cfg.k_range.max, 48)
+    gp_lf = GPModel(basedir=cfg.gp.basedir, fidelity="lf", kf=k_grid)
+    gp_hf = GPModel(basedir=cfg.gp.basedir, fidelity="hf", kf=k_grid)
+
+    refits: dict = {name: None for name in PARAM_NAMES}
+    for param in cfg.parameters:
+        refits[param] = _refit.refit_one_param_single_z(
+            param_name=param, z=cfg.redshift, cfg=cfg,
+            gp_lf=gp_lf, gp_hf=gp_hf, k_grid=k_grid, out_dir=refit_dir,
+        )
+
+    results = _fc.run_three_fisher(cfg=cfg, gp=gp_hf, fid=fid, refits=refits)
+    deliverables = _write_forecast_deliverables(
+        cfg, out_dir, results, pysr_available=True,
+    )
+    return {
+        "sigmas": {label: fr.sigma for label, fr in results.items()},
+        "fisher_results": results,
+        "pysr_available": True,
+        "refit_dir": refit_dir,
+        **deliverables,
+    }
 
 
 DISPATCH = {

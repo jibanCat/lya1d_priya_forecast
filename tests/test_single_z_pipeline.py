@@ -274,14 +274,11 @@ def test_dispatcher_forecast_only_is_implemented(tmp_path: Path):
     assert run_forecast_only.__doc__ is not None
 
 
-def test_dispatcher_refit_and_forecast_not_implemented(tmp_path: Path):
-    from priya_forecast.single_z.pipeline import run
-    cfg = PipelineConfig(
-        mode="refit_and_forecast",
-        gp=GPConfig(basedir=str(_basedir(tmp_path))),
-    )
-    with pytest.raises(NotImplementedError, match="Stage C"):
-        run(cfg)
+def test_dispatcher_refit_and_forecast_is_implemented(tmp_path: Path):
+    """refit_and_forecast is now implemented in Stage 3; it must not raise NotImplementedError."""
+    from priya_forecast.single_z.pipeline import run_refit_and_forecast
+    assert callable(run_refit_and_forecast)
+    assert run_refit_and_forecast.__doc__ is not None
 
 
 # ---------------------------------------------------------------------------
@@ -370,4 +367,35 @@ def test_forecast_only_perfect_1d_end_to_end(tmp_path: Path):
         assert s.shape == (2,)
         assert np.all(np.isfinite(s)) and np.all(s > 0)
     assert (tmp_path / "out" / "forecast_table.txt").exists()
+    assert (tmp_path / "out" / "corner.png").exists()
+
+
+RUN_SLOW_REFIT = os.environ.get("RUN_SLOW_REFIT") == "1"
+
+
+@pytest.mark.skipif(
+    not (RUN_SLOW_REFIT and LYAEMU_AVAILABLE and GP_BASEDIR.exists()),
+    reason="gated on RUN_SLOW_REFIT=1 + lyaemu + data/kodiaq_gp/ (runs PySR)",
+)
+def test_refit_and_forecast_end_to_end(tmp_path: Path):
+    """refit_and_forecast refits a 2-param subset and forecasts σ_PySR."""
+    import numpy as np
+    from priya_forecast.single_z.pipeline import run
+
+    cfg = PipelineConfig(
+        mode="refit_and_forecast", redshift=3.6,
+        output_dir=str(tmp_path / "out"),
+        gp=GPConfig(basedir=str(GP_BASEDIR)),
+        parameters=["ns", "Ap"],
+        k_range=KRange(min=0.001, max=0.04),
+        data=DataConfig(source="kodiaq"),
+    )
+    result = run(cfg)
+    assert result["pysr_available"] is True
+    for label in ("GP", "perfect_1D", "PySR"):
+        s = result["sigmas"][label]
+        assert s.shape == (2,)
+        assert np.all(np.isfinite(s)) and np.all(s > 0)
+    for p in ("ns", "Ap"):
+        assert (tmp_path / "out" / "refit" / "z3.6" / f"pareto_{p}.csv").exists()
     assert (tmp_path / "out" / "corner.png").exists()
