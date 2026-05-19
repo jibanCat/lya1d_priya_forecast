@@ -323,6 +323,7 @@ def _build_training_matrix(
     payload: dict,
     param_idx: int,
     global_norm: NormalizationSpec,
+    log_space: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, dict[str, float], dict[str, np.ndarray]]:
     """Stack LF + HF into the student's `(X, y)` training matrix.
 
@@ -345,6 +346,18 @@ def _build_training_matrix(
     params_lf = payload["params_lf"] # (50, 11)
     params_hf = payload["params_hf"] # (50, 11)
 
+    if log_space:
+        if np.any(flux_lf <= 0) or np.any(flux_hf <= 0):
+            raise ValueError(
+                "log_space=True requires strictly positive flux in the "
+                "1pvar payload."
+            )
+        flux_lf_t = np.log(flux_lf)
+        flux_hf_t = np.log(flux_hf)
+    else:
+        flux_lf_t = flux_lf
+        flux_hf_t = flux_hf
+
     # Normalize both fidelities with the GLOBAL multi-D (mean_k, std_k),
     # interpolated onto each fidelity's k-grid. Per the contract: the
     # normalization is from MULTI-D fid, not 1D.
@@ -353,8 +366,8 @@ def _build_training_matrix(
     mean_k_hf = np.interp(k_hf[0], global_norm.k_grid, global_norm.mean_flux)
     std_k_hf = np.interp(k_hf[0], global_norm.k_grid, global_norm.std_flux)
 
-    flux_lf_norm = (flux_lf - mean_k_lf[None, :]) / std_k_lf[None, :]
-    flux_hf_norm = (flux_hf - mean_k_hf[None, :]) / std_k_hf[None, :]
+    flux_lf_norm = (flux_lf_t - mean_k_lf[None, :]) / std_k_lf[None, :]
+    flux_hf_norm = (flux_hf_t - mean_k_hf[None, :]) / std_k_hf[None, :]
 
     # X_param column from LF data only (matches student script).
     x_param_lf = np.repeat(params_lf[:, param_idx, None], k_lf.shape[1], axis=1)
@@ -930,6 +943,7 @@ def refit_1d_for_param(
     pysr_kwargs: dict | None = None,
     seed: int = 42,
     pareto_csv_out: str | Path | None = None,
+    log_space: bool = False,
 ) -> Refit1DResult:
     """Train a 1D PySR equation for `param_name`.
 
@@ -981,11 +995,13 @@ def refit_1d_for_param(
             flux_lf_z=payload["flux_lf_z"], k_grid=k_grid,
             mean_flux_global=mean_flux_global,
             param_min=float(p_meta.prior[0]), param_max=float(p_meta.prior[1]),
+            log_space=log_space,
         )
 
     param_idx = PARAM_NAMES.index(param_name)
     X_act, Y_act, ranges, fidelity_arrays = _build_training_matrix(
         payload=payload, param_idx=param_idx, global_norm=norm,
+        log_space=log_space,
     )
 
     args = dict(DEFAULT_PYSR_KWARGS)
