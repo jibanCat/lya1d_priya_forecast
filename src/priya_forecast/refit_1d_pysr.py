@@ -338,6 +338,14 @@ def _build_training_matrix(
         student's recipe and stored on the Refit1DResult)
       - fidelity_arrays = LF/HF flux_norm reshaped (50, 35) for
         diagnostics + denormalized P_F arrays.
+
+    When `log_space=True` the SR target `Y` is normalized `log(P_F)`, not
+    normalized `P_F`; strictly positive flux is required (ValueError otherwise).
+    `fidelity_arrays["flux_lf"]` / `["flux_hf"]` always carry the raw (linear)
+    flux so that per-fidelity validators can compare against `result.predict()`,
+    which returns raw P_F in both modes. `fidelity_arrays["flux_lf_norm"]` /
+    `["flux_hf_norm"]` are in the training-target space (log-normalized when
+    `log_space=True`, linear-normalized otherwise).
     """
     flux_lf = payload["flux_lf_z"]   # (50, 35)
     flux_hf = payload["flux_hf_z"]   # (50, 35)
