@@ -727,6 +727,7 @@ def compute_local_normalization(
     mean_flux_global: np.ndarray | None = None,
     param_min: float = 0.0,
     param_max: float = 1.0,
+    log_space: bool = False,
 ) -> NormalizationSpec:
     """Per-param 1D-local std normalization (Option B).
 
@@ -735,6 +736,11 @@ def compute_local_normalization(
     mean. If `mean_flux_global` is None, fall back to per-param 1D-local
     mean — which is what the student's `pysr_mf_given.py` does in its
     "fallback" path.
+
+    If `log_space=True`, statistics (mean and std) are computed on
+    ``np.log(flux_lf_z)`` rather than on the raw flux. This is used by the
+    Stage 6 log(P) SR target path. Raises ``ValueError`` if any entry of
+    ``flux_lf_z`` is non-positive when ``log_space=True``.
 
     Returns a `NormalizationSpec` whose `denormalize_flux` round-trips
     `flux_norm = (P_F − mean) / std_local` back to raw P_F.
@@ -745,10 +751,19 @@ def compute_local_normalization(
         raise ValueError(
             f"flux_lf_z width {flux_lf_z.shape[1]} != k_grid size {k_grid.size}."
         )
-    std_k_local = flux_lf_z.std(axis=0, ddof=0)
+    if log_space:
+        if np.any(flux_lf_z <= 0):
+            raise ValueError(
+                "log_space=True requires strictly positive flux; "
+                "flux_lf_z has non-positive entries."
+            )
+        target = np.log(flux_lf_z)
+    else:
+        target = flux_lf_z
+    std_k_local = target.std(axis=0, ddof=0)
     std_k_local = np.where(std_k_local > 0, std_k_local, 1.0)
     if mean_flux_global is None:
-        mean_k = flux_lf_z.mean(axis=0)
+        mean_k = target.mean(axis=0)
     else:
         # mean_flux_global must already live on the same k_grid as the
         # local std. Earlier code attempted np.interp(k_grid,
