@@ -255,8 +255,7 @@ class Refit1DResult:
         resolution: float = HF_RESOLUTION,
         z: float | None = None,
     ) -> np.ndarray:
-        """Denormalized prediction in the training space (log P_F if
-        log_space, else raw P_F)."""
+        """Denormalized SR output: `log(P_F)` when `log_space=True`, raw `P_F` otherwise."""
         flux_norm = self.predict_normalized(theta_phys, k, resolution=resolution, z=z)
         return self.norm.denormalize_flux(
             flux_norm, np.asarray(k, dtype=float),
@@ -270,7 +269,7 @@ class Refit1DResult:
         resolution: float = HF_RESOLUTION,
         z: float | None = None,
     ) -> np.ndarray:
-        """Raw P_F. exp() applied when the equation was trained on log(P)."""
+        """Return raw `P_F`. When `log_space=True` (log-trained equation), applies `exp()`; otherwise returns the denormalized output directly."""
         val = self._predict_denorm(theta_phys, k, resolution=resolution, z=z)
         return np.exp(val) if self.log_space else val
 
