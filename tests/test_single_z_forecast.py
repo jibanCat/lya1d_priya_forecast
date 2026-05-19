@@ -159,6 +159,29 @@ def test_resolve_pareto_csvs_missing_raises(tmp_path):
         resolve_pareto_csvs(cfg)
 
 
+def test_equation_uses_param():
+    from priya_forecast.single_z.forecast import equation_uses_param
+    assert equation_uses_param("x0 + x1")
+    assert equation_uses_param("square(x0) * x2")
+    assert not equation_uses_param("x2 * -1.77")
+    assert not equation_uses_param("log(x1 - log(x2))")
+
+
+def test_filter_fisher_safe_drops_x0_free_rows():
+    """_filter_fisher_safe keeps only equations that reference x0."""
+    import pandas as pd
+    from priya_forecast.single_z.forecast import _filter_fisher_safe
+
+    df = pd.DataFrame({
+        "Equation": ["x0 + x1", "x2 * -1.77"],
+        "Complexity": [3, 3],
+        "Loss": [0.1, 0.05],
+    })
+    result = _filter_fisher_safe(df, n_features=3)
+    assert len(result) == 1
+    assert result["Equation"].iloc[0] == "x0 + x1"
+
+
 def test_run_three_fisher_with_mock_gp():
     """run_three_fisher returns 3 comparable FisherResults (eBOSS path, offline)."""
     from priya_forecast.models.gp_model import MockGPModel

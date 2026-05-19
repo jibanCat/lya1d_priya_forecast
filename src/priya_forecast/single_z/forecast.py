@@ -63,19 +63,31 @@ def per_param_local_norm(
     )
 
 
+def equation_uses_param(equation_str: str) -> bool:
+    """True if the PySR equation depends on x0 (the forecast parameter).
+
+    An x0-free equation has zero ∂P/∂θ → a NaN/infinite Fisher σ. PySR
+    sometimes returns such equations when it finds no θ-dependence.
+    """
+    import re
+    # `x0` but not `x0` as a prefix of `x01` etc. (PySR uses x0..x9 here).
+    return bool(re.search(r"\bx0\b", str(equation_str)))
+
+
 def _filter_fisher_safe(df, n_features: int):
     """Drop Fisher-pathological Pareto rows; return the surviving sub-frame.
 
-    Mirrors `scripts/refit_one_param.py`: an equation is kept only if it has
-    no pathological constant and is Fisher-stencil-safe — the two guards that
-    protect Fisher conditioning.
+    Mirrors `scripts/refit_one_param.py`: an equation is kept only if it
+    uses x0 (the forecast parameter), has no pathological constant, and is
+    Fisher-stencil-safe. An x0-free equation has zero ∂P/∂θ → NaN σ_PySR.
     """
     eq = df["Equation"].astype(str)
+    uses_x0 = eq.apply(equation_uses_param)
     pathological = eq.apply(has_pathological_constant)
     stencil_safe = eq.apply(
         lambda s: is_fisher_stencil_safe(s, n_features=n_features)
     )
-    return df[(~pathological) & stencil_safe].reset_index(drop=True)
+    return df[uses_x0 & (~pathological) & stencil_safe].reset_index(drop=True)
 
 
 def build_refit_from_pareto(
@@ -97,8 +109,9 @@ def build_refit_from_pareto(
     safe = _filter_fisher_safe(df, n_features=3)
     if safe.empty:
         raise ValueError(
-            f"No Fisher-safe equation in Pareto front for ({param_name}, z={z}): "
-            f"all {len(df)} rows were pathological or stencil-unsafe."
+            f"No x0-dependent / Fisher-safe equation in Pareto front for "
+            f"({param_name}, z={z}): all {len(df)} rows were x0-free, "
+            f"pathological, or stencil-unsafe."
         )
     equation_str, complexity, loss = pick_equation(safe, pick_rule)
 

@@ -135,9 +135,18 @@ def run_gp_only(cfg: PipelineConfig) -> dict:
     }
 
 
-def _write_forecast_deliverables(cfg, out_dir, results, *, pysr_available):
+def _write_forecast_deliverables(cfg, out_dir, results, *, pysr_available,
+                                 dropped: list | None = None):
     """Write corner.png + forecast_table.txt + scorecard.md from the 3 Fisher
-    results. Returns {table_path, scorecard_path, corner_path}."""
+    results. Returns {table_path, scorecard_path, corner_path}.
+
+    Parameters
+    ----------
+    dropped : list of parameter names that had no usable PySR equation and
+        fell back to the GP slice.  Written into the scorecard when non-empty.
+    """
+    if dropped is None:
+        dropped = []
     sigmas = {label: fr.sigma for label, fr in results.items()}
     corner_labels = ["GP", "perfect_1D"] + (["PySR"] if pysr_available else [])
     corner_path = out_dir / "corner.png"
@@ -173,6 +182,11 @@ def _write_forecast_deliverables(cfg, out_dir, results, *, pysr_available):
             sp = f"{sigmas['PySR'][i]:.4g}" if pysr_available else "n/a"
             f.write(f"| {name} | {sigmas['GP'][i]:.4g} | "
                     f"{sigmas['perfect_1D'][i]:.4g} | {sp} |\n")
+        if dropped:
+            f.write(
+                f"\n**Parameters with no usable PySR equation (GP-slice fallback):** "
+                f"{', '.join(dropped)}\n"
+            )
 
     fisher_npz = {}
     for label, fr in results.items():
@@ -202,21 +216,27 @@ def run_forecast_only(cfg: PipelineConfig) -> dict:
 
     # Reconstruct per-parameter refits from Pareto CSVs if available.
     refits: dict = {name: None for name in PARAM_NAMES}
-    pysr_available = True
+    dropped: list[str] = []
+    pysr_available = False
     try:
         csv_paths = _fc.resolve_pareto_csvs(cfg)
-        for param, csv in csv_paths.items():
+    except FileNotFoundError:
+        csv_paths = {}
+    for param, csv in csv_paths.items():
+        try:
             refits[param] = _fc.build_refit_from_pareto(
                 param_name=param, z=cfg.redshift, pareto_csv=csv,
                 pick_rule=cfg.pick, data_1pvar_dir="data/single_z_1pvar",
             )
-    except FileNotFoundError:
-        pysr_available = False
+            pysr_available = True
+        except ValueError as exc:
+            dropped.append(param)
+            print(f"[forecast_only] {param}: {exc} — falling back to GP slice.")
 
     results = _fc.run_three_fisher(cfg=cfg, gp=gp, fid=fid, refits=refits)
 
     deliverables = _write_forecast_deliverables(
-        cfg, out_dir, results, pysr_available=pysr_available,
+        cfg, out_dir, results, pysr_available=pysr_available, dropped=dropped,
     )
     return {
         "sigmas": {label: fr.sigma for label, fr in results.items()},
@@ -242,20 +262,30 @@ def run_refit_and_forecast(cfg: PipelineConfig) -> dict:
     gp_hf = GPModel(basedir=cfg.gp.basedir, fidelity="hf", kf=k_grid)
 
     refits: dict = {name: None for name in PARAM_NAMES}
+    dropped: list[str] = []
     for param in cfg.parameters:
-        refits[param] = _refit.refit_one_param_single_z(
+        result = _refit.refit_one_param_single_z(
             param_name=param, z=cfg.redshift, cfg=cfg,
             gp_lf=gp_lf, gp_hf=gp_hf, k_grid=k_grid, out_dir=refit_dir,
         )
+        if _fc.equation_uses_param(result.equation_str):
+            refits[param] = result
+        else:
+            dropped.append(param)
+            print(
+                f"[refit] {param}: refit equation has no x0 dependence — "
+                f"GP-slice fallback."
+            )
 
+    pysr_available = bool(cfg.parameters) and len(dropped) < len(cfg.parameters)
     results = _fc.run_three_fisher(cfg=cfg, gp=gp_hf, fid=fid, refits=refits)
     deliverables = _write_forecast_deliverables(
-        cfg, out_dir, results, pysr_available=True,
+        cfg, out_dir, results, pysr_available=pysr_available, dropped=dropped,
     )
     return {
         "sigmas": {label: fr.sigma for label, fr in results.items()},
         "fisher_results": results,
-        "pysr_available": True,
+        "pysr_available": pysr_available,
         "refit_dir": refit_dir,
         **deliverables,
     }
