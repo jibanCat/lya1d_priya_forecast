@@ -390,6 +390,43 @@ def test_multi_z_partial_routing_gp_slice_for_unrefit_param():
     )
 
 
+def test_additive_taylor_log_space_anchor_identity():
+    """log_space combine returns the GP anchor exactly at θ=fid."""
+    import numpy as np
+    from priya_forecast.models.gp_model import MockGPModel
+    from priya_forecast.parameters import PARAM_NAMES, fiducial_vector
+    from priya_forecast.refit_taylor import AdditiveTaylorModel
+
+    gp = MockGPModel()
+    k = np.linspace(0.001, 0.04, 16)
+    fid = np.asarray(fiducial_vector(), dtype=float)
+    model = AdditiveTaylorModel(
+        gp=gp, fid=fid, refits={n: None for n in PARAM_NAMES},
+        global_norm=None, k_grid=k, z=3.6, mode="local_anchored",
+        log_space=True,
+    )
+    np.testing.assert_allclose(
+        model.predict(fid, k, 3.6), gp.predict(fid, k, 3.6), rtol=1e-9,
+    )
+
+
+def test_additive_taylor_log_space_rejects_multi_d():
+    """log_space is only valid with the local_anchored mode."""
+    import numpy as np
+    import pytest
+    from priya_forecast.models.gp_model import MockGPModel
+    from priya_forecast.parameters import PARAM_NAMES, fiducial_vector
+    from priya_forecast.refit_taylor import AdditiveTaylorModel
+
+    with pytest.raises(ValueError, match="log_space"):
+        AdditiveTaylorModel(
+            gp=MockGPModel(), fid=np.asarray(fiducial_vector(), dtype=float),
+            refits={n: None for n in PARAM_NAMES}, global_norm=None,
+            k_grid=np.linspace(0.001, 0.04, 8), z=3.6, mode="multi_d",
+            log_space=True,
+        )
+
+
 def test_multi_z_partial_routing_gated_refit_matches_gp_slice():
     """Simulating the aggregator's gate: a previously-loaded refit set to
     None must route through GP-slice — its Fisher gradient becomes the

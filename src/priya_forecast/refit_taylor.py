@@ -286,6 +286,7 @@ class AdditiveTaylorModel(P1DModel):
     k_grid: np.ndarray
     z: float
     mode: str = "local_anchored"                 # "local_anchored" | "multi_d"
+    log_space: bool = False
 
     def __post_init__(self) -> None:
         self.fid = np.asarray(self.fid, dtype=float)
@@ -297,6 +298,11 @@ class AdditiveTaylorModel(P1DModel):
         if self.mode not in ("local_anchored", "multi_d"):
             raise ValueError(
                 f"mode must be 'local_anchored' or 'multi_d', got {self.mode!r}."
+            )
+        if self.log_space and self.mode != "local_anchored":
+            raise ValueError(
+                "log_space=True is only supported with "
+                "mode='local_anchored'."
             )
         # Cache P_GP(fid, k_grid) — used as anchor in 'local_anchored' mode
         # and as the GP-slice baseline for un-refit params.
@@ -318,6 +324,22 @@ class AdditiveTaylorModel(P1DModel):
                     theta_phys=fid_i_phys, k=self.k_grid,
                     resolution=HF_RESOLUTION_FOR_COMBINE,
                 )
+            if self.log_space:
+                if np.any(self._p_gp_fid <= 0):
+                    raise ValueError(
+                        "log_space combine: GP P_F(fid) has non-positive "
+                        "entries — cannot take log."
+                    )
+                self._log_p_gp_fid = np.log(self._p_gp_fid)
+                self._eq_at_fid_logpf: dict[str, np.ndarray] = {}
+                for pname, r in self.refits.items():
+                    if r is None:
+                        continue
+                    i = PARAM_NAMES.index(pname)
+                    self._eq_at_fid_logpf[pname] = r.predict_log(
+                        theta_phys=float(self.fid[i]), k=self.k_grid,
+                        resolution=HF_RESOLUTION_FOR_COMBINE,
+                    )
         else:
             # Multi-D mode (legacy / replication-of-student). Cache
             # `eq_i(0.5_norm, k_norm, 0.8)` (in flux_norm space).
@@ -354,6 +376,38 @@ class AdditiveTaylorModel(P1DModel):
             raise ValueError(
                 f"AdditiveTaylorModel.predict was built for z={self.z}; got z={z}."
             )
+
+        if self.log_space:
+            out_log = self._log_p_gp_fid.copy()
+            for pname, r in self.refits.items():
+                if r is None:
+                    continue
+                i = PARAM_NAMES.index(pname)
+                if float(theta[i]) == float(self.fid[i]):
+                    continue
+                log_at_theta = r.predict_log(
+                    theta_phys=float(theta[i]), k=self.k_grid,
+                    resolution=HF_RESOLUTION_FOR_COMBINE,
+                )
+                out_log = out_log + (log_at_theta - self._eq_at_fid_logpf[pname])
+            for pname, r in self.refits.items():
+                if r is not None:
+                    continue
+                i = PARAM_NAMES.index(pname)
+                if float(theta[i]) == float(self.fid[i]):
+                    continue
+                t_only = self.fid.copy()
+                t_only[i] = theta[i]
+                p_slice = np.asarray(
+                    self.gp.predict(t_only, self.k_grid, self.z), dtype=float
+                )
+                if np.any(p_slice <= 0):
+                    raise ValueError(
+                        f"log_space combine: GP slice for {pname!r} has "
+                        f"non-positive P_F — cannot take log."
+                    )
+                out_log = out_log + (np.log(p_slice) - self._log_p_gp_fid)
+            return np.exp(out_log)
 
         if self.mode == "local_anchored":
             # P_F(θ, k) = P_GP(fid, k) + Σ_i [eq_i.predict(θ_i, 0.8) − eq_i.predict(fid_i, 0.8)]
