@@ -47,19 +47,37 @@ def refit_one_param_single_z(
     gp_hf,
     k_grid: np.ndarray,
     out_dir: str | Path,
+    max_retries: int = 4,
 ):
     """Refit one parameter at one z-bin; write `pareto_{param}.csv`.
 
-    Returns the `Refit1DResult`. `out_dir` is `<output_dir>/refit/z{z}/`.
+    Retries with bumped seeds (cfg.pysr.seed + attempt) until the Pareto
+    front contains at least one x0-dependent, Fisher-safe equation, or
+    `max_retries` extra attempts are exhausted. Returns the `Refit1DResult`
+    of the first attempt that yields a usable front, else the last attempt.
     """
+    from priya_forecast.models.pysr_model import load_pareto_csv
+    from priya_forecast.single_z.forecast import _filter_fisher_safe
+
     out_dir = Path(out_dir)
-    return refit_1d_for_param(
-        param_name=param_name,
-        z=z,
-        k_grid=np.asarray(k_grid, dtype=float),
-        gp_lf=gp_lf,
-        gp_hf=gp_hf,
-        pysr_kwargs=pysr_kwargs_for_cfg(cfg),
-        seed=cfg.pysr.seed,
-        pareto_csv_out=out_dir / f"pareto_{param_name}.csv",
-    )
+    pareto_csv = out_dir / f"pareto_{param_name}.csv"
+    pysr_kwargs = pysr_kwargs_for_cfg(cfg)
+    k_grid = np.asarray(k_grid, dtype=float)
+
+    result = None
+    for attempt in range(max_retries + 1):
+        result = refit_1d_for_param(
+            param_name=param_name,
+            z=z,
+            k_grid=k_grid,
+            gp_lf=gp_lf,
+            gp_hf=gp_hf,
+            pysr_kwargs=pysr_kwargs,
+            seed=cfg.pysr.seed + attempt,
+            pareto_csv_out=pareto_csv,
+        )
+        # PySR equations have 3 inputs (x0=θ_norm, x1=k_norm, x2=resolution).
+        safe = _filter_fisher_safe(load_pareto_csv(pareto_csv), n_features=3)
+        if not safe.empty:
+            return result
+    return result
