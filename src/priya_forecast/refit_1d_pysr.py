@@ -905,6 +905,7 @@ def refit_1d_for_param(
     data_dir: str | Path | None = None,
     pysr_kwargs: dict | None = None,
     seed: int = 42,
+    pareto_csv_out: str | Path | None = None,
 ) -> Refit1DResult:
     """Train a 1D PySR equation for `param_name`.
 
@@ -924,6 +925,9 @@ def refit_1d_for_param(
 
     Returns a `Refit1DResult` that always emits raw P_F via its bundled
     `NormalizationSpec`.
+
+    If `pareto_csv_out` is given, the full PySR Pareto front is also written
+    there as a `load_pareto_csv`-compatible CSV.
     """
     if param_name not in PARAM_NAMES:
         raise KeyError(f"Unknown PRIYA parameter {param_name!r}.")
@@ -996,4 +1000,13 @@ def refit_1d_for_param(
     result.hf_train_mean_rel_err = diagnostics["hf_mean"]
     result.lf_train_max_rel_err = diagnostics["lf_max"]
     result.hf_train_max_rel_err = diagnostics["hf_max"]
+    if pareto_csv_out is not None:
+        pareto_csv_out = Path(pareto_csv_out)
+        pareto_csv_out.parent.mkdir(parents=True, exist_ok=True)
+        # PySR's equations_ has lowercase columns; write them capitalized so
+        # `load_pareto_csv` reads them without case coercion.
+        model.equations_.rename(
+            columns={"complexity": "Complexity", "loss": "Loss",
+                     "equation": "Equation"}
+        ).to_csv(pareto_csv_out, index=False)
     return result
