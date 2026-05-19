@@ -743,7 +743,10 @@ def compute_local_normalization(
     ``flux_lf_z`` is non-positive when ``log_space=True``.
 
     Returns a `NormalizationSpec` whose `denormalize_flux` round-trips
-    `flux_norm = (P_F − mean) / std_local` back to raw P_F.
+    `flux_norm = (target − mean) / std_local` back to `target`. With
+    `log_space=False`, `target` is raw P_F; with `log_space=True`,
+    `target` is `log(P_F)` and the caller is responsible for applying
+    `exp()` to recover raw flux.
     """
     flux_lf_z = np.asarray(flux_lf_z, dtype=float)
     k_grid = np.asarray(k_grid, dtype=float)
