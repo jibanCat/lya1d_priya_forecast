@@ -57,8 +57,15 @@ the σ_GP / σ_PySR comparison stays valid.
 
 Thread an optional `log_space: bool = False` through `refit_1d_for_param`,
 `_build_training_matrix`, and `compute_local_normalization`. The default
-`False` keeps every existing caller — including the multi-z refits —
-byte-identical.
+`False` keeps every existing caller byte-identical (verified callers:
+`single_z/refit.py:refit_one_param_single_z`,
+`scripts/refit_all_11_params.py`, and the tests).
+
+The multi-z refit is a **separate** set of functions —
+`refit_1d_multiz_for_param`, `_build_training_matrix_multiz`,
+`compute_local_normalization_multiz` — which Stage 6 does **not** touch.
+Multi-z therefore gets no log-space support in Stage 6; that is consistent
+with multi-z Fisher being deferred to Stage 7 (§8).
 
 - `compute_local_normalization(..., log_space=False)`: when `True`,
   compute `mean_k` / `std_k` from `log(flux_lf_z)` instead of
@@ -92,7 +99,14 @@ the cheap path differs:
 - `log_space=False`: the norm denormalizes to `P_F`. `predict` returns it
   directly; `predict_log` returns `log(predict)`.
 
-`predict`'s external contract (returns raw `P_F`) is unchanged.
+`predict`'s external contract (returns raw `P_F`) is unchanged, but it
+now branches explicitly on `log_space` — it can no longer simply delegate
+to `denormalize_flux`. `predict_normalized` is unchanged: it returns
+*normalized* values in whatever space the equation was trained in, and is
+consumed only by the Fisher-safety filters and `AdditiveTaylorModel`'s
+`multi_d` mode. **`target_space=log` is supported only with the
+`local_anchored` combine** — a `multi_d` combine under `log_space` must
+raise a clear error, never silently corrupt.
 
 ### 4.2 `AdditiveTaylorModel`
 
@@ -101,15 +115,17 @@ New field `log_space: bool = False`. When `True` (with the existing
 
 ```
 log P(θ, k) = log P_GP(fid, k)
-            + Σ_i [ predict_log_i(θ_i) − predict_log_i(fid_i) ]
+            + Σ_{i refit}    [ predict_log_i(θ_i)      − predict_log_i(fid_i) ]
+            + Σ_{i un-refit} [ log P_GP(θ_i-slice, k)  − log P_GP(fid, k)     ]
 P_F(θ, k)   = exp( log P(θ, k) )
 ```
 
-`__post_init__` caches `log P_GP(fid, k_grid)` and each per-param
-`predict_log_i(fid_i)`. Un-refit parameters fall back to a GP 1D-slice
-taken in log space: `log P_GP(θ_i-slice) − log P_GP(fid)`. At θ=fid all
-deviations are zero → `exp(log P_GP(fid)) = P_GP(fid)` — anchor identity
-holds.
+This is additive in log across **all 11 parameters** (refit and
+un-refit alike) = fully multiplicative in P — a deliberate change from
+the linear combine, which is fully additive in P. `__post_init__` caches
+`log P_GP(fid, k_grid)` and each per-param `predict_log_i(fid_i)`. At
+θ=fid all deviations are zero → `exp(log P_GP(fid)) = P_GP(fid)` — anchor
+identity holds.
 
 `combine.build_combined_model` threads a `log_space` argument into the
 `additive` branch.
@@ -126,18 +142,31 @@ holds.
     `mean/std` from `log(flux_lf_z)`.
   - `build_refit_from_pareto(..., log_space=False)` — passes the flag to
     `per_param_local_norm` and sets `Refit1DResult.log_space`.
-  - `run_three_fisher` reads `cfg.target_space`, threads `log_space` into
-    `build_refit_from_pareto` and `build_combined_model`.
-- **`pipeline.py`**: `run_forecast_only` / `run_refit_and_forecast` are
-  unchanged except that the `log_space` flag now flows from
-  `cfg.target_space` through the calls above.
+  - `run_three_fisher` reads `cfg.target_space` and threads `log_space`
+    into its two `build_combined_model` calls **only** — it receives an
+    already-built `refits` dict and does not call `build_refit_from_pareto`.
+- **`pipeline.py`**: `run_forecast_only` calls `build_refit_from_pareto`,
+  so it threads `log_space = (cfg.target_space == "log")` into those
+  calls. `run_refit_and_forecast` builds refits via `single_z/refit.py`,
+  which threads the flag through to `refit_1d_for_param`. Both then pass
+  `cfg` to `run_three_fisher` as before.
 
 ## 6. Error handling
 
-- `log(P_F)` requires `P_F > 0`. The regenerated 1pvar data and the GP
-  anchor are strictly positive (verified in Stage 1). If a non-positive
-  flux is encountered when `log_space`, raise a clear `ValueError` naming
-  the parameter rather than emitting `nan`/`-inf` silently.
+- `log(P_F)` requires `P_F > 0`. This must be checked at **every**
+  `P_F` source the log path touches, not just the fiducial anchor:
+  (1) the regenerated 1pvar training flux; (2) `P_GP(fid)`; and crucially
+  (3) **every off-fiducial `gp.predict` call in the GP-slice fallback** —
+  the GP posterior mean is *not* sign-constrained and can go ≤ 0 at
+  prior-boundary θ or very low k. Any non-positive `P_F` under
+  `log_space` → a clear `ValueError` naming the parameter, never a silent
+  `nan`/`-inf`.
+- **`std(log P_F) = 0` guard.** The per-param log-space norm takes
+  `std` of `log(flux_lf_z)`; a k-bin flat across the 1pvar sweep can
+  underflow to exactly 0, which `NormalizationSpec.__post_init__` rejects.
+  Apply the same `np.where(std > 0, std, 1.0)` floor the linear path
+  already uses (`refit_1d_pysr.compute_local_normalization`,
+  `forecast.per_param_local_norm`).
 - `target_space` outside `{linear, log}` → `ValueError` from
   `PipelineConfig.validate`.
 
@@ -148,7 +177,15 @@ holds.
 - `Refit1DResult`: `predict` and `predict_log` round-trip consistently in
   both spaces (`predict == exp(predict_log)`).
 - `AdditiveTaylorModel` log-space: anchor identity at θ=fid
-  (`predict(fid) == P_GP(fid)`); σ_perfect_1D ≡ σ_GP with all-None refits.
+  (`predict(fid) == P_GP(fid)`); σ_perfect_1D ≈ σ_GP with all-None refits
+  — assert with `np.allclose` at a stated `rtol` (the identity is exact
+  analytically but the adaptive Fisher stencil converges to slightly
+  different finite steps for the multiplicative combine, so it is not
+  bit-identical).
+- Fisher-safety filters (`_filter_fisher_safe`) behave on a log-space
+  Pareto front — `build_refit_from_pareto` runs them regardless of
+  `target_space`, so confirm they neither over- nor under-reject log-fit
+  equations.
 - Config: `target_space` default `linear`, `log` accepted, bad value
   rejected.
 - A gated end-to-end `refit_and_forecast` run with `target_space: log`.
