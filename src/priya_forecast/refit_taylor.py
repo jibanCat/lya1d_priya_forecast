@@ -313,17 +313,19 @@ class AdditiveTaylorModel(P1DModel):
             # Option B: per-param 1D-local std (and possibly local mean)
             # in `r.norm`. Each per-param eq predicts P_F directly via its
             # own round-trip. Combine = P_GP(fid) + Σ_i [P_F_i(θ_i) − P_F_i(fid_i)].
-            # Cache per-param P_F at fid_i_phys.
+            # Cache per-param P_F at fid_i_phys (only in linear mode; log_space
+            # uses _eq_at_fid_logpf instead, so skip the n_refits wasted calls).
             self._eq_at_fid_pf: dict[str, np.ndarray] = {}
-            for pname, r in self.refits.items():
-                if r is None:
-                    continue
-                i = PARAM_NAMES.index(pname)
-                fid_i_phys = float(self.fid[i])
-                self._eq_at_fid_pf[pname] = r.predict(
-                    theta_phys=fid_i_phys, k=self.k_grid,
-                    resolution=HF_RESOLUTION_FOR_COMBINE,
-                )
+            if not self.log_space:
+                for pname, r in self.refits.items():
+                    if r is None:
+                        continue
+                    i = PARAM_NAMES.index(pname)
+                    fid_i_phys = float(self.fid[i])
+                    self._eq_at_fid_pf[pname] = r.predict(
+                        theta_phys=fid_i_phys, k=self.k_grid,
+                        resolution=HF_RESOLUTION_FOR_COMBINE,
+                    )
             if self.log_space:
                 if np.any(self._p_gp_fid <= 0):
                     raise ValueError(
