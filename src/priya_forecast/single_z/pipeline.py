@@ -227,6 +227,7 @@ def run_forecast_only(cfg: PipelineConfig) -> dict:
             refits[param] = _fc.build_refit_from_pareto(
                 param_name=param, z=cfg.redshift, pareto_csv=csv,
                 pick_rule=cfg.pick, data_1pvar_dir="data/single_z_1pvar",
+                log_space=(cfg.target_space == "log"),
             )
             pysr_available = True
         except ValueError as exc:

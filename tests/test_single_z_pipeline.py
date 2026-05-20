@@ -416,6 +416,31 @@ def test_refit_and_forecast_end_to_end(tmp_path: Path):
     assert (tmp_path / "out" / "corner.png").exists()
 
 
+@pytest.mark.skipif(
+    not (RUN_SLOW_REFIT and LYAEMU_AVAILABLE and GP_BASEDIR.exists()),
+    reason="gated on RUN_SLOW_REFIT=1 + lyaemu + data/kodiaq_gp/ (runs PySR)",
+)
+def test_refit_and_forecast_log_space_end_to_end(tmp_path: Path):
+    """refit_and_forecast with target_space=log runs end to end."""
+    import numpy as np
+    from priya_forecast.single_z.pipeline import run
+
+    cfg = PipelineConfig(
+        mode="refit_and_forecast", redshift=3.6,
+        output_dir=str(tmp_path / "out"),
+        gp=GPConfig(basedir=str(GP_BASEDIR)),
+        parameters=["ns", "Ap"],
+        k_range=KRange(min=0.001, max=0.04),
+        data=DataConfig(source="kodiaq"),
+        target_space="log",
+    )
+    result = run(cfg)
+    for label in ("GP", "perfect_1D", "PySR"):
+        s = result["sigmas"][label]
+        assert s.shape == (2,)
+        assert np.all(np.isfinite(s)) and np.all(s > 0)
+
+
 def test_write_forecast_deliverables_saves_npz(tmp_path: Path):
     """_write_forecast_deliverables persists each FisherResult as an npz."""
     import numpy as np

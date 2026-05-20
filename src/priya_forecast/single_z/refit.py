@@ -75,6 +75,7 @@ def refit_one_param_single_z(
             pysr_kwargs=pysr_kwargs,
             seed=cfg.pysr.seed + attempt,
             pareto_csv_out=pareto_csv,
+            log_space=(cfg.target_space == "log"),
         )
         # PySR equations have 3 inputs (x0=θ_norm, x1=k_norm, x2=resolution).
         safe = _filter_fisher_safe(load_pareto_csv(pareto_csv), n_features=3)
