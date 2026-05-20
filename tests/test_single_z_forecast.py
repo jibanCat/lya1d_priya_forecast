@@ -237,3 +237,29 @@ def test_run_three_fisher_with_mock_gp():
     np.testing.assert_allclose(
         results["perfect_1D"].sigma, results["GP"].sigma, rtol=1e-6,
     )
+
+
+def test_run_three_fisher_log_space_perfect_equals_gp():
+    """In log-space too, perfect_1D σ ≈ GP σ (shared covariance, exact 1D)."""
+    from priya_forecast.models.gp_model import MockGPModel
+    from priya_forecast.parameters import PARAM_NAMES, fiducial_vector
+    from priya_forecast.single_z.config import (
+        PipelineConfig, DataConfig, FisherConfig,
+    )
+    from priya_forecast.single_z.forecast import run_three_fisher
+
+    gp = MockGPModel()
+    cfg = PipelineConfig(
+        mode="forecast_only", redshift=3.6, parameters=["ns", "Ap"],
+        combine="additive", target_space="log",
+        data=DataConfig(source="eboss_dr14"),
+        fisher=FisherConfig(step_frac=0.05, rel_tol=0.05),
+    )
+    results = run_three_fisher(
+        cfg=cfg, gp=gp, fid=np.asarray(fiducial_vector(), dtype=float),
+        refits={n: None for n in PARAM_NAMES},
+    )
+    # exact analytically; finite adaptive stencil → allclose, not equal
+    np.testing.assert_allclose(
+        results["perfect_1D"].sigma, results["GP"].sigma, rtol=1e-3,
+    )
