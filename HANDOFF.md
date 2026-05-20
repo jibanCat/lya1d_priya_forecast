@@ -1,23 +1,25 @@
 # HANDOFF — single-z forecast pipeline
 
-**Last updated:** 2026-05-19
-**Branch:** `single_z_forecast_clean` (NOT merged to `main`; ~40 commits ahead)
-**Tip when this was written:** `8985cf5` (Stage 6 plan)
+**Last updated:** 2026-05-20
+**Branch:** `single_z_forecast_clean` (NOT merged to `main`; ~57 commits ahead)
+**Tip when this was written:** `d4445c5` (Stage 6 + SLURM wiring; results pending commit)
 
 ---
 
 ## TL;DR — where to resume
 
 The single-z student-facing forecast pipeline is **built and working
-end to end** (Stages 1–5). The z=3.6 science result exposed that the
-PySR surrogate is **value-accurate but derivative-unfaithful**, which a
-literature review diagnosed and prescribed a fix for. **Stage 6 (fit
-`log(P)` instead of `P`) is fully planned but NOT yet implemented.**
+end to end** (Stages 1–6, plus the Stage 6 production run on real data).
+Stage 6 (`target_space: log`) shipped and a z=3.6 KODIAQ-SQUAD
+refit_and_forecast confirmed the structural fix works: **mean
+\|log10(σ_PySR/σ_GP)\| dropped 0.615 → 0.366 (40% reduction); deep-Mirage
+params (< 0.2× ratio) went from 3 → 0**. Full comparison in
+`results/single_z_stage6_log/COMPARISON.md`.
 
-**To resume:** execute the Stage 6 plan
-`docs/superpowers/plans/2026-05-19-single-z-stage6-log-target.md`
-subagent-driven (8 tasks, all code spelled out). Then Stage 7 (multi-z
-Fisher) and Stage 8 (Sobolev derivative loss).
+**Next:** Stage 7 (multi-z Fisher `F = Σ_z F(z)`) and Stage 8 (Sobolev
+derivative-matching loss). 7 of 11 params still have sub-1 PySR/GP
+ratios in log mode (the *severity* dropped, not the headcount) — Stage 8
+addresses what log(P) alone cannot.
 
 ---
 
