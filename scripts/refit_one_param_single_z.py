@@ -37,6 +37,7 @@ def main() -> None:
     p.add_argument("--niterations", type=int, default=50)
     p.add_argument("--maxsize", type=int, default=20)
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--target-space", choices=("linear", "log"), default="linear")
     args = p.parse_args()
 
     from priya_forecast.models.gp_model import GPModel
@@ -46,6 +47,7 @@ def main() -> None:
         output_dir=args.output_dir, gp=GPConfig(basedir=args.basedir),
         pysr=PySRConfig(niterations=args.niterations, maxsize=args.maxsize,
                         seed=args.seed),
+        target_space=args.target_space,
     )
     k_grid = _refit.kodiaq_k_grid(args.kmin, args.kmax, 48)
     refit_dir = Path(args.output_dir) / "refit" / f"z{args.z}"

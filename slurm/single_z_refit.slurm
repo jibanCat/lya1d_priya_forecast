@@ -25,6 +25,7 @@ REPO=${REPO:?REPO must be set via --export}
 BASEDIR=${BASEDIR:?BASEDIR must be set via --export}
 OUTPUT_DIR=${OUTPUT_DIR:?OUTPUT_DIR must be set via --export}
 Z=${Z:?Z must be set via --export}
+TARGET_SPACE=${TARGET_SPACE:-linear}
 
 PARAMS=(dtau0 tau0 ns Ap herei heref alphaq hub omegamh2 hireionz bhfeedback)
 PARAM=${PARAMS[$SLURM_ARRAY_TASK_ID]:?Array index out of range}
@@ -42,6 +43,7 @@ export PYTHONPATH="/home/mfho/student_projects/lya_emulator_full:${REPO}/src"
 cd "$REPO"
 "$PY" scripts/refit_one_param_single_z.py \
     --param "$PARAM" --z "$Z" \
-    --basedir "$BASEDIR" --output-dir "$OUTPUT_DIR"
+    --basedir "$BASEDIR" --output-dir "$OUTPUT_DIR" \
+    --target-space "$TARGET_SPACE"
 
 echo "[slurm] ${PARAM} z=${Z} done"
