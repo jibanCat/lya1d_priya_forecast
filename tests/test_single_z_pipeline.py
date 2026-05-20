@@ -435,6 +435,7 @@ def test_refit_and_forecast_log_space_end_to_end(tmp_path: Path):
         target_space="log",
     )
     result = run(cfg)
+    assert result["pysr_available"] is True
     for label in ("GP", "perfect_1D", "PySR"):
         s = result["sigmas"][label]
         assert s.shape == (2,)
