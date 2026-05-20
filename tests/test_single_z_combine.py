@@ -65,3 +65,17 @@ def test_build_combined_model_unknown_mode():
             combine_mode="bogus", gp=MockGPModel(), fid=_fid(),
             refits=_none_refits(), k_grid=np.linspace(0.001, 0.04, 10), z=3.6,
         )
+
+
+def test_build_combined_model_additive_log_space():
+    from priya_forecast.models.gp_model import MockGPModel
+    from priya_forecast.refit_taylor import AdditiveTaylorModel
+    from priya_forecast.single_z.combine import build_combined_model
+
+    model = build_combined_model(
+        combine_mode="additive", gp=MockGPModel(), fid=_fid(),
+        refits=_none_refits(), k_grid=np.linspace(0.001, 0.04, 12), z=3.6,
+        log_space=True,
+    )
+    assert isinstance(model, AdditiveTaylorModel)
+    assert model.log_space is True

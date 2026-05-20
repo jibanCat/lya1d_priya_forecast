@@ -33,6 +33,7 @@ def per_param_local_norm(
     k_grid: np.ndarray,
     param_min: float,
     param_max: float,
+    log_space: bool = False,
 ) -> NormalizationSpec:
     """Per-parameter local normalization from a 1pvar LF flux sweep.
 
@@ -46,11 +47,22 @@ def per_param_local_norm(
     flux_lf_z : (n_points, n_k) — LF P_F sweep at one z-bin.
     k_grid : (n_k,) — strictly increasing k-grid.
     param_min, param_max : the parameter's prior bounds.
+    log_space : when True, compute mean/std on log(flux_lf_z) instead of
+        flux_lf_z. Requires all flux values to be strictly positive.
     """
     flux_lf_z = np.asarray(flux_lf_z, dtype=float)
     k_grid = np.asarray(k_grid, dtype=float)
-    mean_flux = flux_lf_z.mean(axis=0)
-    std_flux = flux_lf_z.std(axis=0, ddof=0)
+    if log_space:
+        if np.any(flux_lf_z <= 0):
+            raise ValueError(
+                "log_space=True requires positive flux; "
+                "non-positive values found in flux_lf_z."
+            )
+        values = np.log(flux_lf_z)
+    else:
+        values = flux_lf_z
+    mean_flux = values.mean(axis=0)
+    std_flux = values.std(axis=0, ddof=0)
     std_flux = np.where(std_flux > 0, std_flux, 1.0)
     return NormalizationSpec(
         param_min=float(param_min),
@@ -97,6 +109,7 @@ def build_refit_from_pareto(
     pareto_csv,
     pick_rule: str,
     data_1pvar_dir,
+    log_space: bool = False,
 ) -> Refit1DResult:
     """Reconstruct a `Refit1DResult` from a Pareto CSV + regenerated 1pvar data.
 
@@ -121,6 +134,7 @@ def build_refit_from_pareto(
     norm = per_param_local_norm(
         flux_lf_z=d["flux_lf_z"], k_grid=k_grid,
         param_min=float(meta.prior[0]), param_max=float(meta.prior[1]),
+        log_space=log_space,
     )
     return Refit1DResult(
         param_name=param_name,
@@ -144,6 +158,7 @@ def build_refit_from_pareto(
         hf_train_mean_rel_err=0.0,
         lf_train_max_rel_err=0.0,
         hf_train_max_rel_err=0.0,
+        log_space=log_space,
     )
 
 
@@ -241,17 +256,18 @@ def run_three_fisher(
     are directly comparable.
     """
     fid = np.asarray(fid, dtype=float)
+    log_space = (cfg.target_space == "log")
     like_gp = _build_likelihood(cfg, gp)
     k_grid = _likelihood_k_grid(like_gp)
 
     none_refits = {n: None for n in PARAM_NAMES}
     perfect_model = build_combined_model(
         combine_mode=cfg.combine, gp=gp, fid=fid, refits=none_refits,
-        k_grid=k_grid, z=cfg.redshift,
+        k_grid=k_grid, z=cfg.redshift, log_space=log_space,
     )
     pysr_model = build_combined_model(
         combine_mode=cfg.combine, gp=gp, fid=fid, refits=refits,
-        k_grid=k_grid, z=cfg.redshift,
+        k_grid=k_grid, z=cfg.redshift, log_space=log_space,
     )
     like_perfect = _build_likelihood(cfg, perfect_model)
     like_pysr = _build_likelihood(cfg, pysr_model)

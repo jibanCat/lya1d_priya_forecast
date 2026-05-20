@@ -26,6 +26,7 @@ def build_combined_model(
     k_grid: np.ndarray,
     z: float,
     global_norm=None,
+    log_space: bool = False,
 ) -> P1DModel:
     """Construct the combined P_F(θ, k) model for the given combine mode.
 
@@ -51,6 +52,7 @@ def build_combined_model(
             k_grid=np.asarray(k_grid, dtype=float),
             z=float(z),
             mode="local_anchored",
+            log_space=log_space,
         )
     if combine_mode in ("multiplicative", "joint"):
         raise NotImplementedError(

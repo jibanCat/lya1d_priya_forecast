@@ -182,6 +182,19 @@ def test_filter_fisher_safe_drops_x0_free_rows():
     assert result["Equation"].iloc[0] == "x0 + x1"
 
 
+def test_per_param_local_norm_log_space():
+    """per_param_local_norm log_space normalizes log(flux)."""
+    rng = np.random.default_rng(0)
+    k = np.linspace(0.001, 0.04, 10)
+    flux = rng.random((50, 10)) + 1.0
+    norm = per_param_local_norm(
+        flux_lf_z=flux, k_grid=k, param_min=0.8, param_max=1.05,
+        log_space=True,
+    )
+    np.testing.assert_allclose(norm.mean_flux, np.log(flux).mean(axis=0))
+    assert np.all(norm.std_flux > 0)
+
+
 def test_run_three_fisher_with_mock_gp():
     """run_three_fisher returns 3 comparable FisherResults (eBOSS path, offline)."""
     from priya_forecast.models.gp_model import MockGPModel
