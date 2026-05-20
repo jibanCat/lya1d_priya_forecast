@@ -195,6 +195,19 @@ def test_per_param_local_norm_log_space():
     assert np.all(norm.std_flux > 0)
 
 
+def test_per_param_local_norm_log_space_rejects_nonpositive():
+    """per_param_local_norm log_space rejects non-positive flux."""
+    rng = np.random.default_rng(42)
+    k = np.linspace(0.001, 0.04, 8)
+    flux = rng.random((20, 8)) + 1.0
+    flux[5, 3] = -0.1
+    with pytest.raises(ValueError, match="positive"):
+        per_param_local_norm(
+            flux_lf_z=flux, k_grid=k, param_min=0.8, param_max=1.05,
+            log_space=True,
+        )
+
+
 def test_run_three_fisher_with_mock_gp():
     """run_three_fisher returns 3 comparable FisherResults (eBOSS path, offline)."""
     from priya_forecast.models.gp_model import MockGPModel
