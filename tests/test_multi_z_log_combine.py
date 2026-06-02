@@ -44,6 +44,18 @@ def test_log_and_linear_agree_at_fid():
             ml.predict(fid, k_grid, z), mlin.predict(fid, k_grid, z), rtol=1e-12)
 
 
+def test_log_space_gp_slice_off_fid():
+    m, k_grid, fid = _model(log_space=True)
+    theta_off = fid.copy()
+    theta_off[0] = theta_off[0] * 1.01 if theta_off[0] != 0 else 0.01
+    for z in (3.4, 3.6):
+        got = m.predict(theta_off, k_grid, z)
+        assert np.all(got > 0)
+        # Use rtol=1e-8 so that the small (1%) perturbation on fid[0]=-0.009
+        # registers as genuinely different from the fid GP output.
+        assert not np.allclose(got, m.gp.predict(fid, k_grid, z), rtol=1e-8)
+
+
 def test_log_space_positivity_guard():
     k_grid = np.linspace(0.005, 0.04, 8)
     z_grid = np.array([3.6])

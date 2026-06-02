@@ -166,6 +166,10 @@ class MultiZAdditiveTaylorModel(P1DModel):
     bad rel-err) without poisoning the Fisher: pass `refits[pname] =
     None` and the param's gradient comes from the GP — same code path
     as a never-refit param.
+
+    When `log_space=True`, the per-1D deviations are summed in
+    `log(P_F)` space and exponentiated on return (Stage 6
+    fractional-error target).
     """
 
     gp: object                          # HF GP, supports predict(theta, k, z)
@@ -192,17 +196,21 @@ class MultiZAdditiveTaylorModel(P1DModel):
         # Cache r_i.predict(fid_i_phys, k_grid, z, 0.8) per (param, z) for
         # params with a refit. Params with `r is None` route through
         # the GP-slice fallback path in predict().
+        # In log_space mode this cache is never read (predict() takes the
+        # log branch and uses _eq_at_fid_logpf instead), so skip the
+        # n_params × n_z wasted calls — mirror AdditiveTaylorModel exactly.
         self._eq_at_fid_pf: dict[tuple[str, float], np.ndarray] = {}
-        for pname, r in self.refits.items():
-            if r is None:
-                continue
-            i = PARAM_NAMES.index(pname)
-            fid_i_phys = float(self.fid[i])
-            for z in self.z_grid:
-                self._eq_at_fid_pf[(pname, float(z))] = r.predict(
-                    theta_phys=fid_i_phys, k=self.k_grid,
-                    resolution=HF_RESOLUTION_FOR_COMBINE, z=float(z),
-                )
+        if not self.log_space:
+            for pname, r in self.refits.items():
+                if r is None:
+                    continue
+                i = PARAM_NAMES.index(pname)
+                fid_i_phys = float(self.fid[i])
+                for z in self.z_grid:
+                    self._eq_at_fid_pf[(pname, float(z))] = r.predict(
+                        theta_phys=fid_i_phys, k=self.k_grid,
+                        resolution=HF_RESOLUTION_FOR_COMBINE, z=float(z),
+                    )
         if self.log_space:
             self._log_p_gp_fid_per_z: dict[float, np.ndarray] = {}
             for z in self.z_grid:
