@@ -173,6 +173,7 @@ class MultiZAdditiveTaylorModel(P1DModel):
     refits: dict                        # param_name -> Refit1DResult (multi-z)
     k_grid: np.ndarray
     z_grid: np.ndarray                  # discrete z bins this model serves
+    log_space: bool = False
 
     def __post_init__(self) -> None:
         self.fid = np.asarray(self.fid, dtype=float)
@@ -202,6 +203,27 @@ class MultiZAdditiveTaylorModel(P1DModel):
                     theta_phys=fid_i_phys, k=self.k_grid,
                     resolution=HF_RESOLUTION_FOR_COMBINE, z=float(z),
                 )
+        if self.log_space:
+            self._log_p_gp_fid_per_z: dict[float, np.ndarray] = {}
+            for z in self.z_grid:
+                pf = self._p_gp_fid_per_z[float(z)]
+                if np.any(pf <= 0):
+                    raise ValueError(
+                        f"log_space combine: GP P_F(fid) at z={float(z)} has "
+                        f"non-positive entries — cannot take log."
+                    )
+                self._log_p_gp_fid_per_z[float(z)] = np.log(pf)
+            self._eq_at_fid_logpf: dict[tuple[str, float], np.ndarray] = {}
+            for pname, r in self.refits.items():
+                if r is None:
+                    continue
+                i = PARAM_NAMES.index(pname)
+                fid_i_phys = float(self.fid[i])
+                for z in self.z_grid:
+                    self._eq_at_fid_logpf[(pname, float(z))] = r.predict_log(
+                        theta_phys=fid_i_phys, k=self.k_grid,
+                        resolution=HF_RESOLUTION_FOR_COMBINE, z=float(z),
+                    )
 
     def predict(self, theta: np.ndarray, k: np.ndarray, z: float) -> np.ndarray:
         theta = np.asarray(theta, dtype=float)
@@ -216,6 +238,38 @@ class MultiZAdditiveTaylorModel(P1DModel):
             raise ValueError(
                 f"z={z_key} not in this model's z_grid: {self.z_grid}."
             )
+        if self.log_space:
+            out_log = self._log_p_gp_fid_per_z[z_key].copy()
+            for pname, r in self.refits.items():
+                if r is None:
+                    continue
+                i = PARAM_NAMES.index(pname)
+                ti, fi = float(theta[i]), float(self.fid[i])
+                if abs(ti - fi) <= max(abs(fi), 1.0) * 1e-12:
+                    continue
+                log_at_theta = r.predict_log(
+                    theta_phys=ti, k=self.k_grid,
+                    resolution=HF_RESOLUTION_FOR_COMBINE, z=z_key,
+                )
+                out_log = out_log + (log_at_theta - self._eq_at_fid_logpf[(pname, z_key)])
+            for pname, r in self.refits.items():
+                if r is not None:
+                    continue
+                i = PARAM_NAMES.index(pname)
+                ti, fi = float(theta[i]), float(self.fid[i])
+                if abs(ti - fi) <= max(abs(fi), 1.0) * 1e-12:
+                    continue
+                t_only = self.fid.copy()
+                t_only[i] = theta[i]
+                p_slice = np.asarray(
+                    self.gp.predict(t_only, self.k_grid, z_key), dtype=float)
+                if np.any(p_slice <= 0):
+                    raise ValueError(
+                        f"log_space combine: GP slice for {pname!r} at z={z_key} "
+                        f"has non-positive P_F — cannot take log."
+                    )
+                out_log = out_log + (np.log(p_slice) - self._log_p_gp_fid_per_z[z_key])
+            return np.exp(out_log)
         p_gp_fid = self._p_gp_fid_per_z[z_key]
         out = p_gp_fid.copy()
         # Per-1D Taylor contribution for params with a refit. Use
