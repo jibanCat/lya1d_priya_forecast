@@ -19,6 +19,27 @@ from priya_forecast.refit_1d_pysr import (
 from priya_forecast.single_z.forecast import _filter_fisher_safe
 
 
+def _save_sidecar(result: Refit1DResult, path) -> None:
+    """Persist the norm spec PLUS the empirical training ranges.
+
+    build_refit_from_pareto_multiz must reconstruct theta/k normalization
+    EXACTLY as training used it. The MultiZNormalizationSpec stores prior
+    bounds in param_min/max, but Refit1DResult.predict_normalized uses
+    result.x_param_min/max (the empirical Sobol-sample range). Persist
+    those (and k_min/max) under dedicated keys so reconstruction matches.
+    """
+    n = result.norm
+    np.savez(
+        path,
+        param_min=n.param_min, param_max=n.param_max,
+        k_min=n.k_min, k_max=n.k_max,
+        z_grid=n.z_grid, mean_flux=n.mean_flux,
+        std_flux=n.std_flux, k_grid=n.k_grid,
+        x_param_min=result.x_param_min, x_param_max=result.x_param_max,
+        result_k_min=result.k_min, result_k_max=result.k_max,
+    )
+
+
 def build_refit_from_pareto_multiz(
     *,
     param_name: str,
@@ -39,6 +60,11 @@ def build_refit_from_pareto_multiz(
         )
     equation_str, complexity, loss = pick_equation(safe, pick_rule)
     norm = MultiZNormalizationSpec.load_npz(norm_npz)
+    d = np.load(norm_npz)
+    x_param_min = float(d["x_param_min"])
+    x_param_max = float(d["x_param_max"])
+    res_k_min = float(d["result_k_min"])
+    res_k_max = float(d["result_k_max"])
     meta = get_param(param_name)
     z_center = float((z_min + z_max) / 2.0)
     return Refit1DResult(
@@ -46,8 +72,8 @@ def build_refit_from_pareto_multiz(
         pareto_complexity=int(complexity), pareto_loss=float(loss),
         pareto_complexities=[int(c) for c in df["Complexity"]],
         pareto_losses=[float(x) for x in df["Loss"]],
-        x_param_min=float(norm.param_min), x_param_max=float(norm.param_max),
-        k_min=float(norm.k_min), k_max=float(norm.k_max),
+        x_param_min=x_param_min, x_param_max=x_param_max,
+        k_min=res_k_min, k_max=res_k_max,
         lf_resolution=LF_RESOLUTION, hf_resolution=HF_RESOLUTION,
         fid_value=float(meta.fid), norm=norm,
         k_grid=np.asarray(norm.k_grid, dtype=float),
@@ -65,7 +91,10 @@ def _write_pareto_csv(result: Refit1DResult, csv_path: Path) -> None:
     every row's equation. We persist the full complexity/loss front but fill
     the Equation only for the picked complexity; other rows carry an empty
     string. _filter_fisher_safe drops empty/x0-free rows, so the picked row
-    survives and best_loss reconstructs it.
+    survives and best_loss reconstructs it. Only the best_loss pick (the
+    equation refit_1d_multiz_for_param itself chose) is faithfully
+    reconstructable from this CSV; other pick rules would see empty equations
+    for non-picked rows and must re-run PySR.
     """
     import pandas as pd
     pd.DataFrame({
@@ -111,7 +140,7 @@ def refit_one_param_multi_z(
             pysr_kwargs=pysr_kwargs, seed=cfg.pysr.seed + attempt,
         )
         _write_pareto_csv(result, csv_path)
-        result.norm.save_npz(norm_path)
+        _save_sidecar(result, norm_path)
         safe = _filter_fisher_safe(load_pareto_csv(csv_path), n_features=4)
         if not safe.empty:
             return result
