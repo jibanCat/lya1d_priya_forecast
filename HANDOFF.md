@@ -1,8 +1,8 @@
 # HANDOFF — single-z forecast pipeline
 
-**Last updated:** 2026-05-20
-**Branch:** `single_z_forecast_clean` (NOT merged to `main`; 57 commits ahead)
-**Tip when this was written:** `fe3112b` (Stage 6 results + COMPARISON.md)
+**Last updated:** 2026-06-03
+**Branch:** `single_z_forecast_clean` (NOT merged to `main`)
+**Tip when this was written:** `185aed5` (Stage 7 code complete: multi_z package)
 **Open PR:** https://github.com/jibanCat/lya1d_priya_forecast/pull/3
 
 ---
@@ -63,8 +63,8 @@ Stage 6, numpy-scalar TypeError).
 | 4 | `run_batch` + `aggregate_z` | done |
 | 5 | `ONBOARDING.md` rewrite + 3 notebooks | done |
 | 6 | **log(P) SR target + log-space combine** | **done** (15 commits, production run validated) |
-| 7 | multi-z Fisher `F = Σ_z F(z)` | high-level only |
-| 8 | Sobolev derivative-matching loss | not started |
+| 7 | multi-z Fisher `F = Σ_z F(z)` (joint, Approach A) | **code done** (Tasks 1–9, 12 commits); cluster runs (Tasks 10–11) pending |
+| 8 | Sobolev derivative-matching loss | not started (informed by in-flight SR-emulator lit review) |
 
 ## The key scientific findings
 
@@ -113,20 +113,79 @@ What landed:
   refit/z3.6/pareto_*.csv}`. corner.png + .npz are untracked
   (reproducible); COMPARISON.md is committed.
 
-## Stage 7 — multi-z Fisher (next)
+## Stage 7 — multi-z Fisher (CODE DONE, cluster runs pending)
 
-High-level only; no design spec yet. The pattern is clear from Stage 6:
-- Mirror the Stage 6 `log_space` threading through the multi-z functions
-  (`MultiZAdditiveTaylorModel`, `_build_training_matrix_multiz`,
-  `compute_local_normalization_multiz`, `refit_1d_multiz_for_param`).
-- Build a `MultiZAdditiveTaylorModel` log-space branch with per-z
-  `_log_p_gp_fid[z]` and `_eq_at_fid_logpf[(pname, z)]` caches.
-- The Fisher sum `F = Σ_z F(z)` is mathematically straightforward (chain
-  rule keeps gradients at fid equal in linear and log space), so the
-  cross-z sum should "just work" — no shape mismatches anticipated.
-- Stage 7 unblocks the IGM-thermal params whose single-z Fisher is
-  rank-deficient (the "max |log10|" outlier in Stage 6 comparison is
-  dtau0 at 20.9×, characteristic of weakly-constrained directions).
+Spec: `docs/superpowers/specs/2026-06-01-multi-z-stage7-fisher-design.md`.
+Plan: `docs/superpowers/plans/2026-06-01-multi-z-stage7-fisher.md`.
+Built subagent-driven (TDD + per-task spec/quality review), 12 commits
+`9aa985b`…`185aed5`.
+
+**Architecture (Approach A — the key finding):** `KSDataLikelihood` is
+already multi-z native (`z_min`/`z_max` range, loops `z_blocks` calling
+`model.predict(θ,k,z)`, stacks one joint data vector). So the multi-z
+Fisher = **one z-spanning `KSDataLikelihood` + the existing
+`fisher_matrix`** — almost no new Fisher math. The legacy per-z-sum
+(`combine_fisher_phys_arrays`, `scripts/multi_z_aggregate.py`) is kept
+only as a diagnostic oracle.
+
+**What landed (`src/priya_forecast/multi_z/`):** `config.py`
+(`MultiZPipelineConfig`, z_min/z_max), `combine.py`
+(`build_combined_model_multiz`), `refit.py` (`refit_one_param_multi_z`
++ `build_refit_from_pareto_multiz`, CSV + `norm_*.npz` sidecar),
+`forecast.py` (`run_three_fisher_multiz` joint + `shared_k_and_z_grid`
+guard + `load_refits`), `pipeline.py` (3 modes + `DISPATCH` + `run`).
+Plus `MultiZAdditiveTaylorModel.log_space` branch (`refit_taylor.py`),
+`MultiZNormalizationSpec.save_npz/load_npz`, scripts
+`run_pipeline_multi_z.py` + `refit_one_param_multi_z.py`,
+`slurm/multi_z_refit.slurm`, `configs/multi_z/stage7_z2.6-4.2.yaml`.
+~20 new multi_z tests pass (2 gated-skip locally).
+
+**Two findings from the build:**
+1. **Critical bug caught + fixed** (Task 5): refit reconstruction had been
+   normalizing θ with the prior bounds instead of the empirical Sobol
+   training range used by `predict_normalized` — would have corrupted
+   σ_PySR. The `norm_*.npz` sidecar now persists the empirical
+   `x_param_min/max` + `k_min/max`; regression test pins it.
+2. **KSData covariance is NOT block-diagonal in z** (its own docstring
+   says so). This *confirms Approach A is correct* and means the legacy
+   per-z-sum (Approach B / `multi_z_aggregate.py`) was producing biased
+   multi-z Fisher forecasts for KSData. The A-vs-B test was reframed from
+   an equality assertion into a cross-z-bias **diagnostic**.
+
+Stage 7 unblocks the IGM-thermal params whose single-z Fisher is
+rank-deficient (Stage 6's dtau0 outlier at 20.9×).
+
+### Remaining (cluster — Tasks 10–12, need Greatlakes + emulator)
+
+```bash
+cd /home/mfho/lya1d_priya_forecast
+
+# Task 10 — one-param calibration (fast, measure real wall time first):
+PYTHON_JULIAPKG_PROJECT=$HOME/.julia_env JULIA_DEPOT_PATH=$HOME/.julia \
+PYTHONPATH=src:/home/mfho/student_projects/lya_emulator_full \
+  python scripts/refit_one_param_multi_z.py --param ns --z-min 3.4 --z-max 3.6 \
+    --basedir data/kodiaq_gp --output-dir results/multi_z_stage7_smoke \
+    --n-total 64 --niterations 20
+
+# Task 11 — full 11-param refit array (~20-44 CPU-hr, ~30-45 min wall):
+sbatch --export=ALL,REPO=$(pwd),BASEDIR=data/kodiaq_gp,\
+OUTPUT_DIR=results/multi_z_stage7,Z_MIN=2.6,Z_MAX=4.2 \
+--array=0-10 slurm/multi_z_refit.slurm
+
+# Task 11 — production forecast (writes results/multi_z_stage7/{corner.png,
+#   scorecard.md, forecast_table.txt, fisher_*.npz}):
+PYTHONPATH=src:/home/mfho/student_projects/lya_emulator_full \
+  python scripts/run_pipeline_multi_z.py --config configs/multi_z/stage7_z2.6-4.2.yaml
+
+# Gated tests (validate perfect_1D==GP + A-vs-B cross-z diagnostic):
+PYTHONPATH=src:/home/mfho/student_projects/lya_emulator_full \
+  RUN_SLOW_FORECAST_ONLY=1 pytest tests/test_multi_z_forecast_joint.py \
+  tests/test_multi_z_A_equals_B.py -q
+```
+
+Then write `results/multi_z_stage7/COMPARISON.md` (multi-z vs Stage 6
+single-z z=3.6: IGM-thermal σ_GP no longer rank-deficient; Mirage delta;
+A-vs-B cross-z bias).
 
 ## Stage 8 — Sobolev derivative loss (after Stage 7)
 
