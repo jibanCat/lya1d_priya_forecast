@@ -24,7 +24,12 @@ PARAM=${PARAMS[$SLURM_ARRAY_TASK_ID]:?Array index out of range}
 echo "[slurm] task=${SLURM_ARRAY_TASK_ID} param=${PARAM} z in [${Z_MIN},${Z_MAX}]"
 module purge
 module load gcc/10.3.0 || true
-PY=/sw/pkgs/arc/mamba/py3.11/bin/python
+# Project venv with the pinned numpy<2 stack (see README). Build once at the
+# repo root before submitting:
+#   /sw/pkgs/arc/mamba/py3.11/bin/python -m venv .venv
+#   .venv/bin/pip install -r requirements.lock.txt && .venv/bin/pip install -e . --no-deps
+PY="${REPO}/.venv/bin/python"
+[ -x "$PY" ] || { echo "ERROR: project venv missing at $PY — see README install."; exit 1; }
 export PYTHON_JULIAPKG_PROJECT="${HOME}/.julia_env"
 export JULIA_DEPOT_PATH="${HOME}/.julia"
 export PYTHONPATH="/home/mfho/student_projects/lya_emulator_full:${REPO}/src"

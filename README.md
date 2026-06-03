@@ -20,14 +20,42 @@ them into the forecast in three steps.
 
 ### 1. Install + PYTHONPATH
 
+**Use an isolated project venv — do NOT install into a shared
+numpy-2.x base.** GPy needs `numpy < 2` (see below); a fresh
+`pip install` against a numpy-2.x environment will break at GPy import
+with `ValueError: numpy.dtype size changed`.
+
 ```bash
+# 1. Create an isolated venv from a Python 3.11 interpreter.
+#    On Greatlakes use the central mamba python:
+python3.11 -m venv .venv        # or: /sw/pkgs/arc/mamba/py3.11/bin/python -m venv .venv
+source .venv/bin/activate
+
+# 2a. EXACT reproducible install (recommended — pinned, known-good):
+pip install -r requirements.lock.txt
+pip install -e . --no-deps
+
+# 2b. …or a flexible install (pyproject caps numpy<2 / pandas<3 for you):
 pip install -e ".[forecast,pysr,gp,dev]"
 
-# Upstream lyaemu (sbird/lya_emulator) supplies the GP. On Greatlakes:
+# 3. Upstream lyaemu (sbird/lya_emulator) supplies the GP — it is NOT on
+#    PyPI, so add it to PYTHONPATH. On Greatlakes:
 export PYTHONPATH=/home/mfho/student_projects/lya_emulator_full:$PWD/src
-# On a fresh machine: clone https://github.com/sbird/lya_emulator first
-# and point PYTHONPATH at your clone.
+# On a fresh machine: clone https://github.com/sbird/lya_emulator first.
+
+# 4. PySR needs a Julia backend. On Greatlakes the project Julia env is
+#    pre-provisioned; point PySR at it (also set in the SLURM scripts):
+export PYTHON_JULIAPKG_PROJECT=$HOME/.julia_env
+export JULIA_DEPOT_PATH=$HOME/.julia
 ```
+
+> **Why `numpy < 2`?** GPy 1.13.2's compiled cython extensions are built
+> against numpy 1.x's dtype ABI; numpy 2.x changed it, so GPy crashes at
+> import under numpy 2. `pyproject.toml` caps `numpy<2` and `pandas<3`,
+> and `requirements.lock.txt` pins the full verified stack
+> (numpy 1.26.4, GPy 1.13.2, paramz 0.9.6, scipy 1.12.0, pandas 2.3.3, …).
+> The SLURM scripts in `slurm/` use `$REPO/.venv/bin/python`, so build the
+> venv once at the repo root before submitting jobs.
 
 ### 2. Write a YAML pointing at your CSVs
 

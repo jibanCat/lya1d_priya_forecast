@@ -34,7 +34,10 @@ echo "[slurm] task=${SLURM_ARRAY_TASK_ID} param=${PARAM} z=${Z}"
 
 module purge
 module load gcc/10.3.0 || true
-PY=/sw/pkgs/arc/mamba/py3.11/bin/python
+# Project venv with the pinned numpy<2 stack (see README). Build once at the
+# repo root before submitting (see slurm/multi_z_refit.slurm header / README).
+PY="${REPO}/.venv/bin/python"
+[ -x "$PY" ] || { echo "ERROR: project venv missing at $PY — see README install."; exit 1; }
 
 export PYTHON_JULIAPKG_PROJECT="${HOME}/.julia_env"
 export JULIA_DEPOT_PATH="${HOME}/.julia"
