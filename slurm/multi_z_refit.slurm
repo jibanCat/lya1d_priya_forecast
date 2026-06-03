@@ -2,7 +2,7 @@
 # GreatLakes SLURM array — multi-z PySR refit, 11 params over [Z_MIN, Z_MAX].
 #   sbatch --export=ALL,REPO=$(pwd),BASEDIR=data/kodiaq_gp,\
 #          OUTPUT_DIR=results/multi_z_stage7,Z_MIN=2.6,Z_MAX=4.2 \
-#          --array=0-10 slurm/multi_z_refit.slurm
+#          --array=0-10%3 slurm/multi_z_refit.slurm   # %3 caps concurrent Julia inits
 #SBATCH --account=cavestru0
 #SBATCH --partition=standard
 #SBATCH --nodes=1
@@ -33,6 +33,12 @@ PY="${REPO}/.venv/bin/python"
 export PYTHON_JULIAPKG_PROJECT="${HOME}/.julia_env"
 export JULIA_DEPOT_PATH="${HOME}/.julia"
 export PYTHONPATH="/home/mfho/student_projects/lya_emulator_full:${REPO}/src"
+# Stagger Julia init: juliacall/juliapkg take an flock on the shared
+# ~/.julia_env project + ~/.julia depot at startup, and concurrent array tasks
+# can hit NFS lock failures (ENOLCK "No locks available" / ESTALE "Stale file
+# handle"). Desynchronise starts; ALSO submit with a concurrency cap, e.g.
+#   sbatch ... --array=0-10%3 slurm/multi_z_refit.slurm
+sleep $(( (SLURM_ARRAY_TASK_ID % 12) * 12 ))
 cd "$REPO"
 "$PY" scripts/refit_one_param_multi_z.py --param "$PARAM" \
     --z-min "$Z_MIN" --z-max "$Z_MAX" \
