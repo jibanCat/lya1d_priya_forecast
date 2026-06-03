@@ -197,6 +197,30 @@ wrong derivatives" gap that Stage 6 attenuated but did not eliminate.
 Latent risk: requires a `LossFunction` Julia callable; not all PySR
 versions support it cleanly.
 
+**Literature-informed levers (2026-06-03 SR-emulator review, full notes in
+`docs/SR_EMULATOR_LITERATURE_NOTES.md`).** The syren family (arXiv:2311.15865,
+2506.08783, 2510.18749) never validates derivative accuracy — so our Sobolev
+loss + a derivative-validation gate are genuine extensions, not reinventions.
+Three highest-ROI changes to fold into Stage 8, each attacking Fisher's-Mirage
+at a different layer:
+1. **Ratio-response target** (target layer): fit `log[P(θ)/P(θ_fid)]` per
+   parameter, not raw `log P`. The derivative IS `∂logP/∂θ` (the Fisher
+   quantity), so this attacks the Mirage at the SR target and composes with
+   the anchor + the Sobolev loss. Biggest single lever.
+2. **`aq(x,y)=x/√(1+y²)` operator, drop raw `/`** (operator layer): raw
+   division makes poles/spurious curvature near zeros — a mechanical cause of
+   derivative-unfaithful equations. `aq` is bounded/smooth. PySR custom binary
+   operator; low effort.
+3. **Derivative-validation selection gate** (selection layer): reject equations
+   on `median|∂logP_SR/∂logP_GP − 1|`, not value RMSE; plus a train/val
+   loss-gap reject (syren's overfitting guard).
+
+Deeper architectural flag (tradeoff, not a directive): syren fits ONE joint
+multivariate expression; our per-parameter-1D + additive combine drops
+cross-terms — relevant to the herei×alphaq coupling
+(`memory/headline_findings.md`). Scoped experiment: a joint 2-param refit on
+herei–alphaq to measure what the additive combine leaves on the table.
+
 ## How to run things
 
 - **Fast tests:** `PYTHONPATH=src pytest tests/ -q` — ~340 pass, 10 skip.
