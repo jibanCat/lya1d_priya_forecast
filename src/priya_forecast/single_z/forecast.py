@@ -194,7 +194,6 @@ def build_refit_from_pareto_gated(
     param_name: str,
     z: float,
     pareto_csv,
-    pick_rule: str,
     data_1pvar_dir,
     gp_target_grad: np.ndarray,
     derivative_tol: float = 0.25,

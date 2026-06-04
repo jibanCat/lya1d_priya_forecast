@@ -222,9 +222,8 @@ def run_forecast_only(cfg: PipelineConfig) -> dict:
         csv_paths = _fc.resolve_pareto_csvs(cfg)
     except FileNotFoundError:
         csv_paths = {}
-    if csv_paths:
-        from priya_forecast.derivative_gate import gp_param_gradient
-        k_refit = _refit.kodiaq_k_grid(cfg.k_range.min, cfg.k_range.max, 48)
+    from priya_forecast.derivative_gate import gp_param_gradient
+    k_refit = _refit.kodiaq_k_grid(cfg.k_range.min, cfg.k_range.max, 48)
     for param, csv in csv_paths.items():
         try:
             tgt = gp_param_gradient(
@@ -233,7 +232,7 @@ def run_forecast_only(cfg: PipelineConfig) -> dict:
             )
             refits[param] = _fc.build_refit_from_pareto_gated(
                 param_name=param, z=cfg.redshift, pareto_csv=csv,
-                pick_rule=cfg.pick, data_1pvar_dir="data/single_z_1pvar",
+                data_1pvar_dir="data/single_z_1pvar",
                 gp_target_grad=tgt, derivative_tol=cfg.derivative_tol,
                 log_space=(cfg.target_space == "log"),
             )
@@ -272,7 +271,7 @@ def run_refit_and_forecast(cfg: PipelineConfig) -> dict:
 
     from priya_forecast.derivative_gate import gp_param_gradient
 
-    k_refit = _refit.kodiaq_k_grid(cfg.k_range.min, cfg.k_range.max, 48)
+    k_refit = k_grid
     refits: dict = {name: None for name in PARAM_NAMES}
     dropped: list[str] = []
     for param in cfg.parameters:
@@ -288,7 +287,7 @@ def run_refit_and_forecast(cfg: PipelineConfig) -> dict:
             )
             refits[param] = _fc.build_refit_from_pareto_gated(
                 param_name=param, z=cfg.redshift, pareto_csv=csv,
-                pick_rule=cfg.pick, data_1pvar_dir="data/single_z_1pvar",
+                data_1pvar_dir="data/single_z_1pvar",
                 gp_target_grad=tgt, derivative_tol=cfg.derivative_tol,
                 log_space=(cfg.target_space == "log"),
             )

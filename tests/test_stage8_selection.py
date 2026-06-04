@@ -118,7 +118,6 @@ def test_gate_selects_faithful_over_best_loss(tmp_path, monkeypatch):
         param_name="ns",
         z=3.6,
         pareto_csv=pareto_csv,
-        pick_rule="best_loss",   # pick_rule is passed but gate overrides it
         data_1pvar_dir=tmp_path,  # unused due to monkeypatch
         gp_target_grad=gp_target_grad,
         derivative_tol=0.25,
@@ -159,7 +158,6 @@ def test_gate_raises_when_no_faithful_equation(tmp_path, monkeypatch):
             param_name="ns",
             z=3.6,
             pareto_csv=pareto_csv,
-            pick_rule="best_loss",
             data_1pvar_dir=tmp_path,
             gp_target_grad=zero_target,
             derivative_tol=0.25,
