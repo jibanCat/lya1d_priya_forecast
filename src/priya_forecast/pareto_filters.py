@@ -26,6 +26,8 @@ import re
 
 import numpy as np
 
+from priya_forecast.custom_operators import LAMBDIFY_MODULES
+
 
 _NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?")
 
@@ -73,7 +75,7 @@ def is_eq_well_behaved(
     try:
         fn = sp.lambdify(
             all_syms, expr,
-            modules=[{"inv": lambda x: 1.0 / x}, "numpy"],
+            modules=[LAMBDIFY_MODULES, "numpy"],
         )
     except Exception:
         return False
@@ -139,7 +141,7 @@ def is_fisher_stencil_safe(
         all_syms = [sp.Symbol(f"x{i}") for i in range(n_features)]
         fn = sp.lambdify(
             all_syms, expr,
-            modules=[{"inv": lambda x: 1.0 / x}, "numpy"],
+            modules=[LAMBDIFY_MODULES, "numpy"],
         )
     except Exception:
         return False

@@ -37,6 +37,7 @@ from typing import Any
 import h5py
 import numpy as np
 
+from priya_forecast.custom_operators import LAMBDIFY_MODULES
 from priya_forecast.models.normalization import NormalizationSpec
 from priya_forecast.parameters import (
     PARAM_NAMES,
@@ -217,7 +218,7 @@ class Refit1DResult:
         all_syms.sort(key=lambda s: int(s.name[1:]) if s.name.startswith("x") else 99)
         fn = sp.lambdify(
             all_syms, expr,
-            modules=[{"inv": lambda x: 1.0 / x}, "numpy"],
+            modules=[LAMBDIFY_MODULES, "numpy"],
         )
 
         theta_phys_arr = np.asarray(theta_phys, dtype=float)
