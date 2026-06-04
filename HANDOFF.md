@@ -63,7 +63,7 @@ Stage 6, numpy-scalar TypeError).
 | 4 | `run_batch` + `aggregate_z` | done |
 | 5 | `ONBOARDING.md` rewrite + 3 notebooks | done |
 | 6 | **log(P) SR target + log-space combine** | **done** (15 commits, production run validated) |
-| 7 | multi-z Fisher `F = Σ_z F(z)` (joint, Approach A) | **code done** (Tasks 1–9, 12 commits); cluster runs (Tasks 10–11) pending |
+| 7 | multi-z Fisher `F = Σ_z F(z)` (joint, Approach A) | **done** — production run validated; IGM-thermal rank-deficiency lifted |
 | 8 | Sobolev derivative-matching loss | not started (informed by in-flight SR-emulator lit review) |
 
 ## The key scientific findings
@@ -113,7 +113,28 @@ What landed:
   refit/z3.6/pareto_*.csv}`. corner.png + .npz are untracked
   (reproducible); COMPARISON.md is committed.
 
-## Stage 7 — multi-z Fisher (CODE DONE, cluster runs pending)
+## Stage 7 — multi-z Fisher (DONE — production run validated 2026-06-03)
+
+**Production result** (`results/multi_z_stage7/`, full writeup in its
+`COMPARISON.md`): the multi-z joint Fisher over z∈[2.6,4.2] on KODIAQ
+**lifts the IGM-thermal rank-deficiency** — σ_GP herei 26.7→0.36,
+heref 94→1.07, alphaq 235→1.43, hireionz 86→4.34 vs single-z z=3.6.
+σ_perfect_1D ≡ σ_GP confirmed (linear+log, gated test). A-vs-B cross-z
+diagnostic: joint (A) ~3–5% tighter than the legacy per-z-sum (B) →
+Approach A is correct, legacy was biased. 8/11 params got Fisher-safe PySR
+equations; ns/bhfeedback/dtau0 → GP-slice (their multi-z 4-input equations
+failed the Fisher-safe gate after long retry loops). Mirage persists
+(mean |log10(σ_PySR/σ_GP)| ≈ 0.35) — Stage 8's job.
+
+**Env note (2026-06-03):** the central mamba python drifted to numpy 2.x and
+the `~/.local` numpy<2 pin vanished, breaking GPy on the nodes. Fixed with a
+reproducible **project venv** (`.venv`, pinned `requirements.lock.txt`,
+pyproject caps numpy<2/pandas<3, SLURM uses `$REPO/.venv/bin/python`) — see
+README. Also: concurrent array tasks contend on the shared `~/.julia_env`
+flock (NFS ENOLCK/ESTALE); the SLURM script now staggers Julia init — submit
+multi-param arrays with `--array=...%3`.
+
+### Recap of the build (code, Tasks 1–9)
 
 Spec: `docs/superpowers/specs/2026-06-01-multi-z-stage7-fisher-design.md`.
 Plan: `docs/superpowers/plans/2026-06-01-multi-z-stage7-fisher.md`.
@@ -155,7 +176,10 @@ Plus `MultiZAdditiveTaylorModel.log_space` branch (`refit_taylor.py`),
 Stage 7 unblocks the IGM-thermal params whose single-z Fisher is
 rank-deficient (Stage 6's dtau0 outlier at 20.9×).
 
-### Remaining (cluster — Tasks 10–12, need Greatlakes + emulator)
+### Reproduction recipe (cluster — needs Greatlakes + emulator + the `.venv`)
+
+> Build the project venv first (see README); submit refits with `%3`; cavestru0
+> was out of billing minutes 2026-06 — this run used `--account=yueyingn0`.
 
 ```bash
 cd /home/mfho/lya1d_priya_forecast
