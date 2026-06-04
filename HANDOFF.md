@@ -64,7 +64,8 @@ Stage 6, numpy-scalar TypeError).
 | 5 | `ONBOARDING.md` rewrite + 3 notebooks | done |
 | 6 | **log(P) SR target + log-space combine** | **done** (15 commits, production run validated) |
 | 7 | multi-z Fisher `F = Σ_z F(z)` (joint, Approach A) | **done** — production run validated; IGM-thermal rank-deficiency lifted |
-| 8 | Sobolev derivative-matching loss | not started (informed by in-flight SR-emulator lit review) |
+| 8 | cheap levers: `aq` operator + derivative-validation gate | **done** (filter infra shipped, green); production run showed filter≠generator — see below |
+| 9 | Sobolev derivative-matching loss (the generative fix) | not started — informed by Stage 8 findings + ratio-response spike |
 
 ## The key scientific findings
 
@@ -211,7 +212,32 @@ Then write `results/multi_z_stage7/COMPARISON.md` (multi-z vs Stage 6
 single-z z=3.6: IGM-thermal σ_GP no longer rank-deficient; Mirage delta;
 A-vs-B cross-z bias).
 
-## Stage 8 — Sobolev derivative loss (after Stage 7)
+## Stage 8 — cheap levers (DONE) → Stage 9 = Sobolev
+
+**Stage 8 shipped** (`aq` operator + derivative-validation gate) and the
+production run produced the key finding, full writeup in
+`results/single_z_stage8/COMPARISON.md`:
+
+- **The gate is a *filter*, not a *generator*.** `aq`+gate correctly *reject*
+  derivative-unfaithful equations but can't *make* the search produce faithful
+  ones. ns/hub/bhfeedback had **no** gate-passing equation (ns: all 6 Fisher-safe
+  eqns 69–97% gradient error) → GP-slice. Rejecting ns (key science param) is a
+  failure, not a win.
+- **The single-z σ_PySR/σ_GP metric is confounded** by rank-deficiency (dtau0
+  passes the gradient gate yet shows σ_PySR/σ_GP=23×). Evaluate levers on
+  **multi-z**, not single-z.
+- **Ratio-response target (lever #1) — spike-validated, NOT shipped.** HF-only
+  `log[P(θ)/P_fid]` gave ns 0.07 grad err, 8–9/11 params faithful. But the
+  focused production wiring anchored the multi-fidelity target on the LF GP
+  (cross-fidelity) → malformed target (loss 2.0), ns failed → retreated. Plumbing
+  **stashed** (`git stash list`: "stage8 lever#1 log_ratio …") for a careful redo.
+- **hub** stays unfaithful even with ratio-response (0.92) — needs the direct loss.
+
+**Reusable for Stage 9:** `derivative_gate.py` (GP/equation finite-diff gradients
++ faithfulness predicate) validates any Sobolev-trained equation; `custom_operators.py`
+(`aq`) stays.
+
+### Stage 9 plan — Sobolev derivative loss (the generative fix)
 
 Add a derivative-matching term to the PySR loss:
 `L = MSE(P_SR, P_GP) + λ · ‖∂_θ logP_SR − ∂_θ logP_GP‖²`.
