@@ -37,7 +37,7 @@ from typing import Any
 import h5py
 import numpy as np
 
-from priya_forecast.custom_operators import LAMBDIFY_MODULES
+from priya_forecast.custom_operators import AQ_JULIA, EXTRA_SYMPY_MAPPINGS, LAMBDIFY_MODULES
 from priya_forecast.models.normalization import NormalizationSpec
 from priya_forecast.parameters import (
     PARAM_NAMES,
@@ -65,9 +65,9 @@ DEFAULT_PYSR_KWARGS: dict[str, Any] = dict(
     niterations=50,           # was 20 — extra search to chase tail outliers
     maxsize=20,
     maxdepth=10,
-    binary_operators=["+", "-", "*", "/", "^"],
+    binary_operators=["+", "-", "*", AQ_JULIA, "^"],
     unary_operators=["exp", "log", "square", "sqrt", "inv(x) = 1/x"],
-    extra_sympy_mappings={"inv": lambda x: 1 / x},
+    extra_sympy_mappings=dict(EXTRA_SYMPY_MAPPINGS),
     elementwise_loss="loss(prediction, target) = (prediction - target)^2",
     # Tame the `^` operator: arbitrary base, simple exponent only. Prevents
     # `(complex)^(complex)` patterns that fit the mean but blow up at
@@ -113,9 +113,9 @@ DEFAULT_PYSR_KWARGS: dict[str, Any] = dict(
 # Documented in PAPER_NOTES.md § D3 + D5.5 + D8.
 SMART_REFIT_PYSR_KWARGS: dict[str, Any] = dict(DEFAULT_PYSR_KWARGS)
 # Keep `^` available with constraint: rhs must be complexity 0 (literal).
-SMART_REFIT_PYSR_KWARGS["binary_operators"] = ["+", "-", "*", "/", "^"]
+SMART_REFIT_PYSR_KWARGS["binary_operators"] = ["+", "-", "*", AQ_JULIA, "^"]
 SMART_REFIT_PYSR_KWARGS["unary_operators"] = ["exp", "log", "square"]
-SMART_REFIT_PYSR_KWARGS["extra_sympy_mappings"] = {}
+SMART_REFIT_PYSR_KWARGS["extra_sympy_mappings"] = dict(EXTRA_SYMPY_MAPPINGS)
 SMART_REFIT_PYSR_KWARGS["constraints"] = {"^": (-1, 0)}
 # Slightly discourage `^` so PySR prefers polynomials when they fit equally
 # well (complexity_of_operators is a soft Pareto cost; (-1, 0) is the hard
