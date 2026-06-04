@@ -222,11 +222,19 @@ def run_forecast_only(cfg: PipelineConfig) -> dict:
         csv_paths = _fc.resolve_pareto_csvs(cfg)
     except FileNotFoundError:
         csv_paths = {}
+    if csv_paths:
+        from priya_forecast.derivative_gate import gp_param_gradient
+        k_refit = _refit.kodiaq_k_grid(cfg.k_range.min, cfg.k_range.max, 48)
     for param, csv in csv_paths.items():
         try:
-            refits[param] = _fc.build_refit_from_pareto(
+            tgt = gp_param_gradient(
+                gp=gp, fid=fid, k_grid=k_refit, z=cfg.redshift,
+                param_idx=PARAM_NAMES.index(param),
+            )
+            refits[param] = _fc.build_refit_from_pareto_gated(
                 param_name=param, z=cfg.redshift, pareto_csv=csv,
                 pick_rule=cfg.pick, data_1pvar_dir="data/single_z_1pvar",
+                gp_target_grad=tgt, derivative_tol=cfg.derivative_tol,
                 log_space=(cfg.target_space == "log"),
             )
             pysr_available = True
@@ -262,6 +270,8 @@ def run_refit_and_forecast(cfg: PipelineConfig) -> dict:
     gp_lf = GPModel(basedir=cfg.gp.basedir, fidelity="lf", kf=k_grid)
     gp_hf = GPModel(basedir=cfg.gp.basedir, fidelity="hf", kf=k_grid)
 
+    from priya_forecast.derivative_gate import gp_param_gradient
+
     refits: dict = {name: None for name in PARAM_NAMES}
     dropped: list[str] = []
     for param in cfg.parameters:
@@ -270,7 +280,32 @@ def run_refit_and_forecast(cfg: PipelineConfig) -> dict:
             gp_lf=gp_lf, gp_hf=gp_hf, k_grid=k_grid, out_dir=refit_dir,
         )
         if _fc.equation_uses_param(result.equation_str):
-            refits[param] = result
+            # Re-validate the freshly-fitted equation against the GP gradient.
+            try:
+                from priya_forecast.derivative_gate import (
+                    equation_param_gradient, derivative_faithful,
+                )
+                tgt = gp_param_gradient(
+                    gp=gp_hf, fid=fid, k_grid=k_grid, z=cfg.redshift,
+                    param_idx=PARAM_NAMES.index(param),
+                )
+                g = equation_param_gradient(
+                    refit=result, fid_value=float(get_param(param).fid),
+                    k_grid=np.asarray(k_grid, dtype=float), z=float(cfg.redshift),
+                )
+                if derivative_faithful(
+                    cand_grad=g, target_grad=tgt, tol=cfg.derivative_tol,
+                ):
+                    refits[param] = result
+                else:
+                    dropped.append(param)
+                    print(
+                        f"[refit] {param}: derivative gate failed "
+                        f"(tol={cfg.derivative_tol}) — GP-slice fallback."
+                    )
+            except ValueError as exc:
+                dropped.append(param)
+                print(f"[refit] {param}: {exc} — falling back to GP slice.")
         else:
             dropped.append(param)
             print(
