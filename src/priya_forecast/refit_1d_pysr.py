@@ -170,6 +170,10 @@ class Refit1DResult:
     # Multi-z: range of z covered by the training set. None for single-z fits.
     z_min: float | None = None
     z_max: float | None = None
+    # Stage 6: SR was trained on log(P_F) rather than raw P_F. When True,
+    # predict() applies exp() before returning and predict_log() returns the
+    # native output directly.
+    log_space: bool = False
 
     @property
     def is_multiz(self) -> bool:
@@ -244,6 +248,20 @@ class Refit1DResult:
                 args.append(np.zeros_like(k))
         return np.broadcast_to(np.asarray(fn(*args), dtype=float), k.shape).copy()
 
+    def _predict_denorm(
+        self,
+        theta_phys: float | np.ndarray,
+        k: np.ndarray,
+        resolution: float = HF_RESOLUTION,
+        z: float | None = None,
+    ) -> np.ndarray:
+        """Denormalized SR output: `log(P_F)` when `log_space=True`, raw `P_F` otherwise."""
+        flux_norm = self.predict_normalized(theta_phys, k, resolution=resolution, z=z)
+        return self.norm.denormalize_flux(
+            flux_norm, np.asarray(k, dtype=float),
+            z=(z if z is not None else self.z),
+        )
+
     def predict(
         self,
         theta_phys: float | np.ndarray,
@@ -251,17 +269,21 @@ class Refit1DResult:
         resolution: float = HF_RESOLUTION,
         z: float | None = None,
     ) -> np.ndarray:
-        """Raw P_F: `flux_norm · std_k + mean_k` (per-param normalization)."""
-        flux_norm = self.predict_normalized(
-            theta_phys, k, resolution=resolution, z=z,
-        )
-        # Multi-z normalization needs the z to look up the right per-z spec;
-        # single-z normalization ignores z. denormalize_flux signature unified
-        # via the optional `z=` kwarg in NormalizationSpec.
-        return self.norm.denormalize_flux(
-            flux_norm, np.asarray(k, dtype=float),
-            z=(z if z is not None else self.z),
-        )
+        """Return raw `P_F`. When `log_space=True` (log-trained equation), applies `exp()`; otherwise returns the denormalized output directly."""
+        val = self._predict_denorm(theta_phys, k, resolution=resolution, z=z)
+        return np.exp(val) if self.log_space else val
+
+    def predict_log(
+        self,
+        theta_phys: float | np.ndarray,
+        k: np.ndarray,
+        resolution: float = HF_RESOLUTION,
+        z: float | None = None,
+    ) -> np.ndarray:
+        """log(P_F). For a log-trained equation this is the native output;
+        for a linear-trained one it is log() of the raw prediction."""
+        val = self._predict_denorm(theta_phys, k, resolution=resolution, z=z)
+        return val if self.log_space else np.log(val)
 
 
 def _load_1pvar(
@@ -323,6 +345,7 @@ def _build_training_matrix(
     payload: dict,
     param_idx: int,
     global_norm: NormalizationSpec,
+    log_space: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, dict[str, float], dict[str, np.ndarray]]:
     """Stack LF + HF into the student's `(X, y)` training matrix.
 
@@ -337,6 +360,14 @@ def _build_training_matrix(
         student's recipe and stored on the Refit1DResult)
       - fidelity_arrays = LF/HF flux_norm reshaped (50, 35) for
         diagnostics + denormalized P_F arrays.
+
+    When `log_space=True` the SR target `Y` is normalized `log(P_F)`, not
+    normalized `P_F`; strictly positive flux is required (ValueError otherwise).
+    `fidelity_arrays["flux_lf"]` / `["flux_hf"]` always carry the raw (linear)
+    flux so that per-fidelity validators can compare against `result.predict()`,
+    which returns raw P_F in both modes. `fidelity_arrays["flux_lf_norm"]` /
+    `["flux_hf_norm"]` are in the training-target space (log-normalized when
+    `log_space=True`, linear-normalized otherwise).
     """
     flux_lf = payload["flux_lf_z"]   # (50, 35)
     flux_hf = payload["flux_hf_z"]   # (50, 35)
@@ -344,6 +375,18 @@ def _build_training_matrix(
     k_hf = payload["kfkms_hf_z"]     # (50, 35)
     params_lf = payload["params_lf"] # (50, 11)
     params_hf = payload["params_hf"] # (50, 11)
+
+    if log_space:
+        if np.any(flux_lf <= 0) or np.any(flux_hf <= 0):
+            raise ValueError(
+                "log_space=True requires strictly positive flux in the "
+                "1pvar payload."
+            )
+        flux_lf_t = np.log(flux_lf)
+        flux_hf_t = np.log(flux_hf)
+    else:
+        flux_lf_t = flux_lf
+        flux_hf_t = flux_hf
 
     # Normalize both fidelities with the GLOBAL multi-D (mean_k, std_k),
     # interpolated onto each fidelity's k-grid. Per the contract: the
@@ -353,8 +396,8 @@ def _build_training_matrix(
     mean_k_hf = np.interp(k_hf[0], global_norm.k_grid, global_norm.mean_flux)
     std_k_hf = np.interp(k_hf[0], global_norm.k_grid, global_norm.std_flux)
 
-    flux_lf_norm = (flux_lf - mean_k_lf[None, :]) / std_k_lf[None, :]
-    flux_hf_norm = (flux_hf - mean_k_hf[None, :]) / std_k_hf[None, :]
+    flux_lf_norm = (flux_lf_t - mean_k_lf[None, :]) / std_k_lf[None, :]
+    flux_hf_norm = (flux_hf_t - mean_k_hf[None, :]) / std_k_hf[None, :]
 
     # X_param column from LF data only (matches student script).
     x_param_lf = np.repeat(params_lf[:, param_idx, None], k_lf.shape[1], axis=1)
@@ -727,6 +770,7 @@ def compute_local_normalization(
     mean_flux_global: np.ndarray | None = None,
     param_min: float = 0.0,
     param_max: float = 1.0,
+    log_space: bool = False,
 ) -> NormalizationSpec:
     """Per-param 1D-local std normalization (Option B).
 
@@ -736,8 +780,16 @@ def compute_local_normalization(
     mean — which is what the student's `pysr_mf_given.py` does in its
     "fallback" path.
 
+    If `log_space=True`, statistics (mean and std) are computed on
+    ``np.log(flux_lf_z)`` rather than on the raw flux. This is used by the
+    Stage 6 log(P) SR target path. Raises ``ValueError`` if any entry of
+    ``flux_lf_z`` is non-positive when ``log_space=True``.
+
     Returns a `NormalizationSpec` whose `denormalize_flux` round-trips
-    `flux_norm = (P_F − mean) / std_local` back to raw P_F.
+    `flux_norm = (target − mean) / std_local` back to `target`. With
+    `log_space=False`, `target` is raw P_F; with `log_space=True`,
+    `target` is `log(P_F)` and the caller is responsible for applying
+    `exp()` to recover raw flux.
     """
     flux_lf_z = np.asarray(flux_lf_z, dtype=float)
     k_grid = np.asarray(k_grid, dtype=float)
@@ -745,10 +797,19 @@ def compute_local_normalization(
         raise ValueError(
             f"flux_lf_z width {flux_lf_z.shape[1]} != k_grid size {k_grid.size}."
         )
-    std_k_local = flux_lf_z.std(axis=0, ddof=0)
+    if log_space:
+        if np.any(flux_lf_z <= 0):
+            raise ValueError(
+                "log_space=True requires strictly positive flux; "
+                "flux_lf_z has non-positive entries."
+            )
+        target = np.log(flux_lf_z)
+    else:
+        target = flux_lf_z
+    std_k_local = target.std(axis=0, ddof=0)
     std_k_local = np.where(std_k_local > 0, std_k_local, 1.0)
     if mean_flux_global is None:
-        mean_k = flux_lf_z.mean(axis=0)
+        mean_k = target.mean(axis=0)
     else:
         # mean_flux_global must already live on the same k_grid as the
         # local std. Earlier code attempted np.interp(k_grid,
@@ -819,6 +880,12 @@ def refit_1d_multiz_for_param(
 
     args = dict(DEFAULT_PYSR_KWARGS)
     args.update(pysr_kwargs or {})
+    # PySR forbids specifying both `elementwise_loss` and `loss_function`.
+    # `DEFAULT_PYSR_KWARGS` carries `elementwise_loss` (MSE); a caller that
+    # swaps in a `loss_function` (e.g. SMART_REFIT_PYSR_KWARGS's ANOVA loss)
+    # must not also keep the default MSE — drop it so only one survives.
+    if args.get("loss_function") is not None:
+        args.pop("elementwise_loss", None)
     args["random_state"] = seed
     t0 = time.time()
     model = PySRRegressor(**args)
@@ -905,6 +972,8 @@ def refit_1d_for_param(
     data_dir: str | Path | None = None,
     pysr_kwargs: dict | None = None,
     seed: int = 42,
+    pareto_csv_out: str | Path | None = None,
+    log_space: bool = False,
 ) -> Refit1DResult:
     """Train a 1D PySR equation for `param_name`.
 
@@ -924,6 +993,9 @@ def refit_1d_for_param(
 
     Returns a `Refit1DResult` that always emits raw P_F via its bundled
     `NormalizationSpec`.
+
+    If `pareto_csv_out` is given, the full PySR Pareto front is also written
+    there as a `load_pareto_csv`-compatible CSV.
     """
     if param_name not in PARAM_NAMES:
         raise KeyError(f"Unknown PRIYA parameter {param_name!r}.")
@@ -953,15 +1025,23 @@ def refit_1d_for_param(
             flux_lf_z=payload["flux_lf_z"], k_grid=k_grid,
             mean_flux_global=mean_flux_global,
             param_min=float(p_meta.prior[0]), param_max=float(p_meta.prior[1]),
+            log_space=log_space,
         )
 
     param_idx = PARAM_NAMES.index(param_name)
     X_act, Y_act, ranges, fidelity_arrays = _build_training_matrix(
         payload=payload, param_idx=param_idx, global_norm=norm,
+        log_space=log_space,
     )
 
     args = dict(DEFAULT_PYSR_KWARGS)
     args.update(pysr_kwargs or {})
+    # PySR forbids specifying both `elementwise_loss` and `loss_function`.
+    # `DEFAULT_PYSR_KWARGS` carries `elementwise_loss` (MSE); a caller that
+    # swaps in a `loss_function` (e.g. SMART_REFIT_PYSR_KWARGS's ANOVA loss)
+    # must not also keep the default MSE — drop it so only one survives.
+    if args.get("loss_function") is not None:
+        args.pop("elementwise_loss", None)
     args["random_state"] = seed
     t0 = time.time()
     model = PySRRegressor(**args)
@@ -988,6 +1068,7 @@ def refit_1d_for_param(
         hf_train_mean_rel_err=float("nan"),
         lf_train_max_rel_err=float("nan"),
         hf_train_max_rel_err=float("nan"),
+        log_space=log_space,
     )
     diagnostics = _validate_per_fidelity_from_payload(
         result=result, payload=payload, param_idx=param_idx,
@@ -996,4 +1077,13 @@ def refit_1d_for_param(
     result.hf_train_mean_rel_err = diagnostics["hf_mean"]
     result.lf_train_max_rel_err = diagnostics["lf_max"]
     result.hf_train_max_rel_err = diagnostics["hf_max"]
+    if pareto_csv_out is not None:
+        pareto_csv_out = Path(pareto_csv_out)
+        pareto_csv_out.parent.mkdir(parents=True, exist_ok=True)
+        # PySR's equations_ has lowercase columns; write them capitalized so
+        # `load_pareto_csv` reads them without case coercion.
+        model.equations_.rename(
+            columns={"complexity": "Complexity", "loss": "Loss",
+                     "equation": "Equation"}
+        ).to_csv(pareto_csv_out, index=False)
     return result

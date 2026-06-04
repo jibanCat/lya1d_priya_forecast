@@ -207,6 +207,25 @@ class MultiZNormalizationSpec:
         std = np.interp(k_target, self.k_grid, self.std_flux[zi])
         return flux_norm * std + mean
 
+    def save_npz(self, path) -> None:
+        np.savez(
+            path,
+            param_min=self.param_min, param_max=self.param_max,
+            k_min=self.k_min, k_max=self.k_max,
+            z_grid=self.z_grid, mean_flux=self.mean_flux,
+            std_flux=self.std_flux, k_grid=self.k_grid,
+        )
+
+    @classmethod
+    def load_npz(cls, path) -> "MultiZNormalizationSpec":
+        d = np.load(path)
+        return cls(
+            param_min=float(d["param_min"]), param_max=float(d["param_max"]),
+            k_min=float(d["k_min"]), k_max=float(d["k_max"]),
+            z_grid=d["z_grid"], mean_flux=d["mean_flux"],
+            std_flux=d["std_flux"], k_grid=d["k_grid"],
+        )
+
 
 def from_files(
     *,

@@ -1,0 +1,69 @@
+# Example single-z forecast YAML. Copy + edit, then:
+#     python scripts/run_pipeline.py --config configs/single_z/example.yaml
+#
+# Three modes via `mode:` field (see src/priya_forecast/single_z/config.py
+# for the full schema):
+#   - gp_only            — Fisher on the GP only (fast sanity check, σ_GP)
+#   - forecast_only      — score student CSVs against the GP (default)
+#   - refit_and_forecast — refit PySR per parameter, then score
+
+mode: gp_only
+redshift: 3.6
+output_dir: results/single_z_example/
+
+# Subset of the 11 PRIYA parameters to forecast on.
+parameters:
+  - dtau0
+  - tau0
+  - ns
+  - Ap
+  - herei
+  - heref
+  - alphaq
+  - hub
+  - omegamh2
+  - hireionz
+  - bhfeedback
+
+# k range (s/km). The KSData k-grid is auto-clipped to this window.
+k_range:
+  min: 0.001
+  max: 0.04
+
+data:
+  source: kodiaq            # kodiaq (KSData) | eboss_dr14
+  cov_scale: 1.0
+  conservative: true        # KSData conservative=True drops first 4 bins
+  mock_data: gp             # gp = synthetic from the GP @ fid; kodiaq = real measurement
+
+gp:
+  basedir: data/kodiaq_gp   # produced by scripts/prep_kodiaq_gp.py
+  hires_subdir: hires
+
+normalization:
+  mode: auto                # auto | identity | mean_flux
+  fix:
+    r: 0.8                  # HF resolution feature pin
+
+# Only used when mode == refit_and_forecast (Stage C).
+pysr:
+  smart_kwargs: true        # restricted operator policy (^ constrained, no inv/sqrt)
+  use_anova_loss: false     # OFF by default — clean baseline; principled but practically marginal
+  niterations: 50
+  populations: 24
+  procs: 4
+  maxsize: 20
+  seed: 0
+
+# Only used when mode != gp_only.
+combine: additive           # multiplicative | additive | joint
+target_space: log           # linear | log  — fit log(P) (Stage 6, recommended)
+fiducial_p1d_cache: null    # path to .npz cache; auto-created if null
+
+pareto_csvs:
+  source: bundled_baseline  # bundled_baseline | per_parameter | from_refit
+  per_parameter: {}         # populate when source == per_parameter
+
+fisher:
+  step_frac: 0.01
+  rel_tol: 0.01

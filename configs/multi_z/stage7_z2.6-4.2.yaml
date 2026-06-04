@@ -1,0 +1,15 @@
+# Stage 7 production — multi-z joint Fisher forecast over the KODIAQ z-range.
+# Refits (per-param 4-input Pareto CSVs + norm sidecars) are read from
+# <output_dir>/refit/z{z_min}-{z_max}/ by the multi-z load_refits path.
+mode: forecast_only
+z_min: 2.6
+z_max: 4.2
+output_dir: results/multi_z_stage7/
+parameters: [ns, Ap, hub, omegamh2, herei, heref, alphaq, hireionz, bhfeedback, dtau0, tau0]
+k_range: {min: 0.001, max: 0.04}
+data: {source: kodiaq, cov_scale: 1.0, conservative: true, mock_data: gp}
+gp: {basedir: data/kodiaq_gp}
+combine: additive
+target_space: log
+pareto_csvs: {source: bundled_baseline}
+fisher: {step_frac: 0.01, rel_tol: 0.01}

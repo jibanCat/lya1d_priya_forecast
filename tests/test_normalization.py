@@ -410,3 +410,31 @@ def test_compute_local_normalization_rejects_mismatched_shape():
             flux_lf_z=flux_lf, k_grid=k_grid,
             mean_flux_global=mean_global_wrong,
         )
+
+
+def test_compute_local_normalization_log_space():
+    """log_space=True normalizes log(P_F): mean/std are of log-flux."""
+    import numpy as np
+    from priya_forecast.refit_1d_pysr import compute_local_normalization
+
+    rng = np.random.default_rng(0)
+    k = np.linspace(0.001, 0.04, 8)
+    flux = rng.random((50, 8)) + 1.0  # strictly positive
+    norm = compute_local_normalization(
+        flux_lf_z=flux, k_grid=k, log_space=True,
+        param_min=0.8, param_max=1.05,
+    )
+    np.testing.assert_allclose(norm.mean_flux, np.log(flux).mean(axis=0))
+    np.testing.assert_allclose(norm.std_flux, np.log(flux).std(axis=0, ddof=0))
+
+
+def test_compute_local_normalization_log_space_rejects_nonpositive():
+    import numpy as np
+    import pytest
+    from priya_forecast.refit_1d_pysr import compute_local_normalization
+
+    k = np.linspace(0.001, 0.04, 4)
+    flux = np.ones((10, 4))
+    flux[3, 2] = -0.5  # a non-positive entry
+    with pytest.raises(ValueError, match="positive"):
+        compute_local_normalization(flux_lf_z=flux, k_grid=k, log_space=True)

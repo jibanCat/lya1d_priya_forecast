@@ -10,13 +10,18 @@ requires-python = ">=3.11"
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [{ name = "PRIYA Forecast Team" }]
+# numpy is capped < 2: GPy 1.13.2's compiled cython extensions are built
+# against numpy 1.x's dtype ABI (96 bytes); numpy 2.x shrank it to 88 bytes,
+# producing "ValueError: numpy.dtype size changed" at GPy import. pandas is
+# capped < 3 for the same reason (pandas 3.x requires numpy >= 2). For an
+# exact, reproducible install use requirements.lock.txt (see README).
 dependencies = [
-    "numpy>=1.24",
-    "scipy>=1.10",
+    "numpy>=1.24,<2",
+    "scipy>=1.10,<1.14",
     "sympy>=1.12",
     "pyyaml>=6.0",
     "h5py>=3.8",
-    "pandas>=2.0",
+    "pandas>=2.0,<3",
 ]
 
 [project.optional-dependencies]
