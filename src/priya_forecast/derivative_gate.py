@@ -37,3 +37,23 @@ def equation_param_gradient(*, refit: Refit1DResult, fid_value: float,
     pm = np.asarray(refit.predict(theta_phys=fid_value - step, k=k_grid,
                                   resolution=resolution, z=z), dtype=float)
     return (pp - pm) / (2.0 * step)
+
+
+def derivative_faithful(*, cand_grad: np.ndarray, target_grad: np.ndarray,
+                        tol: float = 0.25, floor_frac: float = 1e-3) -> bool:
+    """True if median_k |cand/target - 1| <= tol over non-negligible bins.
+
+    Bins where |target_grad| is below `floor_frac` times its own max are
+    masked out (a ~zero GP gradient makes the ratio meaningless / explosive).
+    If every bin is masked, returns False (no usable gradient to validate).
+    """
+    cand = np.asarray(cand_grad, dtype=float)
+    target = np.asarray(target_grad, dtype=float)
+    amax = float(np.max(np.abs(target)))
+    if amax == 0.0:
+        return False
+    keep = np.abs(target) >= floor_frac * amax
+    if not np.any(keep):
+        return False
+    rel = np.abs(cand[keep] / target[keep] - 1.0)
+    return bool(np.median(rel) <= tol)
