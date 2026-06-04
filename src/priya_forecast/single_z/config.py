@@ -203,6 +203,7 @@ class PipelineConfig:
     combine: str = "additive"
     pick: str = "best_loss"
     target_space: str = "linear"
+    derivative_tol: float = 0.25
     fiducial_p1d_cache: str | None = None
     pareto_csvs: ParetoCSVsConfig = field(default_factory=ParetoCSVsConfig)
     fisher: FisherConfig = field(default_factory=FisherConfig)
@@ -226,6 +227,8 @@ class PipelineConfig:
             raise ValueError(
                 f"target_space must be one of {VALID_TARGET_SPACES}."
             )
+        if self.derivative_tol <= 0:
+            raise ValueError("derivative_tol must be > 0.")
         self.k_range.validate()
         self.data.validate()
         self.gp.validate()

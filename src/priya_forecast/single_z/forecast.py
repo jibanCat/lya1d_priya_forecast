@@ -102,6 +102,52 @@ def _filter_fisher_safe(df, n_features: int):
     return df[uses_x0 & (~pathological) & stencil_safe].reset_index(drop=True)
 
 
+def _refit_from_row(
+    *,
+    equation_str: str,
+    complexity: int,
+    loss: float,
+    df,
+    param_name: str,
+    z: float,
+    meta,
+    k_grid: np.ndarray,
+    norm,
+    log_space: bool,
+) -> Refit1DResult:
+    """Build a Refit1DResult for one picked Pareto equation (+ reconstructed norm).
+
+    This helper centralises the Refit1DResult constructor call so that both
+    `build_refit_from_pareto` (filter-then-pick) and
+    `build_refit_from_pareto_gated` (filter-iterate-gate) share identical
+    construction logic.
+    """
+    return Refit1DResult(
+        param_name=param_name,
+        z=float(z),
+        equation_str=equation_str,
+        pareto_complexity=int(complexity),
+        pareto_loss=float(loss),
+        pareto_complexities=[int(c) for c in df["Complexity"]],
+        pareto_losses=[float(x) for x in df["Loss"]],
+        x_param_min=float(meta.prior[0]),
+        x_param_max=float(meta.prior[1]),
+        k_min=float(k_grid.min()),
+        k_max=float(k_grid.max()),
+        lf_resolution=LF_RESOLUTION,
+        hf_resolution=HF_RESOLUTION,
+        fid_value=float(meta.fid),
+        norm=norm,
+        k_grid=np.asarray(k_grid, dtype=float),
+        wall_time_s=0.0,
+        lf_train_mean_rel_err=0.0,
+        hf_train_mean_rel_err=0.0,
+        lf_train_max_rel_err=0.0,
+        hf_train_max_rel_err=0.0,
+        log_space=log_space,
+    )
+
+
 def build_refit_from_pareto(
     *,
     param_name: str,
@@ -136,29 +182,72 @@ def build_refit_from_pareto(
         param_min=float(meta.prior[0]), param_max=float(meta.prior[1]),
         log_space=log_space,
     )
-    return Refit1DResult(
-        param_name=param_name,
-        z=float(z),
-        equation_str=equation_str,
-        pareto_complexity=int(complexity),
-        pareto_loss=float(loss),
-        pareto_complexities=[int(c) for c in df["Complexity"]],
-        pareto_losses=[float(x) for x in df["Loss"]],
-        x_param_min=float(meta.prior[0]),
-        x_param_max=float(meta.prior[1]),
-        k_min=float(k_grid.min()),
-        k_max=float(k_grid.max()),
-        lf_resolution=LF_RESOLUTION,
-        hf_resolution=HF_RESOLUTION,
-        fid_value=float(meta.fid),
-        norm=norm,
-        k_grid=np.asarray(k_grid, dtype=float),
-        wall_time_s=0.0,
-        lf_train_mean_rel_err=0.0,
-        hf_train_mean_rel_err=0.0,
-        lf_train_max_rel_err=0.0,
-        hf_train_max_rel_err=0.0,
+    return _refit_from_row(
+        equation_str=equation_str, complexity=complexity, loss=loss,
+        df=df, param_name=param_name, z=z, meta=meta,
+        k_grid=k_grid, norm=norm, log_space=log_space,
+    )
+
+
+def build_refit_from_pareto_gated(
+    *,
+    param_name: str,
+    z: float,
+    pareto_csv,
+    data_1pvar_dir,
+    gp_target_grad: np.ndarray,
+    derivative_tol: float = 0.25,
+    log_space: bool = False,
+) -> Refit1DResult:
+    """Filter Fisher-safe -> derivative-gate (best-loss order) -> first faithful.
+
+    Iterates Fisher-safe Pareto rows in ascending-loss order, reconstructs
+    each candidate equation, and returns the first whose finite-difference
+    gradient passes `derivative_faithful` against `gp_target_grad`.
+
+    Raises ValueError if no Fisher-safe equation exists OR if no equation
+    passes the derivative gate — the caller's existing
+    ``try/except ValueError → GP-slice fallback`` handles both cases.
+    """
+    from priya_forecast.derivative_gate import equation_param_gradient, derivative_faithful
+
+    df = load_pareto_csv(pareto_csv)
+    safe = _filter_fisher_safe(df, n_features=3)
+    if safe.empty:
+        raise ValueError(
+            f"No Fisher-safe equation for ({param_name}, z={z})."
+        )
+    safe = safe.sort_values("Loss").reset_index(drop=True)
+
+    meta = get_param(param_name)
+    d = load_1pvar(param_name=param_name, z=z, data_dir=data_1pvar_dir)
+    k_grid = d["kfkms_lf_z"][0]
+    norm = per_param_local_norm(
+        flux_lf_z=d["flux_lf_z"], k_grid=k_grid,
+        param_min=float(meta.prior[0]), param_max=float(meta.prior[1]),
         log_space=log_space,
+    )
+
+    gp_target_grad = np.asarray(gp_target_grad, dtype=float)
+
+    for _, row in safe.iterrows():
+        cand = _refit_from_row(
+            equation_str=str(row["Equation"]), complexity=int(row["Complexity"]),
+            loss=float(row["Loss"]), df=df, param_name=param_name, z=z, meta=meta,
+            k_grid=k_grid, norm=norm, log_space=log_space,
+        )
+        g = equation_param_gradient(
+            refit=cand, fid_value=float(meta.fid),
+            k_grid=np.asarray(k_grid, dtype=float), z=float(z),
+        )
+        if derivative_faithful(
+            cand_grad=g, target_grad=gp_target_grad, tol=derivative_tol,
+        ):
+            return cand
+
+    raise ValueError(
+        f"No derivative-faithful equation for ({param_name}, z={z}) "
+        f"at tol={derivative_tol} — GP-slice fallback."
     )
 
 
