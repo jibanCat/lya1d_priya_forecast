@@ -60,3 +60,25 @@ def test_point_major_ordering_within_fidelity():
     np.testing.assert_allclose(w[nk:n_lf], expected_block, rtol=1e-3)     # LF point 1
     # k varies WITHIN each point's block -> confirms k-minor ordering
     assert w[0] != w[1] != w[2]               # the three k-bins differ
+
+
+def test_boundary_point_does_not_exceed_range():
+    nk = 3
+    k = np.linspace(0.01, 0.04, nk)
+    # sweep includes a point AT the upper bound (1.0) and AT the lower bound (0.0)
+    params = np.zeros((2, 11)); params[0, 0] = 0.0; params[1, 0] = 1.0
+
+    class _BoundedGP:
+        # asserts like the real emulator: theta[0] must be within [0, 1]
+        def predict(self, theta, kk, z):
+            t = float(theta[0])
+            assert -1e-9 <= t <= 1.0 + 1e-9, f"theta[0]={t} out of [0,1]"
+            kk = np.asarray(kk, float); return np.exp(0.2 * t + 0.5 * kk)
+
+    payload = {"params_lf": params, "params_hf": params,
+               "kfkms_lf_z": np.tile(k, (2, 1)), "kfkms_hf_z": np.tile(k, (2, 1))}
+    # must NOT raise (clamping keeps perturbations within [x_param_min, x_param_max]=[0,1])
+    w = sobolev_target_weights(
+        payload=payload, param_idx=0, gp_lf=_BoundedGP(), gp_hf=_BoundedGP(),
+        z=3.6, x_param_min=0.0, x_param_max=1.0, std_flux=np.ones(nk), norm_k_grid=k, h=1e-3)
+    assert np.all(np.isfinite(w)) and w.shape == (2 * 2 * nk,)
