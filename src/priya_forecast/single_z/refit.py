@@ -76,6 +76,8 @@ def refit_one_param_single_z(
             seed=cfg.pysr.seed + attempt,
             pareto_csv_out=pareto_csv,
             log_space=(cfg.target_space == "log"),
+            use_sobolev=cfg.pysr.use_sobolev,
+            sobolev_lambda=cfg.pysr.sobolev_lambda,
         )
         # PySR equations have 3 inputs (x0=θ_norm, x1=k_norm, x2=resolution).
         safe = _filter_fisher_safe(load_pareto_csv(pareto_csv), n_features=3)

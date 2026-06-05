@@ -26,6 +26,10 @@ BASEDIR=${BASEDIR:?BASEDIR must be set via --export}
 OUTPUT_DIR=${OUTPUT_DIR:?OUTPUT_DIR must be set via --export}
 Z=${Z:?Z must be set via --export}
 TARGET_SPACE=${TARGET_SPACE:-linear}
+USE_SOBOLEV=${USE_SOBOLEV:-0}
+SOBOLEV_LAMBDA=${SOBOLEV_LAMBDA:-1.0}
+SOBOLEV_ARGS=""
+[ "$USE_SOBOLEV" = "1" ] && SOBOLEV_ARGS="--use-sobolev --sobolev-lambda ${SOBOLEV_LAMBDA}"
 
 PARAMS=(dtau0 tau0 ns Ap herei heref alphaq hub omegamh2 hireionz bhfeedback)
 PARAM=${PARAMS[$SLURM_ARRAY_TASK_ID]:?Array index out of range}
@@ -47,6 +51,6 @@ cd "$REPO"
 "$PY" scripts/refit_one_param_single_z.py \
     --param "$PARAM" --z "$Z" \
     --basedir "$BASEDIR" --output-dir "$OUTPUT_DIR" \
-    --target-space "$TARGET_SPACE"
+    --target-space "$TARGET_SPACE" $SOBOLEV_ARGS
 
 echo "[slurm] ${PARAM} z=${Z} done"
