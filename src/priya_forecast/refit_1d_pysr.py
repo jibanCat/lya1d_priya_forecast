@@ -975,6 +975,9 @@ def refit_1d_for_param(
     seed: int = 42,
     pareto_csv_out: str | Path | None = None,
     log_space: bool = False,
+    use_sobolev: bool = False,
+    sobolev_lambda: float = 1.0,
+    sobolev_h: float = 1e-4,
 ) -> Refit1DResult:
     """Train a 1D PySR equation for `param_name`.
 
@@ -1035,6 +1038,14 @@ def refit_1d_for_param(
         log_space=log_space,
     )
 
+    sobolev_weights = None
+    if use_sobolev:
+        from priya_forecast.sobolev_loss import make_sobolev_loss, sobolev_target_weights
+        sobolev_weights = sobolev_target_weights(
+            payload=payload, param_idx=param_idx, gp_lf=gp_lf, gp_hf=gp_hf, z=z,
+            x_param_min=ranges["x_param_min"], x_param_max=ranges["x_param_max"],
+            std_flux=norm.std_flux, norm_k_grid=norm.k_grid, h=sobolev_h)
+
     args = dict(DEFAULT_PYSR_KWARGS)
     args.update(pysr_kwargs or {})
     # PySR forbids specifying both `elementwise_loss` and `loss_function`.
@@ -1043,10 +1054,16 @@ def refit_1d_for_param(
     # must not also keep the default MSE — drop it so only one survives.
     if args.get("loss_function") is not None:
         args.pop("elementwise_loss", None)
+    if use_sobolev:
+        args["loss_function"] = make_sobolev_loss(sobolev_lambda, sobolev_h)
+        args.pop("elementwise_loss", None)
     args["random_state"] = seed
     t0 = time.time()
     model = PySRRegressor(**args)
-    model.fit(X_act, Y_act.reshape(-1, 1))
+    if sobolev_weights is not None:
+        model.fit(X_act, Y_act.reshape(-1, 1), weights=sobolev_weights)
+    else:
+        model.fit(X_act, Y_act.reshape(-1, 1))
     elapsed = time.time() - t0
     pareto = model.equations_
     best_idx = int(pareto["loss"].idxmin())
