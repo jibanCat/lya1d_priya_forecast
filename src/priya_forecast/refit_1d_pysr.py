@@ -1039,6 +1039,11 @@ def refit_1d_for_param(
     )
 
     sobolev_weights = None
+    if use_sobolev and (gp_lf is None or gp_hf is None):
+        raise ValueError(
+            "use_sobolev=True requires gp_lf and gp_hf (the inline-GP refit path); "
+            "the legacy data_dir path cannot compute Sobolev target gradients."
+        )
     if use_sobolev:
         from priya_forecast.sobolev_loss import make_sobolev_loss, sobolev_target_weights
         sobolev_weights = sobolev_target_weights(
