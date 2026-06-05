@@ -71,7 +71,7 @@ def test_multiz_weights_per_fidelity_z_and_std():
     w = sobolev_target_weights_multiz(
         payload=payload, param_idx=0,
         gp_lf=_GPz(s_lf), gp_hf=_GPz(s_hf),
-        norm=norm, z_min=3.0, z_max=3.6,
+        norm=norm,
         x_param_min=0.0, x_param_max=1.0, h=1e-3,
     )
 
@@ -126,7 +126,7 @@ def test_multiz_weights_row_order_point_major_k_minor():
     w = sobolev_target_weights_multiz(
         payload=payload, param_idx=0,
         gp_lf=_GPkz(0.2), gp_hf=_GPkz(0.2),
-        norm=norm, z_min=3.0, z_max=3.6,
+        norm=norm,
         x_param_min=0.0, x_param_max=1.0, h=1e-3,
     )
     # LF point 0 (z=3.0): weight = 0.2 * 3.0 * (1+k) / 1.0
@@ -176,7 +176,7 @@ def test_multiz_weights_lf_uses_kfkms_lf_not_hf():
     w = sobolev_target_weights_multiz(
         payload=payload, param_idx=0,
         gp_lf=_GPz(0.2), gp_hf=_GPz(0.5),
-        norm=norm, z_min=3.0, z_max=3.6,
+        norm=norm,
         x_param_min=0.0, x_param_max=1.0, h=1e-3,
     )
     # If implementation accidentally used kfkms_hf_z for HF rows, the std interp
@@ -226,7 +226,7 @@ def test_boundary_point_does_not_exceed_range():
     w = sobolev_target_weights_multiz(
         payload=payload, param_idx=0,
         gp_lf=_BoundedGPz(0.2), gp_hf=_BoundedGPz(0.5),
-        norm=norm, z_min=3.0, z_max=3.6,
+        norm=norm,
         x_param_min=0.0, x_param_max=1.0, h=1e-3,
     )
     assert np.all(np.isfinite(w))

@@ -123,7 +123,7 @@ def _fidelity_grad_weights_multiz(*, params, kfkms, gp, param_idx, z_per_row,
 
 
 def sobolev_target_weights_multiz(*, payload, param_idx, gp_lf, gp_hf,
-                                   norm, z_min, z_max,
+                                   norm,
                                    x_param_min, x_param_max, h=1e-3):
     """Per-row Sobolev target gradient for the multi-z training matrix.
 

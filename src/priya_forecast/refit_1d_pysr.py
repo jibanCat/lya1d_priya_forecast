@@ -891,7 +891,7 @@ def refit_1d_multiz_for_param(
         from priya_forecast.sobolev_loss import make_sobolev_loss, sobolev_target_weights_multiz
         sobolev_weights = sobolev_target_weights_multiz(
             payload=payload, param_idx=param_idx, gp_lf=gp_lf, gp_hf=gp_hf, norm=norm,
-            z_min=z_min, z_max=z_max, x_param_min=ranges["x_param_min"],
+            x_param_min=ranges["x_param_min"],
             x_param_max=ranges["x_param_max"], h=sobolev_h)
 
     args = dict(DEFAULT_PYSR_KWARGS)
@@ -903,6 +903,7 @@ def refit_1d_multiz_for_param(
     if args.get("loss_function") is not None:
         args.pop("elementwise_loss", None)
     if use_sobolev:
+        # Sobolev wins over any pysr_kwargs-supplied loss_function (placed after args.update).
         args["loss_function"] = make_sobolev_loss(sobolev_lambda, sobolev_h)
         args.pop("elementwise_loss", None)
     args["random_state"] = seed
