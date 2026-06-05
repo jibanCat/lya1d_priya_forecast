@@ -48,7 +48,7 @@ def test_refit_one_param_single_z_retries_until_usable(tmp_path, monkeypatch):
             self.equation_str = "x0 + x1" if seed >= 1 else "x2 * 2.0"
 
     def fake_refit(*, param_name, z, k_grid, gp_lf, gp_hf,
-                   pysr_kwargs, seed, pareto_csv_out, log_space=False):
+                   pysr_kwargs, seed, pareto_csv_out, log_space=False, **kwargs):
         calls.append(seed)
         # seed 0 → x0-free front; seed >= 1 → has an x0 equation
         eq = "x0 + x1" if seed >= 1 else "x2 * 2.0"

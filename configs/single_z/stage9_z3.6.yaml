@@ -1,0 +1,17 @@
+# Stage 9 production — single-z z=3.6, Sobolev refits (λ=5) + derivative gate.
+# Pattern: SLURM refit array (USE_SOBOLEV=1, SOBOLEV_LAMBDA=5) writes per-param
+# Pareto CSVs, then this forecast_only run reads them (from_refit) and applies
+# the derivative gate. ns is fixed by Sobolev; hub/bhfeedback remain GP-slice
+# (hard for every method). Compare to Stage 8 (results/single_z_stage8/).
+mode: forecast_only
+redshift: 3.6
+output_dir: results/single_z_stage9/
+parameters: [ns, Ap, hub, omegamh2, herei, heref, alphaq, hireionz, bhfeedback, dtau0, tau0]
+k_range: {min: 0.001, max: 0.04}
+data: {source: kodiaq, cov_scale: 1.0, conservative: true, mock_data: gp}
+gp: {basedir: data/kodiaq_gp}
+combine: additive
+target_space: log
+derivative_tol: 0.25
+pareto_csvs: {source: from_refit}
+fisher: {step_frac: 0.01, rel_tol: 0.01}

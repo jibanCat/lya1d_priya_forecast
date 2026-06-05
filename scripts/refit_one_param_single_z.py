@@ -38,6 +38,8 @@ def main() -> None:
     p.add_argument("--maxsize", type=int, default=20)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--target-space", choices=("linear", "log"), default="linear")
+    p.add_argument("--use-sobolev", action="store_true")
+    p.add_argument("--sobolev-lambda", type=float, default=1.0)
     args = p.parse_args()
 
     from priya_forecast.models.gp_model import GPModel
@@ -46,7 +48,9 @@ def main() -> None:
         mode="refit_and_forecast", redshift=args.z,
         output_dir=args.output_dir, gp=GPConfig(basedir=args.basedir),
         pysr=PySRConfig(niterations=args.niterations, maxsize=args.maxsize,
-                        seed=args.seed),
+                        seed=args.seed,
+                        use_sobolev=args.use_sobolev,
+                        sobolev_lambda=args.sobolev_lambda),
         target_space=args.target_space,
     )
     k_grid = _refit.kodiaq_k_grid(args.kmin, args.kmax, 48)
