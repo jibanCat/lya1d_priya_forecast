@@ -167,6 +167,9 @@ def run_refit_and_forecast_multiz(cfg: MultiZPipelineConfig) -> dict:
     # Fresh results take priority over saved artifacts; drop list is combined.
     for param, r in refits.items():
         if r is not None:
+            # NOTE: fresh in-process refits are accepted without the derivative gate
+            # (Sobolev training is the intended derivative guard here). The gated,
+            # production path is forecast_only (from_refit), which gates every refit.
             saved_refits[param] = r
     for p in dropped_saved:
         if p not in dropped:

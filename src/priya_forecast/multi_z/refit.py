@@ -146,6 +146,10 @@ def build_refit_from_pareto_multiz_gated(
     Raises ValueError if no Fisher-safe equation exists OR if none pass
     the multi-z derivative gate — the caller's try/except ValueError
     → GP-slice fallback handles both.
+
+    Iterates Fisher-safe candidates in ascending-loss order regardless of
+    any configured pick rule — the derivative gate replaces the pick rule
+    (consistent with the single-z ``build_refit_from_pareto_gated``).
     """
     from priya_forecast.derivative_gate import derivative_faithful_multiz
 
