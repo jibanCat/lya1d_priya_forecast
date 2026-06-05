@@ -138,6 +138,8 @@ def refit_one_param_multi_z(
             param_name=param_name, z_min=z_min, z_max=z_max, k_grid=k_grid,
             gp_lf=gp_lf, gp_hf=gp_hf, n_total=n_total,
             pysr_kwargs=pysr_kwargs, seed=cfg.pysr.seed + attempt,
+            use_sobolev=cfg.pysr.use_sobolev,
+            sobolev_lambda=cfg.pysr.sobolev_lambda,
         )
         _write_pareto_csv(result, csv_path)
         _save_sidecar(result, norm_path)
