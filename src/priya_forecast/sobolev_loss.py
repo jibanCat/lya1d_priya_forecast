@@ -7,6 +7,8 @@ PySR's per-point `weights` channel. Spike-confirmed to run in PySR 1.5.10.
 """
 from __future__ import annotations
 
+import numpy as np
+
 
 def make_sobolev_loss(lam: float, h: float = 1e-4) -> str:
     """Return a Julia `loss_function` string with λ and h injected as literals."""
@@ -34,14 +36,14 @@ def make_sobolev_loss(lam: float, h: float = 1e-4) -> str:
     )
 
 
-import numpy as np
-
-
 def _fidelity_grad_weights(*, params, kfkms, gp, param_idx, z, width, std_on_k, norm_k_grid, h):
     """Per-row normalized target gradient for one fidelity, point-major/k-minor.
 
     weight = (∂logP/∂θ_phys) · width / std_k   (width = x_param_max − x_param_min)
     Rows ordered point-major (k varies fastest), matching _build_training_matrix.
+
+    `gp.predict(theta, k, z)` must return linear P_F (not log); this routine
+    takes the log internally.
     """
     n_points = params.shape[0]
     rows = []
@@ -61,7 +63,13 @@ def _fidelity_grad_weights(*, params, kfkms, gp, param_idx, z, width, std_on_k, 
 
 def sobolev_target_weights(*, payload, param_idx, gp_lf, gp_hf, z,
                            x_param_min, x_param_max, std_flux, norm_k_grid, h=1e-3):
-    """Per-row Sobolev target gradient matching X_act row order (LF rows then HF)."""
+    """Per-row Sobolev target gradient matching X_act row order (LF rows then HF).
+
+    `std_flux` is the SINGLE global per-k std from the refit's NormalizationSpec
+    (`norm.std_flux` on `norm.k_grid`) — the SAME one `_build_training_matrix`
+    interpolates onto BOTH the LF and HF k-grids. Do NOT pass separate LF/HF
+    stds; that would diverge from the training-matrix normalization.
+    """
     width = float(x_param_max) - float(x_param_min)
     w_lf = _fidelity_grad_weights(
         params=np.asarray(payload["params_lf"], float), kfkms=payload["kfkms_lf_z"],
