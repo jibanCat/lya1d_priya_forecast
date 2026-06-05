@@ -843,6 +843,9 @@ def refit_1d_multiz_for_param(
     n_total: int = 225,
     pysr_kwargs: dict | None = None,
     seed: int = 42,
+    use_sobolev: bool = False,
+    sobolev_lambda: float = 1.0,
+    sobolev_h: float = 1e-4,
 ) -> Refit1DResult:
     """Multi-z 1D PySR refit: one equation in `(θ_norm, k_norm, res, z_norm)`.
 
@@ -853,6 +856,10 @@ def refit_1d_multiz_for_param(
     """
     if param_name not in PARAM_NAMES:
         raise KeyError(f"Unknown PRIYA parameter {param_name!r}.")
+    if use_sobolev and (gp_lf is None or gp_hf is None):
+        raise ValueError(
+            "use_sobolev=True requires gp_lf and gp_hf for the multi-z refit."
+        )
     from pysr import PySRRegressor  # type: ignore[import-not-found]
 
     payload = _generate_1pvar_multiz_inline(
@@ -879,6 +886,14 @@ def refit_1d_multiz_for_param(
         z_min=z_min, z_max=z_max,
     )
 
+    sobolev_weights = None
+    if use_sobolev:
+        from priya_forecast.sobolev_loss import make_sobolev_loss, sobolev_target_weights_multiz
+        sobolev_weights = sobolev_target_weights_multiz(
+            payload=payload, param_idx=param_idx, gp_lf=gp_lf, gp_hf=gp_hf, norm=norm,
+            z_min=z_min, z_max=z_max, x_param_min=ranges["x_param_min"],
+            x_param_max=ranges["x_param_max"], h=sobolev_h)
+
     args = dict(DEFAULT_PYSR_KWARGS)
     args.update(pysr_kwargs or {})
     # PySR forbids specifying both `elementwise_loss` and `loss_function`.
@@ -887,10 +902,16 @@ def refit_1d_multiz_for_param(
     # must not also keep the default MSE — drop it so only one survives.
     if args.get("loss_function") is not None:
         args.pop("elementwise_loss", None)
+    if use_sobolev:
+        args["loss_function"] = make_sobolev_loss(sobolev_lambda, sobolev_h)
+        args.pop("elementwise_loss", None)
     args["random_state"] = seed
     t0 = time.time()
     model = PySRRegressor(**args)
-    model.fit(X_act, Y_act.reshape(-1, 1))
+    if sobolev_weights is not None:
+        model.fit(X_act, Y_act.reshape(-1, 1), weights=sobolev_weights)
+    else:
+        model.fit(X_act, Y_act.reshape(-1, 1))
     elapsed = time.time() - t0
     pareto = model.equations_
     best_idx = int(pareto["loss"].idxmin())
