@@ -65,7 +65,8 @@ Stage 6, numpy-scalar TypeError).
 | 6 | **log(P) SR target + log-space combine** | **done** (15 commits, production run validated) |
 | 7 | multi-z Fisher `F = Σ_z F(z)` (joint, Approach A) | **done** — production run validated; IGM-thermal rank-deficiency lifted |
 | 8 | cheap levers: `aq` operator + derivative-validation gate | **done** (filter infra shipped, green); production run showed filter≠generator — see below |
-| 9 | Sobolev derivative-matching loss (the generative fix) | not started — informed by Stage 8 findings + ratio-response spike |
+| 9 | Sobolev derivative-matching loss (the generative fix) | **done** — recovers ns (λ=5); GP-slice set back to {hub, bhfeedback} |
+| 10 | mirror Sobolev refit + gate to multi-z; investigate hub | not started |
 
 ## The key scientific findings
 
@@ -237,7 +238,34 @@ production run produced the key finding, full writeup in
 + faithfulness predicate) validates any Sobolev-trained equation; `custom_operators.py`
 (`aq`) stays.
 
-### Stage 9 plan — Sobolev derivative loss (the generative fix)
+### Stage 9 — Sobolev derivative loss (DONE 2026-06-04)
+
+**Result** (`results/single_z_stage9/COMPARISON.md`): a custom Julia Sobolev
+`loss_function` (finite-diff tree derivative in-loss + per-fidelity GP target
+gradient via the `weights` channel), **λ=5**, **recovers ns** — the Stage 8
+failure. Per-param gradient faithfulness (gate tol 0.25): ns 0.69 (value) →
+0.134 (Sobolev) ✓. Production GP-slice set narrowed from {ns,hub,bhfeedback}
+(Stage 8) to **{hub, bhfeedback}** — meets the "only those two" criterion.
+
+**Method hierarchy:** aq+gate *filter* (can't generate) → ratio-response
+*indirect generative* (fixed 8/11, fragile wiring, stashed) → Sobolev *direct
+generative* (recovers ns). **hub is genuinely hard** — ~0.93 under every method
+(value/ratio/Sobolev even λ=15); stays GP-slice. σ_PySR/σ_GP at single-z is
+rank-deficiency-confounded (don't judge on it).
+
+**Code:** `src/priya_forecast/sobolev_loss.py` (`make_sobolev_loss(lam,h)`,
+`sobolev_target_weights(...)` — per-fidelity, std-normalized, boundary-clamped);
+`refit_1d_for_param(..., use_sobolev, sobolev_lambda, sobolev_h)`; `PySRConfig`
++ CLI `--use-sobolev` + SLURM `USE_SOBOLEV`/`SOBOLEV_LAMBDA`. Gated test
+`tests/test_stage9_end_to_end.py`. Reproduce: `sbatch ... USE_SOBOLEV=1,
+SOBOLEV_LAMBDA=5.0 --array=0-10%3 slurm/single_z_refit.slurm` then
+`run_pipeline.py --config configs/single_z/stage9_z3.6.yaml`.
+
+**Stage 10 (next):** mirror the Sobolev refit + gate to multi-z (the
+well-conditioned regime where σ is interpretable) and a hub-specific
+investigation (why ∂P/∂hub resists symbolic fitting).
+
+### (original Stage 9 plan below — superseded by the result above)
 
 Add a derivative-matching term to the PySR loss:
 `L = MSE(P_SR, P_GP) + λ · ‖∂_θ logP_SR − ∂_θ logP_GP‖²`.
