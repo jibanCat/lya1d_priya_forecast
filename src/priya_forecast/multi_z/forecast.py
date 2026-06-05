@@ -14,7 +14,10 @@ from priya_forecast.fisher import FisherResult, fisher_matrix
 from priya_forecast.ksdata_likelihood import KSDataLikelihood
 from priya_forecast.parameters import PARAM_NAMES, PARAMS_11D
 from priya_forecast.multi_z.combine import build_combined_model_multiz
-from priya_forecast.multi_z.refit import build_refit_from_pareto_multiz
+from priya_forecast.multi_z.refit import (
+    build_refit_from_pareto_multiz,
+    build_refit_from_pareto_multiz_gated,
+)
 
 
 def _build_likelihood(cfg, model):
@@ -108,16 +111,40 @@ def resolve_refit_artifacts(cfg) -> dict[str, tuple[Path, Path]]:
     return out
 
 
-def load_refits(cfg) -> tuple[dict, list[str]]:
-    """Reconstruct refits from artifacts; return (refits, dropped)."""
+def load_refits(
+    cfg,
+    *,
+    gp=None,
+    fid: np.ndarray | None = None,
+    k_grid: np.ndarray | None = None,
+    z_grid=None,
+) -> tuple[dict, list[str]]:
+    """Reconstruct refits from artifacts; return (refits, dropped).
+
+    When ``gp``, ``fid``, ``k_grid``, and ``z_grid`` are all provided the
+    gated builder ``build_refit_from_pareto_multiz_gated`` is used: candidates
+    are iterated in ascending-loss order and the first whose finite-difference
+    θ-gradient is faithful to the GP over the (k, z) grid is returned.
+    Otherwise the un-gated ``build_refit_from_pareto_multiz`` (best-loss pick)
+    is used, preserving backward compatibility for existing callers and tests.
+    """
+    use_gate = (gp is not None and fid is not None
+                and k_grid is not None and z_grid is not None)
     refits: dict = {n: None for n in PARAM_NAMES}
     dropped: list[str] = []
     for param, (csv, norm) in resolve_refit_artifacts(cfg).items():
         try:
-            refits[param] = build_refit_from_pareto_multiz(
-                param_name=param, z_min=cfg.z_min, z_max=cfg.z_max,
-                pareto_csv=csv, norm_npz=norm, pick_rule=cfg.pick,
-            )
+            if use_gate:
+                refits[param] = build_refit_from_pareto_multiz_gated(
+                    param_name=param, z_min=cfg.z_min, z_max=cfg.z_max,
+                    pareto_csv=csv, norm_npz=norm, gp=gp, fid=fid,
+                    k_grid=k_grid, z_grid=z_grid,
+                )
+            else:
+                refits[param] = build_refit_from_pareto_multiz(
+                    param_name=param, z_min=cfg.z_min, z_max=cfg.z_max,
+                    pareto_csv=csv, norm_npz=norm, pick_rule=cfg.pick,
+                )
         except ValueError as exc:
             dropped.append(param)
             print(f"[multi_z forecast] {param}: {exc} — GP-slice fallback.")

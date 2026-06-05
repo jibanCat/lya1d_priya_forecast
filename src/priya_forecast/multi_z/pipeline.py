@@ -119,7 +119,13 @@ def run_forecast_only_multiz(cfg: MultiZPipelineConfig) -> dict:
     out_dir = Path(cfg.output_dir); out_dir.mkdir(parents=True, exist_ok=True)
     gp = _build_gp(cfg)
     fid = np.asarray(fiducial_vector(), dtype=float)
-    refits, dropped = _fc.load_refits(cfg)
+    # Build the GP likelihood once to get the shared (k_grid, z_grid) — the
+    # same grids run_three_fisher_multiz will use — then pass them to
+    # load_refits so the gated builder validates derivatives on the real grid.
+    like_gp = _fc._build_likelihood(cfg, gp)
+    k_grid, z_grid = _fc.shared_k_and_z_grid(like_gp)
+    refits, dropped = _fc.load_refits(cfg, gp=gp, fid=fid,
+                                      k_grid=k_grid, z_grid=z_grid)
     pysr_available = any(v is not None for v in refits.values())
     results = _fc.run_three_fisher_multiz(cfg=cfg, gp=gp, fid=fid, refits=refits)
     deliverables = _write_forecast_deliverables_multiz(
@@ -150,7 +156,23 @@ def run_refit_and_forecast_multiz(cfg: MultiZPipelineConfig) -> dict:
             dropped.append(param)
             print(f"[multi_z refit] {param}: no x0 dependence — GP-slice fallback.")
     pysr_available = bool(cfg.parameters) and len(dropped) < len(cfg.parameters)
-    results = _fc.run_three_fisher_multiz(cfg=cfg, gp=gp_hf, fid=fid, refits=refits)
+    # Build the HF GP likelihood to get the (k_grid, z_grid) used by the
+    # Fisher forecast, then apply the derivative gate when loading saved refits.
+    like_gp_hf = _fc._build_likelihood(cfg, gp_hf)
+    fc_k_grid, fc_z_grid = _fc.shared_k_and_z_grid(like_gp_hf)
+    # Merge fresh PySR results (just run) with any saved artifacts, gating both.
+    saved_refits, dropped_saved = _fc.load_refits(
+        cfg, gp=gp_hf, fid=fid, k_grid=fc_k_grid, z_grid=fc_z_grid,
+    )
+    # Fresh results take priority over saved artifacts; drop list is combined.
+    for param, r in refits.items():
+        if r is not None:
+            saved_refits[param] = r
+    for p in dropped_saved:
+        if p not in dropped:
+            dropped.append(p)
+    results = _fc.run_three_fisher_multiz(cfg=cfg, gp=gp_hf, fid=fid,
+                                          refits=saved_refits)
     deliverables = _write_forecast_deliverables_multiz(
         cfg, out_dir, results, pysr_available=pysr_available, dropped=dropped)
     return {"sigmas": {k: fr.sigma for k, fr in results.items()},

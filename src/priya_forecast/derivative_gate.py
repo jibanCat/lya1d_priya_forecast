@@ -57,3 +57,34 @@ def derivative_faithful(*, cand_grad: np.ndarray, target_grad: np.ndarray,
         return False
     rel = np.abs(cand[keep] / target[keep] - 1.0)
     return bool(np.median(rel) <= tol)
+
+
+def derivative_faithful_multiz(
+    *, refit, gp, fid: np.ndarray, fid_value: float, k_grid: np.ndarray,
+    z_grid, param_idx: int, tol: float = 0.25, floor_frac: float = 1e-3,
+    h: float = 1e-3,
+) -> bool:
+    """True if the median over (k, z) of |∂eq/∂θ ÷ ∂logP_GP/∂θ − 1| ≤ tol.
+
+    Computes, per z in z_grid, the equation's finite-diff θ-gradient and the
+    GP's, masks near-zero GP-gradient bins, and takes the median over all
+    kept (k, z) pairs.  Returns False if no usable (k, z) pairs exist.
+    """
+    fid = np.asarray(fid, dtype=float)
+    k_grid = np.asarray(k_grid, dtype=float)
+    rel: list[float] = []
+    for z in np.asarray(z_grid, dtype=float):
+        tgt = gp_param_gradient(gp=gp, fid=fid, k_grid=k_grid, z=float(z),
+                                param_idx=param_idx, h=h)
+        g = equation_param_gradient(refit=refit, fid_value=fid_value,
+                                    k_grid=k_grid, z=float(z), h=h)
+        amax = float(np.max(np.abs(tgt)))
+        if amax == 0.0:
+            continue
+        keep = np.abs(tgt) >= floor_frac * amax
+        if not np.any(keep):
+            continue
+        rel.extend(list(np.abs(g[keep] / tgt[keep] - 1.0)))
+    if not rel:
+        return False
+    return bool(np.median(np.asarray(rel)) <= tol)

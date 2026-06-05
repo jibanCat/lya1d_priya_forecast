@@ -12,7 +12,7 @@ import numpy as np
 
 from priya_forecast.models.normalization import MultiZNormalizationSpec
 from priya_forecast.models.pysr_model import load_pareto_csv, pick_equation
-from priya_forecast.parameters import get_param
+from priya_forecast.parameters import PARAM_NAMES, get_param
 from priya_forecast.refit_1d_pysr import (
     HF_RESOLUTION, LF_RESOLUTION, Refit1DResult, refit_1d_multiz_for_param,
 )
@@ -40,6 +40,63 @@ def _save_sidecar(result: Refit1DResult, path) -> None:
     )
 
 
+def _multiz_refit_from_row(
+    *,
+    row,
+    df,
+    param_name: str,
+    z_min: float,
+    z_max: float,
+    norm: "MultiZNormalizationSpec",
+    x_param_min: float,
+    x_param_max: float,
+    res_k_min: float,
+    res_k_max: float,
+) -> Refit1DResult:
+    """Construct a Refit1DResult from a single Pareto-front row + pre-loaded norm.
+
+    Used by both ``build_refit_from_pareto_multiz`` (one call, picked row)
+    and ``build_refit_from_pareto_multiz_gated`` (loop over candidates).
+    """
+    meta = get_param(param_name)
+    z_center = float((z_min + z_max) / 2.0)
+    return Refit1DResult(
+        param_name=param_name, z=z_center,
+        equation_str=str(row["Equation"]),
+        pareto_complexity=int(row["Complexity"]),
+        pareto_loss=float(row["Loss"]),
+        pareto_complexities=[int(c) for c in df["Complexity"]],
+        pareto_losses=[float(x) for x in df["Loss"]],
+        x_param_min=x_param_min, x_param_max=x_param_max,
+        k_min=res_k_min, k_max=res_k_max,
+        lf_resolution=LF_RESOLUTION, hf_resolution=HF_RESOLUTION,
+        fid_value=float(meta.fid), norm=norm,
+        k_grid=np.asarray(norm.k_grid, dtype=float),
+        wall_time_s=0.0,
+        lf_train_mean_rel_err=0.0, hf_train_mean_rel_err=0.0,
+        lf_train_max_rel_err=0.0, hf_train_max_rel_err=0.0,
+        z_min=float(z_min), z_max=float(z_max),
+    )
+
+
+def _load_norm_sidecar(norm_npz) -> tuple[
+    "MultiZNormalizationSpec", float, float, float, float
+]:
+    """Load norm spec + empirical ranges from an npz sidecar.
+
+    Returns (norm, x_param_min, x_param_max, res_k_min, res_k_max).
+    """
+    norm = MultiZNormalizationSpec.load_npz(norm_npz)
+    d = np.load(norm_npz)
+    return (
+        norm,
+        float(d["x_param_min"]),
+        float(d["x_param_max"]),
+        float(d["result_k_min"]),
+        float(d["result_k_max"]),
+    )
+
+
 def build_refit_from_pareto_multiz(
     *,
     param_name: str,
@@ -59,28 +116,73 @@ def build_refit_from_pareto_multiz(
             f"({param_name}, z∈[{z_min},{z_max}]): all {len(df)} rows unusable."
         )
     equation_str, complexity, loss = pick_equation(safe, pick_rule)
-    norm = MultiZNormalizationSpec.load_npz(norm_npz)
-    d = np.load(norm_npz)
-    x_param_min = float(d["x_param_min"])
-    x_param_max = float(d["x_param_max"])
-    res_k_min = float(d["result_k_min"])
-    res_k_max = float(d["result_k_max"])
+    norm, x_param_min, x_param_max, res_k_min, res_k_max = _load_norm_sidecar(norm_npz)
+    # Build a synthetic row dict to reuse the shared helper.
+    row = {"Equation": equation_str, "Complexity": complexity, "Loss": loss}
+    return _multiz_refit_from_row(
+        row=row, df=df, param_name=param_name, z_min=z_min, z_max=z_max,
+        norm=norm, x_param_min=x_param_min, x_param_max=x_param_max,
+        res_k_min=res_k_min, res_k_max=res_k_max,
+    )
+
+
+def build_refit_from_pareto_multiz_gated(
+    *,
+    param_name: str,
+    z_min: float,
+    z_max: float,
+    pareto_csv,
+    norm_npz,
+    gp,
+    fid: np.ndarray,
+    k_grid: np.ndarray,
+    z_grid,
+    derivative_tol: float = 0.25,
+) -> Refit1DResult:
+    """Filter Fisher-safe -> derivative-gate over (k,z) in best-loss order.
+
+    Returns the first 4-input Refit1DResult whose finite-difference
+    θ-gradient is faithful to the GP's over the full (k, z) grid.
+    Raises ValueError if no Fisher-safe equation exists OR if none pass
+    the multi-z derivative gate — the caller's try/except ValueError
+    → GP-slice fallback handles both.
+    """
+    from priya_forecast.derivative_gate import derivative_faithful_multiz
+
+    df = load_pareto_csv(pareto_csv)
+    safe = _filter_fisher_safe(df, n_features=4)
+    if safe.empty:
+        raise ValueError(
+            f"No x0-dependent / Fisher-safe equation in Pareto front for "
+            f"({param_name}, z∈[{z_min},{z_max}]): all {len(df)} rows unusable."
+        )
+    safe = safe.sort_values("Loss").reset_index(drop=True)
+
+    # Load norm sidecar once — same for all candidates.
+    norm, x_param_min, x_param_max, res_k_min, res_k_max = _load_norm_sidecar(norm_npz)
+
     meta = get_param(param_name)
-    z_center = float((z_min + z_max) / 2.0)
-    return Refit1DResult(
-        param_name=param_name, z=z_center, equation_str=equation_str,
-        pareto_complexity=int(complexity), pareto_loss=float(loss),
-        pareto_complexities=[int(c) for c in df["Complexity"]],
-        pareto_losses=[float(x) for x in df["Loss"]],
-        x_param_min=x_param_min, x_param_max=x_param_max,
-        k_min=res_k_min, k_max=res_k_max,
-        lf_resolution=LF_RESOLUTION, hf_resolution=HF_RESOLUTION,
-        fid_value=float(meta.fid), norm=norm,
-        k_grid=np.asarray(norm.k_grid, dtype=float),
-        wall_time_s=0.0,
-        lf_train_mean_rel_err=0.0, hf_train_mean_rel_err=0.0,
-        lf_train_max_rel_err=0.0, hf_train_max_rel_err=0.0,
-        z_min=float(z_min), z_max=float(z_max),
+    fid_value = float(meta.fid)
+    param_idx = list(PARAM_NAMES).index(param_name)
+    fid = np.asarray(fid, dtype=float)
+    k_grid = np.asarray(k_grid, dtype=float)
+
+    for _, row in safe.iterrows():
+        cand = _multiz_refit_from_row(
+            row=row, df=df, param_name=param_name, z_min=z_min, z_max=z_max,
+            norm=norm, x_param_min=x_param_min, x_param_max=x_param_max,
+            res_k_min=res_k_min, res_k_max=res_k_max,
+        )
+        if derivative_faithful_multiz(
+            refit=cand, gp=gp, fid=fid, fid_value=fid_value,
+            k_grid=k_grid, z_grid=z_grid, param_idx=param_idx,
+            tol=derivative_tol,
+        ):
+            return cand
+
+    raise ValueError(
+        f"No derivative-faithful equation for ({param_name}, z∈[{z_min},{z_max}]) "
+        f"after checking {len(safe)} Fisher-safe candidates."
     )
 
 
