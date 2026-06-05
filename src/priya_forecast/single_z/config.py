@@ -134,12 +134,16 @@ class PySRConfig:
     procs: int = 4
     maxsize: int = 20
     seed: int = 0
+    use_sobolev: bool = False
+    sobolev_lambda: float = 1.0
 
     def validate(self) -> None:
         if self.niterations < 1:
             raise ValueError("pysr.niterations must be >= 1.")
         if self.populations < 1 or self.procs < 1 or self.maxsize < 5:
             raise ValueError("pysr.{populations,procs,maxsize} must be reasonable.")
+        if self.use_sobolev and self.sobolev_lambda <= 0:
+            raise ValueError("sobolev_lambda must be > 0 when use_sobolev=True.")
 
 
 @dataclass
