@@ -1,0 +1,9 @@
+# param=ns z=3.6 tol=0.25 log_space=True source=results/single_z_stage6_log/refit/z3.6/pareto_ns.csv
+Complexity,Loss,grad_err,n_keep,gate_pass,x0_enters
+16,2.621778,0.602841911366579,48,False,True
+14,2.6359458,0.663502742467156,48,False,True
+13,2.6469245,0.7194179693006746,48,False,True
+12,2.6642914,0.512270160612758,48,False,True
+11,2.752067,0.992029068684552,48,False,True
+10,2.7577863,0.8337409633969506,48,False,True
+8,2.800187,0.8485150112267659,48,False,True

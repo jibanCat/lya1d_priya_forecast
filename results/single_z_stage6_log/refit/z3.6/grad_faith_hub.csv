@@ -1,0 +1,3 @@
+# param=hub z=3.6 tol=0.25 log_space=True source=results/single_z_stage6_log/refit/z3.6/pareto_hub.csv
+Complexity,Loss,grad_err,n_keep,gate_pass,x0_enters
+20,14.773709,1.0004706421279392,48,False,True

@@ -1,0 +1,8 @@
+# param=bhfeedback z=3.6 tol=0.25 log_space=True source=results/single_z_stage6_log/refit/z3.6/pareto_bhfeedback.csv
+Complexity,Loss,grad_err,n_keep,gate_pass,x0_enters
+20,3.0024765,1.7146762200957932,48,False,True
+18,3.0024781,1.7149668714044037,48,False,True
+16,3.0024788,1.7113290526752865,48,False,True
+14,3.023932,1.3343470017765724,48,False,True
+13,3.0239334,1.334347936689581,48,False,True
+11,3.0239348,1.3343475858361697,48,False,True
