@@ -43,7 +43,7 @@ def render_grid(fronts_by_param, out_path, *, gate_tol=GATE_TOL,
     params = list(param_order) if param_order else list(fronts_by_param)
     nrow = int(np.ceil(len(params) / ncol))
     fig, axes = plt.subplots(nrow, ncol, figsize=(4 * ncol, 3 * nrow),
-                             squeeze=False)
+                             squeeze=False, layout="constrained")
     cmap = plt.get_cmap("RdYlGn_r")
     norm = mcolors.TwoSlopeNorm(vmin=0.0, vcenter=gate_tol, vmax=1.0)
     last_sc = None
@@ -82,6 +82,6 @@ def render_grid(fronts_by_param, out_path, *, gate_tol=GATE_TOL,
         cbar.set_label("grad_err  (median |d_eq / d_GP - 1|, clipped at 1)")
         cbar.ax.axhline(gate_tol, color="k", lw=1.2)
 
-    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    fig.savefig(out_path, dpi=150)
     plt.close(fig)
     return out_path
