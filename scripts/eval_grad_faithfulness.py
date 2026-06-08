@@ -32,6 +32,7 @@ import priya_forecast.single_z.refit as _refit
 from priya_forecast.grad_faith_io import (
     equation_has_x0, write_grad_faith_sidecar,
 )
+from priya_forecast.refit_1d_pysr import HF_RESOLUTION
 
 
 def median_rel_error(cand_grad, target_grad, floor_frac=1e-3):
@@ -86,6 +87,19 @@ def main():
         log_space=args.log_space,
     )
 
+    # Common value-loss reference: the GP's logP over the HF training theta-grid
+    # (same fidelity + resolution as the gradient gate). value_mse (below) is the
+    # value analog of grad_err and -- unlike the PySR `Loss` column, which is the
+    # Sobolev objective for Sobolev runs -- is comparable across runs trained with
+    # different objectives. Precompute once (independent of the candidate).
+    kg = np.asarray(kg, dtype=float)
+    theta_grid = np.asarray(d["params_hf"][:, pidx], dtype=float)
+    logP_gp_grid = np.empty((theta_grid.size, kg.size), dtype=float)
+    for i, t in enumerate(theta_grid):
+        tv = fid.copy()
+        tv[pidx] = float(t)
+        logP_gp_grid[i] = np.log(np.asarray(gp_hf.predict(tv, kg, args.z), float))
+
     rows = []
     for _, row in safe.sort_values("Loss").iterrows():
         cand = fc._refit_from_row(
@@ -94,24 +108,31 @@ def main():
             meta=meta, k_grid=kg, norm=norm, log_space=args.log_space,
         )
         g = equation_param_gradient(refit=cand, fid_value=float(meta.fid),
-                                    k_grid=np.asarray(kg, float), z=args.z)
+                                    k_grid=kg, z=args.z)
         err, nkeep = median_rel_error(g, target)
+        logP_eq = np.array([
+            cand.predict_log(theta_phys=float(t), k=kg,
+                             resolution=HF_RESOLUTION, z=args.z)
+            for t in theta_grid
+        ])
+        value_mse = float(np.mean((logP_eq - logP_gp_grid) ** 2))
         rows.append({
             "Complexity": int(row["Complexity"]),
             "Loss": float(row["Loss"]),
             "grad_err": err,
+            "value_mse": value_mse,
             "n_keep": int(nkeep),
             "gate_pass": bool(err <= args.tol),
             "x0_enters": bool(equation_has_x0(str(row["Equation"]))),
         })
 
     print(f"\n=== {args.param} z={args.z}  (Fisher-safe candidates, by loss) ===")
-    print(f"{'cmplx':>6} {'loss':>10} {'grad_err':>10} {'gate(<=%.2f)':>12}"
-          % args.tol)
+    print(f"{'cmplx':>6} {'loss':>10} {'grad_err':>10} {'value_mse':>10} "
+          f"{'gate(<=%.2f)':>12}" % args.tol)
     for r in rows:
         flag = "PASS" if r["gate_pass"] else "fail"
         print(f"{r['Complexity']:>6} {r['Loss']:>10.5f} "
-              f"{r['grad_err']:>10.4f} {flag:>12}")
+              f"{r['grad_err']:>10.4f} {r['value_mse']:>10.4f} {flag:>12}")
 
     if rows:
         best_loss = rows[0]  # already sorted by loss asc

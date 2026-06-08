@@ -1,9 +1,13 @@
 """Read/write per-candidate gradient-faithfulness sidecars.
 
 A sidecar pairs 1:1 with a PySR Pareto CSV and records, for every
-Fisher-safe candidate, the derivative-faithfulness metric the production
-gate uses (median_k |d_eq/d_theta / d_P_GP/d_theta - 1| at fid). Kept
-emulator-free so the plotter can consume it without GPy/lyaemu.
+Fisher-safe candidate, two emulator-grounded metrics evaluated against the
+GP: the derivative-faithfulness metric the production gate uses (`grad_err`
+= median_k |d_eq/d_theta / d_P_GP/d_theta - 1| at fid) and a common value
+loss (`value_mse` = mean (logP_eq - logP_GP)^2 over a theta x k grid). The
+common value loss makes the value-Pareto y-axis comparable across runs that
+were trained with different objectives (value MSE vs the Sobolev loss).
+Kept emulator-free so the plotter can consume it without GPy/lyaemu.
 """
 from __future__ import annotations
 
@@ -13,7 +17,8 @@ from pathlib import Path
 import pandas as pd
 
 SIDECAR_COLUMNS = [
-    "Complexity", "Loss", "grad_err", "n_keep", "gate_pass", "x0_enters",
+    "Complexity", "Loss", "grad_err", "value_mse", "n_keep", "gate_pass",
+    "x0_enters",
 ]
 
 _X0 = re.compile(r"\bx0\b")

@@ -29,6 +29,11 @@ def main():
     ap.add_argument("--sidecar-dir", action="append", default=None,
                     help="optional LABEL=SIDECAR_DIR overrides (repeatable)")
     ap.add_argument("--out", required=True)
+    ap.add_argument("--y-col", default="auto",
+                    choices=["auto", "value_mse", "Loss"],
+                    help="y-axis column: 'value_mse' (common, comparable), "
+                         "'Loss' (raw PySR loss), or 'auto' (value_mse if any "
+                         "sidecar present, else Loss)")
     args = ap.parse_args()
 
     sidecar_override = {}
@@ -57,9 +62,22 @@ def main():
         if rows:
             fronts_by_param[param] = rows
 
+    # Resolve y-axis column. value_mse is the honest, cross-objective-comparable
+    # axis; fall back to raw PySR Loss only when no sidecar carries value_mse.
+    y_col = args.y_col
+    if y_col == "auto":
+        has_vmse = any(
+            r["front"]["value_mse"].notna().any()
+            for rows in fronts_by_param.values() for r in rows
+        )
+        y_col = "value_mse" if has_vmse else "Loss"
+    y_label = ("value MSE vs GP (logP, HF)" if y_col == "value_mse"
+               else "PySR training loss")
+
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-    render_grid(fronts_by_param, args.out, param_order=list(PARAM_NAMES))
-    print(f"wrote {args.out}  ({len(fronts_by_param)} params)")
+    render_grid(fronts_by_param, args.out, param_order=list(PARAM_NAMES),
+                y_col=y_col, y_label=y_label)
+    print(f"wrote {args.out}  ({len(fronts_by_param)} params, y={y_col})")
 
 
 if __name__ == "__main__":

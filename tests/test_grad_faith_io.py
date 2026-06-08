@@ -15,9 +15,9 @@ def test_equation_has_x0_word_boundary():
 
 def test_sidecar_roundtrip_preserves_columns_and_bool(tmp_path):
     rows = [
-        {"Complexity": 1, "Loss": 24.636, "grad_err": 0.90,
+        {"Complexity": 1, "Loss": 24.636, "grad_err": 0.90, "value_mse": 0.40,
          "n_keep": 40, "gate_pass": False, "x0_enters": True},
-        {"Complexity": 3, "Loss": 10.020, "grad_err": 0.134,
+        {"Complexity": 3, "Loss": 10.020, "grad_err": 0.134, "value_mse": 0.02,
          "n_keep": 40, "gate_pass": True, "x0_enters": True},
     ]
     out = write_grad_faith_sidecar(
