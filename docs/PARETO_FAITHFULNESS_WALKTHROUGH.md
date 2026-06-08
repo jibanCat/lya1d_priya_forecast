@@ -30,8 +30,10 @@ all-red.
 
 - **One panel per parameter** (11 PRIYA parameters), single-z **z = 3.6**, on the
   real KODIAQ-SQUAD covariance.
-- **x = complexity** (PySR equation node count); **y = value loss** (log scale).
-  Each marker is one Pareto-optimal equation at that complexity.
+- **x = complexity** (PySR equation node count); **y = `value_mse`** (log scale) =
+  `mean over (θ,k) of (logP_eq − logP_GP)²` on the HF training θ-grid — a *common,
+  cross-objective-comparable* value loss (see the axis note below). Each marker is
+  one Fisher-safe Pareto candidate.
 - **Series** (marker shape): `value@20` = circles (value-loss target, maxsize 20,
   stage6_log); `Sobolev@20` = squares (Sobolev derivative loss λ=5, stage9);
   `value@budget` = triangles (value-loss target at **certified maxsize≈35**,
@@ -42,10 +44,34 @@ all-red.
   line): green ≤ 0.25 (derivative-faithful) → red ≫ 0.25 (the "Fisher's Mirage":
   right value, wrong slope). `grad_err` is clipped at 1 for color only; the
   sidecar keeps the raw value.
-- **Gray markers** are Pareto candidates filtered out as *not Fisher-safe* — the
-  parameter feature `x0` is absent from the equation, so it carries no usable
-  derivative and the gate cannot score it. Gray at low complexity (e.g. hub) is
-  itself a signal: the search did not even include the parameter.
+
+> **Why the y-axis is `value_mse`, not the PySR `Loss` column.** The PySR `Loss`
+> is the *training objective*, which differs by run: for Sobolev it is
+> `MSE + λ·‖∂eq − ∂GP‖²`, a numerically larger quantity than the value MSE. Plotting
+> those raw losses together would make Sobolev look like it "fits values worse"
+> purely by construction. So every candidate is re-scored against the GP with one
+> common value metric (`value_mse`, the value analog of `grad_err`: same GP, same
+> HF resolution). Now height (value) and color (derivative) are each comparable
+> across all three series. `value_mse` is emulator-only, written to the sidecars
+> next to `grad_err`; switch axes with `plot_pareto_faithfulness.py --y-col`.
+>
+> **The decoupling this exposes (ns).** value@budget reaches the *lowest* value_mse
+> of any series (deeper search → better value fit) yet stays **red** (grad_err 0.32);
+> Sobolev matches that value_mse and goes **green** (0.19). Value accuracy and
+> derivative faithfulness are independent axes — exactly the Mirage, made literal.
+
+### Two supplementary views
+
+**Scorecard** — the one-glance summary (`grad_err` of the value-optimal equation,
+value-loss ● vs Sobolev ■, sorted; gate dashed). Only hub & bhfeedback stay above
+the gate under Sobolev; ns makes the biggest jump.
+
+![Scorecard](../results/single_z_stage_pareto_diag/summary_scorecard.png)
+
+**ns money panel** — the budget control on the honest value axis: budget (▲) reaches
+the lowest value_mse but never goes green; Sobolev (■) matches it and does.
+
+![ns money panel](../results/single_z_stage_pareto_diag/ns_money_panel.png)
 
 ## The mechanism the figure makes visible
 
@@ -136,7 +162,8 @@ not a re-selection.
 - **hub** (Sobolev best 0.935): two compounding causes. (a) **Under-search /
   weak signal** — under value@20 the feature `x0` first enters only at complexity
   **20** (the max); across the rest of the front the equation does not contain hub
-  at all (the gray markers). (b) **Wrong basis** — hub acts like a k-rescaling /
+  at all (those candidates are dropped as not-Fisher-safe, carrying no derivative).
+  (b) **Wrong basis** — hub acts like a k-rescaling /
   Alcock–Paczynski-like distortion, a coordinate transform of k that a per-param
   *native-k* multiplicative response cannot express. The tell is that even Sobolev,
   which penalizes the gradient *directly*, plateaus at 0.935 — forcing the slope
