@@ -1,8 +1,7 @@
 # Per-parameter Pareto-faithfulness — walkthrough
 
-**Status:** living document. Phase 1 (gray, value-loss layout) landed 2026-06-08;
-the color (derivative-faithfulness) overlay and per-parameter verdicts land in
-Phase 2 after the cluster gradient eval. Spec:
+**Status:** color figure + per-parameter verdicts landed 2026-06-08 (single-z
+z=3.6). Spec:
 `docs/superpowers/specs/2026-06-08-pareto-faithfulness-diagnostic-design.md`.
 
 ## What this figure is, and why the paper turns on it
@@ -34,103 +33,140 @@ all-red.
 - **x = complexity** (PySR equation node count); **y = value loss** (log scale).
   Each marker is one Pareto-optimal equation at that complexity.
 - **Series** (marker shape): `value@20` = circles (value-loss target, maxsize 20,
-  stage6_log); `Sobolev@20` = squares (Sobolev derivative loss λ=5, stage9). A
-  third series `value@budget` (certified maxsize≈35) is added on the ns panel in
-  Phase 3 to test the budget confound.
+  stage6_log); `Sobolev@20` = squares (Sobolev derivative loss λ=5, stage9);
+  `value@budget` = triangles (value-loss target at **certified maxsize≈35**,
+  shown only on the ns panel — the budget control).
 - **Marker color = `grad_err`** = `median_k |∂eq/∂θ ÷ ∂P_GP/∂θ − 1|` at the
   fiducial point over non-negligible k-bins — the *same metric the production
-  derivative gate uses*. The colorbar is thresholded at the **0.25 gate**: green
-  ≤ 0.25 (derivative-faithful) → red ≫ 0.25 (the "Fisher's Mirage": right value,
-  wrong slope). `grad_err` is clipped at 1 for color only; the sidecar keeps the
-  raw value.
-- **Phase 1 caveat:** in the current figure **all markers are gray** — the
-  gradient sidecars do not exist yet, so color is pending the cluster eval. The
-  *value-loss geometry* (circles vs squares) is already meaningful and is read
-  below.
+  derivative gate uses*. The colorbar is thresholded at the **0.25 gate** (black
+  line): green ≤ 0.25 (derivative-faithful) → red ≫ 0.25 (the "Fisher's Mirage":
+  right value, wrong slope). `grad_err` is clipped at 1 for color only; the
+  sidecar keeps the raw value.
+- **Gray markers** are Pareto candidates filtered out as *not Fisher-safe* — the
+  parameter feature `x0` is absent from the equation, so it carries no usable
+  derivative and the gate cannot score it. Gray at low complexity (e.g. hub) is
+  itself a signal: the search did not even include the parameter.
 
 ## The mechanism the figure makes visible
 
 PySR minimizes **value** mean-squared error. An equation can match P(θ) to high
 accuracy yet have the wrong **slope** ∂P/∂θ at the fiducial point — and Fisher
 sees only the slope. So *value-accurate ⇏ derivative-accurate*
-(arXiv:2406.06067, "Fisher's Mirage"). In the finished figure this shows up as a
-disagreement between a marker's **height** (value loss, low = good) and its
-**color** (derivative error, green = good): a low, red marker is the Mirage. The
-Sobolev loss adds `λ·‖∂_θ eq − ∂_θ logP_GP‖²` to the objective, trading a little
-value loss (squares sit *above* circles) to pull the slope onto the GP's — i.e.
-trading height for color.
+(arXiv:2406.06067, "Fisher's Mirage"). In the figure this is a disagreement
+between a marker's **height** (value loss, low = good) and its **color**
+(derivative error, green = good): a low, red marker is the Mirage. The Sobolev
+loss adds `λ·‖∂_θ eq − ∂_θ logP_GP‖²` to the objective, trading a little value
+loss (squares sit *above* circles) to pull the slope onto the GP's — trading
+height for color.
 
-## Per-parameter reading
+## The numbers (z = 3.6)
 
-> Phase-1 entries note only what the *value-loss* geometry already shows. The
-> `grad_err`/color verdict (and the final category) is filled in Phase 2.
+`grad_err` of the **value-optimal** equation (lowest loss) and of the **most
+faithful** equation on each front; ✓/✗ = whether *any* equation on that front
+clears the 0.25 gate. `x0@` = lowest complexity at which the parameter feature
+enters under value@20.
 
-### dtau0
-_Color pending (Phase 2)._ Value front: smooth, deep descent — looks easy on value.
+| param | value: best-loss | value: best-faith | value ✓? | Sobolev: best-loss | Sobolev: best-faith | Sobolev ✓? | x0@ |
+|-------|-----:|-----:|:--:|-----:|-----:|:--:|--:|
+| dtau0 | 0.214 | 0.080 | ✓ | 0.003 | 0.003 | ✓ | 3 |
+| tau0 | 0.160 | 0.159 | ✓ | 0.009 | 0.007 | ✓ | 1 |
+| ns | 0.603 | 0.512 | ✗ | 0.193 | 0.193 | ✓ | 8 |
+| Ap | 0.287 | 0.108 | ✓ | 0.082 | 0.036 | ✓ | 2 |
+| herei | 0.251 | 0.068 | ✓ | 0.060 | 0.060 | ✓ | 3 |
+| heref | 0.154 | 0.150 | ✓ | 0.206 | 0.039 | ✓ | 7 |
+| alphaq | 0.152 | 0.152 | ✓ | 0.173 | 0.084 | ✓ | 4 |
+| hub | 1.000 | 1.000 | ✗ | 0.935 | 0.935 | ✗ | 20 |
+| omegamh2 | 0.320 | 0.138 | ✓ | 0.198 | 0.071 | ✓ | 7 |
+| hireionz | 0.240 | 0.117 | ✓ | 0.090 | 0.066 | ✓ | 6 |
+| bhfeedback | 1.715 | 1.334 | ✗ | 0.946 | 0.664 | ✗ | 11 |
 
-### tau0
-_Color pending (Phase 2)._ Value front descends cleanly; Sobolev tracks close.
+### Budget control (ns) — the Mirage is not a search-budget artifact
 
-### ns
-_Color pending (Phase 2)._ Sobolev squares plateau visibly **above** value
-circles → the derivative constraint costs value loss here. This is the headline
-Mirage-cure case (Stage 9: grad_err 0.69 → 0.13 under Sobolev); the budget
-control (Phase 3) tests whether deeper complexity alone, without Sobolev, ever
-reaches the gate.
+The review's central objection was that "PySR can't" might really be "the search
+was starved" (the ladder ran maxsize=20; `docs/PYSR_HYPOTHESIS.md` says curvature
+needs maxsize≥30). We reran ns value-loss at **maxsize=35** and scored every
+candidate (`results/decider_budget_z3.6/.../grad_faith_ns.csv`):
 
-### Ap
-_Color pending (Phase 2)._ Value front descends cleanly; expected easy.
+- best-loss (complexity 35, loss 0.442): `grad_err = 0.319` — **fails**.
+- most faithful over the entire complexity 13→35 front: `0.319` — **fails**.
+- **ANY passes the gate: no.**
 
-### herei
-_Color pending (Phase 2)._ Large value-loss gap between Sobolev and value fronts.
-One half of the real **herei × alphaq** coupling (+0.45) that a per-param-1D +
-additive combine cannot represent — expect this among the worst on color.
+Budget lowers value loss (0.44 at complexity 35) and improves the derivative
+(0.512 → 0.319) but **plateaus above the gate**. Sobolev — a *smaller* budget,
+targeted at the derivative — crosses it (0.193). So the ns Mirage is generative,
+not a budget shortfall: you need the right *objective*, not more search.
 
-### heref
-_Color pending (Phase 2)._ Similar to herei; Sobolev front sits well above value.
+## Per-parameter reading and the failure-mode taxonomy
 
-### alphaq
-_Color pending (Phase 2)._ The other half of the herei × alphaq coupling — expect
-poor faithfulness for the same structural reason.
+Four categories emerge. The diagnosis for each is empirical (the table above)
+plus the physical mechanism.
 
-### hub
-_Color pending (Phase 2)._ **The key resister.** Two candidate causes to check on
-the colored panel: (a) **under-search** — at what complexity does the parameter
-feature `x0` first enter the equation? (review notes ~complexity 6, signal buried
-under a resolution offset); (b) **wrong basis** — hub acts like a k-rescaling /
-Alcock-Paczynski-like distortion, a coordinate transform of k that a per-param
-native-k 1D ansatz cannot express. If hub stays red even under Sobolev at *all*
-complexities, that is the basis argument, not merely starved search.
+### 1. Robustly faithful — SR works out of the box
+**dtau0, tau0, heref, alphaq, hireionz** (and Ap is borderline-robust). The
+value-optimal equation already clears the gate; Sobolev makes them near-perfect
+(dtau0 0.003, tau0 0.007). These are smooth, monotone, well-isolated P1D
+responses (mean-flux and IGM-thermal amplitudes) whose ∂P/∂θ a low-complexity
+expression captures directly.
 
-### omegamh2
-_Color pending (Phase 2)._ Value front descends cleanly; expected tractable.
+### 2. Selection-sensitive Mirage — a faithful equation exists, but not the value-optimal one
+**Ap, herei, omegamh2.** The lowest-loss equation fails the gate (Ap 0.287,
+herei 0.251, omegamh2 0.320) but a faithful equation sits a little higher on the
+*same value front* (best-faith 0.108 / 0.068 / 0.138). Here the failure is one of
+**selection**: pick by value RMSE and you get the Mirage; pick by the derivative
+gate (or train with Sobolev) and you recover it. This is the regime where the
+gate-as-filter is sufficient — no new objective needed.
 
-### hireionz
-_Color pending (Phase 2)._ Deep value descent; an IGM-thermal parameter (needs
-multi-z to be well-conditioned, but value-fit looks fine at z=3.6).
+> Note on the herei × alphaq coupling: both are *individually* faithful here —
+> their 1D marginal slopes ∂P/∂herei, ∂P/∂alphaq fit fine. The known +0.45
+> coupling (`memory/headline_findings.md`) is an **off-diagonal / combine-level**
+> limitation of the additive per-param construction, not a per-parameter gradient
+> failure, so it does not show up in this single-parameter diagnostic.
 
-### bhfeedback
-_Color pending (Phase 2)._ **The second resister.** Mechanism: weak / near-
-degenerate gradient — bhfeedback is effectively priored out, so ∂P/∂bhfeedback is
-tiny and `grad_err` is ill-conditioned. Expect the equation cannot lock onto the
-signal regardless of complexity or loss.
+### 3. Generative Mirage — only the Sobolev loss recovers it
+**ns.** *No* equation on the value front is faithful, at maxsize 20 (best 0.512)
+or at certified maxsize 35 (best 0.319). The Sobolev derivative loss generates a
+faithful one (0.193, at complexity 18). ns is the P1D tilt around the pivot
+scale: the value-optimal fit nails P's shape but systematically mis-estimates
+∂P/∂ns, and only an objective that *targets the derivative* fixes it. This is the
+clean, headline demonstration that the Sobolev loss is a genuine generative fix,
+not a re-selection.
 
-## Failure-mode taxonomy
+### 4. Resistant — unfaithful even with the Sobolev loss, at every complexity
+**hub, bhfeedback.** These never clear the gate under *any* method.
+- **hub** (Sobolev best 0.935): two compounding causes. (a) **Under-search /
+  weak signal** — under value@20 the feature `x0` first enters only at complexity
+  **20** (the max); across the rest of the front the equation does not contain hub
+  at all (the gray markers). (b) **Wrong basis** — hub acts like a k-rescaling /
+  Alcock–Paczynski-like distortion, a coordinate transform of k that a per-param
+  *native-k* multiplicative response cannot express. The tell is that even Sobolev,
+  which penalizes the gradient *directly*, plateaus at 0.935 — forcing the slope
+  doesn't help when the functional form isn't in the ansatz.
+- **bhfeedback** (Sobolev best 0.664): **weak / near-degenerate gradient.**
+  bhfeedback is effectively priored out; ∂P/∂bhfeedback is tiny and close to
+  noise, so the target the gate/Sobolev tries to match is itself ill-conditioned.
+  Value-loss grad_err is enormous (1.3–1.7); Sobolev improves it to 0.66 but
+  cannot reach the gate.
+
+## Taxonomy table
 
 | parameter | category | mechanism | what Sobolev does |
 |-----------|----------|-----------|-------------------|
-| dtau0 | TBD (Phase 2) | TBD | TBD |
-| tau0 | TBD (Phase 2) | TBD | TBD |
-| ns | TBD (Phase 2) | pivot/tilt; value-accurate but wrong slope (Mirage) | TBD (expect: cured) |
-| Ap | TBD (Phase 2) | TBD | TBD |
-| herei | TBD (Phase 2) | herei×alphaq coupling unrepresentable by additive 1D | TBD |
-| heref | TBD (Phase 2) | TBD | TBD |
-| alphaq | TBD (Phase 2) | herei×alphaq coupling unrepresentable by additive 1D | TBD |
-| hub | TBD (Phase 2) | under-search and/or k-rescaling (AP-like) basis | TBD (expect: resists) |
-| omegamh2 | TBD (Phase 2) | TBD | TBD |
-| hireionz | TBD (Phase 2) | TBD | TBD |
-| bhfeedback | TBD (Phase 2) | weak/degenerate gradient (priored out) | TBD (expect: resists) |
+| dtau0 | robustly faithful | smooth isolated mean-flux response | near-perfect (0.003) |
+| tau0 | robustly faithful | smooth isolated mean-flux response | near-perfect (0.007) |
+| ns | **generative Mirage** | tilt about pivot; value fit mis-estimates ∂P/∂ns | **recovers it (0.512/0.319 → 0.193)** |
+| Ap | selection-sensitive | value-optimal unfaithful, faithful eq on front | tightens (0.287 → 0.082) |
+| herei | selection-sensitive | value-optimal unfaithful; coupling is combine-level | tightens (0.251 → 0.060) |
+| heref | robustly faithful | smooth IGM-thermal amplitude | tightens (0.039) |
+| alphaq | robustly faithful | smooth IGM-thermal response | tightens (0.084) |
+| hub | **resistant** | under-search (x0@20) + k-rescaling/AP-like basis | no help (0.935) |
+| omegamh2 | selection-sensitive | value-optimal unfaithful, faithful eq on front | tightens (0.320 → 0.071) |
+| hireionz | robustly faithful | smooth IGM-thermal response | tightens (0.066) |
+| bhfeedback | **resistant** | weak/degenerate gradient (priored out) | improves but fails (0.664) |
 
-**Categories** (to be assigned in Phase 2): `easy` (value drops, color goes green
-at low complexity), `mirage-cured-by-Sobolev` (value-front red, Sobolev-front
-green), `resistant` (red under every series at every complexity).
+**Bottom line for the paper.** Per-parameter 1D SR is derivative-faithful for the
+mean-flux and IGM-thermal amplitudes; three parameters (Ap, herei, omegamh2) need
+a derivative-aware *selection* rule; ns needs the Sobolev *objective* (and the
+budget control proves search depth alone is not enough); and **hub + bhfeedback
+genuinely resist** — one for a basis/expressivity reason, one for a
+weak-gradient reason. That is the honest failure-modes story, and every claim is
+backed by a scored Pareto front in this figure.
