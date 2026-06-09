@@ -339,7 +339,24 @@ best-loss `grad_err`, median [min, max] over 5 seeds:
   optimistic draw. Honest restatement: Sobolev *substantially improves* ns and far
   exceeds any value-search, but leaves it at the edge of usability — not a clean pass.
 
+**Gate threshold robustness (Fisher-free defense of the 0.25 operating point).**
+Re-classifying the seed band at gate ∈ {0.20, 0.25, 0.30} (Sobolev [min,max] across
+seeds):
+
+| gate | pass (all seeds) | borderline (straddle) | fail (all seeds) |
+|---|---|---|---|
+| 0.20 | 5 | 3 (Ap, heref, alphaq) | 3 (ns, hub, bhfeedback) |
+| **0.25** | **8** | **1 (ns)** | **2 (hub, bhfeedback)** |
+| 0.30 | 8 | 1 (ns) | 2 (hub, bhfeedback) |
+
+The split is **identical at 0.25 and 0.30** — the classification is robust to *widening*
+the gate. The two resisters (~1.0–1.4) and most passes (≤0.13) sit nowhere near it;
+only ns is genuinely at the boundary at any reasonable threshold. *Tightening* to 0.20
+pulls Ap/heref/alphaq to borderline (expected). So 0.25 is a defensible **chosen
+operating point** without invoking the (dropped) Fisher forecast — readers can apply
+their own tolerance from the reported `grad_err`.
+
 **Net for the paper:** report grad_err with seed error bars; state the headline as the
 seed-robust **budget control** + the **value-selection-is-unstable / Sobolev-objective-
 is-stable** contrast; classify ns as borderline rather than "cured"; hub + bhfeedback
-remain robustly resistant.
+remain robustly resistant. The 0.25 gate is robust to [0.25, 0.30] (no Fisher needed).
