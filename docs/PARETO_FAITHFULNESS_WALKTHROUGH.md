@@ -45,6 +45,14 @@ all-red.
   right value, wrong slope). `grad_err` is clipped at 1 for color only; the
   sidecar keeps the raw value.
 
+> **Metric space (was mislabeled — fixed 2026-06-08).** `grad_err` differences the
+> **linear/raw P** prediction, `∂P_F/∂θ` — NOT `∂logP`: both `gp.predict` and
+> `refit.predict` return raw `P_F`, so the gate is a ratio of linear-P slopes. This
+> is the Fisher-consistent quantity (the paper's Fisher matrix uses `∂P_F/∂θ`
+> against the linear-P KSData covariance), so the label is corrected to `∂P_F`
+> everywhere; the numbers are unchanged. Note `value_mse` *is* in log-P space
+> (`mean (logP_eq − logP_GP)²`) — that one is correctly labeled.
+
 > **Why the y-axis is `value_mse`, not the PySR `Loss` column.** The PySR `Loss`
 > is the *training objective*, which differs by run: for Sobolev it is
 > `MSE + λ·‖∂eq − ∂GP‖²`, a numerically larger quantity than the value MSE. Plotting
@@ -56,9 +64,13 @@ all-red.
 > next to `grad_err`; switch axes with `plot_pareto_faithfulness.py --y-col`.
 >
 > **The decoupling this exposes (ns).** value@budget reaches the *lowest* value_mse
-> of any series (deeper search → better value fit) yet stays **red** (grad_err 0.32);
-> Sobolev matches that value_mse and goes **green** (0.19). Value accuracy and
-> derivative faithfulness are independent axes — exactly the Mirage, made literal.
+> of any series (3.8×10⁻⁴; deeper search → better value fit) yet stays **red**
+> (grad_err 0.32, never crossing the gate); Sobolev clears the gate (0.19) at a
+> *comparable, slightly higher* value_mse (4.7×10⁻⁴, ~24% worse). So it is a paired
+> comparison, not an equality: the deep value search reaches lower value error but
+> never gets the slope right, while Sobolev gets the slope right at similar value
+> error. Value accuracy and derivative faithfulness are independent axes — the
+> Mirage, made literal.
 
 ### Two supplementary views
 
@@ -176,19 +188,25 @@ not a re-selection.
 
 ## Taxonomy table
 
-| parameter | category | mechanism | what Sobolev does |
+**Convention (fixed 2026-06-08):** all `grad_err` numbers below are the
+**value-optimal (best-loss) equation** on each front — the same convention as the
+scorecard. Where a more-faithful (best-faith) equation exists deeper on the front,
+it is noted in parentheses. (Earlier this column mixed best-loss and best-faith,
+which the referees flagged.)
+
+| parameter | category | mechanism | value→Sobolev (best-loss `grad_err`) |
 |-----------|----------|-----------|-------------------|
-| dtau0 | robustly faithful | smooth isolated mean-flux response | near-perfect (0.003) |
-| tau0 | robustly faithful | smooth isolated mean-flux response | near-perfect (0.007) |
-| ns | **generative Mirage** | tilt about pivot; value fit mis-estimates ∂P/∂ns | **recovers it (0.512/0.319 → 0.193)** |
-| Ap | selection-sensitive | value-optimal unfaithful, faithful eq on front | tightens (0.287 → 0.082) |
-| herei | selection-sensitive | value-optimal unfaithful; coupling is combine-level | tightens (0.251 → 0.060) |
-| heref | robustly faithful | smooth IGM-thermal amplitude | tightens (0.039) |
-| alphaq | robustly faithful | smooth IGM-thermal response | tightens (0.084) |
-| hub | **resistant** | under-search (x0@20) + k-rescaling/AP-like basis | no help (0.935) |
-| omegamh2 | selection-sensitive | value-optimal unfaithful, faithful eq on front | tightens (0.320 → 0.071) |
-| hireionz | robustly faithful | smooth IGM-thermal response | tightens (0.066) |
-| bhfeedback | **resistant** | weak/degenerate gradient (priored out) | improves but fails (0.664) |
+| dtau0 | robustly faithful | smooth isolated mean-flux response | 0.214 → 0.003 |
+| tau0 | robustly faithful | smooth isolated mean-flux response | 0.160 → 0.009 |
+| ns | **generative Mirage** | tilt about pivot; value fit mis-estimates ∂P/∂ns | **0.603 → 0.193** (budget@35: 0.319, still fails) |
+| Ap | selection-sensitive | value-optimal unfaithful, faithful eq on front | 0.287 → 0.082 |
+| herei | selection-sensitive | value-optimal unfaithful; coupling is combine-level | 0.251 → 0.060 |
+| heref | robustly faithful | smooth IGM-thermal amplitude | 0.154 → 0.206 (already faithful on value; best-faith 0.039) |
+| alphaq | robustly faithful | smooth IGM-thermal response | 0.152 → 0.173 (best-faith 0.084) |
+| hub | **resistant** | under-search (x0@20) + k-rescaling/AP-like basis | 1.000 → 0.935 (no help) |
+| omegamh2 | selection-sensitive | value-optimal unfaithful, faithful eq on front | 0.320 → 0.198 (best-faith 0.071) |
+| hireionz | robustly faithful | smooth IGM-thermal response | 0.240 → 0.090 |
+| bhfeedback | **resistant** | weak/degenerate gradient (priored out; gate can't adjudicate) | 1.715 → 0.946 (best-faith 0.664; fails) |
 
 **Bottom line for the paper.** Per-parameter 1D SR is derivative-faithful for the
 mean-flux and IGM-thermal amplitudes; three parameters (Ap, herei, omegamh2) need

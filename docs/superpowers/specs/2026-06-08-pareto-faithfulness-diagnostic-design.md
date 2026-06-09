@@ -145,9 +145,14 @@ Currently prints a per-candidate table. Add:
 fiducial θ, where "kept" k-bins are those with `|∂P_GP/∂θ| ≥ 1e-3 · max_k
 |∂P_GP/∂θ|` (the gate's `median_rel_error` floor). `∂eq/∂θ` is the candidate
 equation's finite-difference gradient (`equation_param_gradient`); `∂P_GP/∂θ` is
-the GP's (`gp_param_gradient`). `log_space=True` matches the production target
-(stage6/9 fit `log P`). Gate threshold tol = 0.25. This is **the same metric the
-production gate uses** — the sidecar must equal what the gate would decide.
+the GP's (`gp_param_gradient`). **Both gradients are differenced in linear/raw `P_F`
+space** (`gp.predict` and `refit.predict` return raw `P_F`), so `grad_err` is a
+ratio of linear-P slopes `∂P_F/∂θ` — this is the Fisher-consistent quantity (the
+forecast uses `∂P_F/∂θ` against the linear-P KSData covariance), **not** `∂logP`.
+The `log_space=True` flag refers only to the SR *training target* (stage6/9 fit
+`log P`); it does not change the space of this gate metric. Gate threshold
+tol = 0.25. This is **the same metric the production gate uses** — the sidecar
+must equal what the gate would decide.
 
 ## 6. Per-parameter "why" — the reasoning the walkthrough must carry
 
