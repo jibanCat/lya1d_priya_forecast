@@ -155,10 +155,11 @@ gate (or train with Sobolev) and you recover it. This is the regime where the
 gate-as-filter is sufficient — no new objective needed.
 
 > Note on the herei × alphaq coupling: both are *individually* faithful here —
-> their 1D marginal slopes ∂P/∂herei, ∂P/∂alphaq fit fine. The known +0.45
-> coupling (`memory/headline_findings.md`) is an **off-diagonal / combine-level**
-> limitation of the additive per-param construction, not a per-parameter gradient
-> failure, so it does not show up in this single-parameter diagnostic.
+> their 1D marginal slopes ∂P/∂herei, ∂P/∂alphaq fit fine. The known herei×alphaq
+> posterior correlation (ρ ≈ +0.45, from the MCMC correlation matrix —
+> `scripts/run_coupling_matrix.py`) is an **off-diagonal / combine-level** limitation
+> of the additive per-param construction, not a per-parameter gradient failure, so it
+> does not show up in this single-parameter diagnostic.
 
 ### 3. Generative Mirage — only the Sobolev loss recovers it
 **ns.** *No* equation on the value front is faithful, at maxsize 20 (best 0.512)
@@ -262,6 +263,7 @@ the redshifts where each parameter is informative (≲3.6 for the He II block).
 - **Single-z, single-seed.** The taxonomy is at **z=3.6** (cross-z at 2.6/4.2 is a
   separate retrained check above). PySR is **stochastic**: the committed fronts are a
   **single seed** (production kwargs: maxsize 20, niter 50; budget control maxsize 35).
+  The committed fronts use **seed 42**; the across-seed spread is not yet measured.
   A borderline number (e.g. ns 0.193 vs the 0.25 gate) is one draw — treat near-gate
   verdicts as indicative, not seed-robust, until an across-seed spread is reported.
 - **"multi-z" is a branch-name artifact.** The headline is single-z; the multi-z

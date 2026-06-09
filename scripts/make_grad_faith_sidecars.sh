@@ -8,9 +8,10 @@
 # Usage: scripts/make_grad_faith_sidecars.sh <pareto_dir> <z> [extra eval args...]
 set -euo pipefail
 DIR="$1"; Z="$2"; shift 2
-export PYTHON_JULIAPKG_PROJECT="$HOME/.julia_env"
-export JULIA_DEPOT_PATH="$HOME/.julia"
-export PYTHONPATH="src:/home/mfho/student_projects/lya_emulator_full"
+# Emulator paths are overridable via env vars (defaults match the Greatlakes setup).
+export PYTHON_JULIAPKG_PROJECT="${PYTHON_JULIAPKG_PROJECT:-$HOME/.julia_env}"
+export JULIA_DEPOT_PATH="${JULIA_DEPOT_PATH:-$HOME/.julia}"
+export PYTHONPATH="src:${LYA_EMULATOR:-/home/mfho/student_projects/lya_emulator_full}"
 PY="${PYTHON:-.venv/bin/python}"
 PARAMS="dtau0 tau0 ns Ap herei heref alphaq hub omegamh2 hireionz bhfeedback"
 for p in $PARAMS; do

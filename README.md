@@ -29,6 +29,10 @@ git clone <repo-url> lya1d_priya_forecast
 cd lya1d_priya_forecast
 ```
 
+> Cloning from a **local path** on a shared filesystem? Use `git clone file:///abs/path`
+> (a plain `git clone /abs/path` hardlinks `.git/objects` and can fail on a dangling
+> loose object).
+
 ### 2. Create the venv and install pinned dependencies
 
 ```bash
@@ -90,7 +94,15 @@ only required to *retrain* equations, run the GP, or re-evaluate the gate:
    ```
 
 3. **GP data** — the trained PRIYA GP and KODIAQ-SQUAD inputs must be present under
-   `data/kodiaq_gp/` (trained emulator, flux vectors, `emulator_params.json`).
+   `data/kodiaq_gp/` (trained emulator, flux vectors, `emulator_params.json`). This
+   directory is gitignored (not in a clone); stage it with:
+
+   ```bash
+   python scripts/prep_kodiaq_gp.py --source <SRC> --dest data/kodiaq_gp
+   ```
+
+   On Greatlakes `<SRC>` is the `kodiaq_2_2_4_6-48-48` emulator under the
+   `umor-yueyingn` turbo space; off-cluster, obtain it from that group.
 
 ---
 
@@ -207,12 +219,14 @@ scripts/                 Drivers and runners: make_diagnostic_figs.py (figure
                          pipeline/HPO entry points.
 tests/                   pytest suite (run with -k "not slow"); emulator-touching
                          tests are gated/skipped.
-notebooks/               Tutorial notebooks 01–03 (GP / forecast walkthroughs).
+notebooks/               reproduce_paper_figures.ipynb + tutorial_01_explore_diagnostic.ipynb
+                         (emulator-free, start here); 01–03 (older GP/forecast walkthroughs).
 docs/                    PARETO_FAITHFULNESS_WALKTHROUGH.md (current science),
                          plus design specs, figures, and historical notes.
 configs/                 YAML run configs (default, diagnostic, single_z, multi_z,
                          hpo, eqns).
-data/                    kodiaq_gp/ (trained GP + KODIAQ-SQUAD inputs),
+data/                    (gitignored — NOT in a clone; see Prerequisites)
+                         kodiaq_gp/ (trained GP + KODIAQ-SQUAD inputs),
                          priya_fiducial/, single_z_1pvar/.
 results/                 Committed run outputs, including the grad-faith sidecars
                          the figure reproducer reads.

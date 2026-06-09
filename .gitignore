@@ -235,3 +235,5 @@ __marimo__/
 
 # notebook build-scratch (generators for the shipped .ipynb)
 notebooks/_build_*.py
+
+results/_repro_scratch/

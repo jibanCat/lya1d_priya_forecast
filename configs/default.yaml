@@ -10,8 +10,11 @@ k_range:
   min: 0.001                # s/km
   max: 0.02                 # s/km
 
-# Path to the trained PRIYA emulator basedir.
-gp_emulator_basedir: /home/mfho/student_projects/InferenceLyaData/Emulator_Files
+# Path to the trained PRIYA emulator basedir. Default is the repo-relative location
+# produced by `scripts/prep_kodiaq_gp.py`; override with an absolute path if your
+# emulator lives elsewhere (the old user-specific default was
+# /home/mfho/student_projects/InferenceLyaData/Emulator_Files).
+gp_emulator_basedir: data/kodiaq_gp
 
 mcmc:
   n_steps: 5000
