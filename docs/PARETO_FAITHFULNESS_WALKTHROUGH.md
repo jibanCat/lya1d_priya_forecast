@@ -282,7 +282,8 @@ the redshifts where each parameter is informative (≲3.6 for the He II block).
 - **Single-z, single-seed.** The taxonomy is at **z=3.6** (cross-z at 2.6/4.2 is a
   separate retrained check above). PySR is **stochastic**: the committed fronts are a
   **single seed** (production kwargs: maxsize 20, niter 50; budget control maxsize 35).
-  The committed fronts use **seed 42**; the across-seed spread is not yet measured.
+  The committed fronts use the **production-default seed (0)**; an across-seed band
+  (seeds 0–4, `results/seed_band/`) is in progress to put error bars on the taxonomy.
   A borderline number (e.g. ns 0.193 vs the 0.25 gate) is one draw — treat near-gate
   verdicts as indicative, not seed-robust, until an across-seed spread is reported.
 - **"multi-z" is a branch-name artifact.** The headline is single-z; the multi-z

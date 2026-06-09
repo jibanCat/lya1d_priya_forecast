@@ -28,6 +28,8 @@ Z=${Z:?Z must be set via --export}
 TARGET_SPACE=${TARGET_SPACE:-linear}
 USE_SOBOLEV=${USE_SOBOLEV:-0}
 SOBOLEV_LAMBDA=${SOBOLEV_LAMBDA:-1.0}
+SEED=${SEED:-0}
+MAXSIZE=${MAXSIZE:-20}
 SOBOLEV_ARGS=""
 [ "$USE_SOBOLEV" = "1" ] && SOBOLEV_ARGS="--use-sobolev --sobolev-lambda ${SOBOLEV_LAMBDA}"
 
@@ -51,6 +53,6 @@ cd "$REPO"
 "$PY" scripts/refit_one_param_single_z.py \
     --param "$PARAM" --z "$Z" \
     --basedir "$BASEDIR" --output-dir "$OUTPUT_DIR" \
-    --target-space "$TARGET_SPACE" $SOBOLEV_ARGS
+    --target-space "$TARGET_SPACE" --seed "$SEED" --maxsize "$MAXSIZE" $SOBOLEV_ARGS
 
 echo "[slurm] ${PARAM} z=${Z} done"
