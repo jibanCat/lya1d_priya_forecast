@@ -193,6 +193,14 @@ not a re-selection.
 
 ## Taxonomy table
 
+**These are observed categories at z=3.6, not a redshift-stable taxonomy.** The
+cross-z check (above) shows the He II reionization block reshuffles by z=4.2; treat
+the four boxes as the z=3.6 classification, qualified per-redshift. Several boxes also
+rest on few equations (Ap's pass is a single low-complexity row; hub's front is
+effectively one Fisher-safe row) and near-gate margins (ns clears 0.25 at 0.193) — so
+the categories are **single-seed observations pending an across-seed band**, not
+seed-robust findings.
+
 **Convention (fixed 2026-06-08):** all `grad_err` numbers below are the
 **value-optimal (best-loss) equation** on each front — the same convention as the
 scorecard. Where a more-faithful (best-faith) equation exists deeper on the front,
@@ -218,7 +226,15 @@ mean-flux and IGM-thermal amplitudes; three parameters (Ap, herei, omegamh2) nee
 a derivative-aware *selection* rule; ns needs the Sobolev *objective* (and the
 budget control proves search depth alone is not enough); and **hub + bhfeedback
 genuinely resist** — one for a basis/expressivity reason, one for a
-weak-gradient reason. That is the honest failure-modes story, and every claim is
+weak-gradient reason.
+
+> **Scope limit (must state in the paper): a green taxonomy does NOT certify a
+> forecast.** This per-parameter diagnostic validates only the **diagonal** of the
+> Fisher matrix — each parameter's own slope. It is blind by construction to the
+> off-diagonal terms; the known herei×alphaq coupling (ρ≈+0.45) is invisible here, so
+> "9/11 faithful" must never be read as "the joint Fisher emulator is usable."
+
+That is the honest failure-modes story, and every claim is
 backed by a scored Pareto front in this figure.
 
 ## Redshift robustness (z = 2.6 / 3.6 / 4.2) — added 2026-06-08
@@ -252,9 +268,12 @@ reionization block (herei, heref, alphaq) is faithful at z ≤ 3.6 and blows up 
 z=4.2** — their P1D imprint is redshift-localised (strong near their reion epoch:
 heref ends He II reion at z≈2.6–3.2, herei starts it at z≈3.5–4.1; near-noise away
 from it), so at z=4.2 the GP slope is tiny and the gate **cannot adjudicate** (the
-bhfeedback weak-gradient mechanism, switched on by redshift). Faithfulness tracks
-the physics. Caveats: (i) the GP is least accurate at z=4.2 (~2% vs ~1% at z=3.6),
-so part of the degradation is emulator-limited; (ii) IGM-thermal verdicts must be
+bhfeedback weak-gradient mechanism, switched on by redshift). The honest reading is
+narrower than "faithfulness tracks the physics": **the gate is unscoreable wherever
+the slope is small**, and at z=4.2 the diagnostic cannot by itself separate a small
+*physical* slope from the GP's own larger error there. Caveats: (i) the GP is least
+accurate at z=4.2 (~2% vs ~1% at z=3.6), so part of the degradation is
+emulator-limited; (ii) IGM-thermal verdicts must be
 stated per-redshift, and the multi-z Fisher (summed over 9 z-bins) is dominated by
 the redshifts where each parameter is informative (≲3.6 for the He II block).
 
