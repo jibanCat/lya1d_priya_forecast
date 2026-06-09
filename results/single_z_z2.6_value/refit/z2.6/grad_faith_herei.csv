@@ -1,0 +1,5 @@
+# param=herei z=2.6 tol=0.25 log_space=True source=results/single_z_z2.6_value/refit/z2.6/pareto_herei.csv
+Complexity,Loss,grad_err,value_mse,n_keep,gate_pass,x0_enters
+20,6.614373,0.37183047167514305,0.0001002150885216648,48,False,True
+18,7.131893,0.7998930441557831,0.00011295928189957676,48,False,True
+16,7.2877207,0.8395856566757258,0.0001133264351472918,48,False,True

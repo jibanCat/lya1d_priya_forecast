@@ -1,0 +1,4 @@
+# param=hireionz z=2.6 tol=0.25 log_space=True source=results/single_z_z2.6_value/refit/z2.6/pareto_hireionz.csv
+Complexity,Loss,grad_err,value_mse,n_keep,gate_pass,x0_enters
+20,7.499157,0.7710703181600004,7.926841835201835e-05,48,False,True
+19,7.611568,1.1957768310205887,8.208129740449731e-05,48,False,True

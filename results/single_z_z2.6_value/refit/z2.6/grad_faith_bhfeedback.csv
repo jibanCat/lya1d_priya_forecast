@@ -1,0 +1,3 @@
+# param=bhfeedback z=2.6 tol=0.25 log_space=True source=results/single_z_z2.6_value/refit/z2.6/pareto_bhfeedback.csv
+Complexity,Loss,grad_err,value_mse,n_keep,gate_pass,x0_enters
+16,27.320654,0.8841725507181168,0.00011415651764966626,47,False,True

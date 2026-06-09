@@ -215,3 +215,40 @@ budget control proves search depth alone is not enough); and **hub + bhfeedback
 genuinely resist** — one for a basis/expressivity reason, one for a
 weak-gradient reason. That is the honest failure-modes story, and every claim is
 backed by a scored Pareto front in this figure.
+
+## Redshift robustness (z = 2.6 / 3.6 / 4.2) — added 2026-06-08
+
+Fresh value + Sobolev refits at z=2.6 and z=4.2 (properly retrained, not the z=3.6
+equations re-used), each gate-evaluated. Runs:
+`results/single_z_z{2.6,4.2}_{value,sobolev}/refit/z{2.6,4.2}/`. Figure:
+`results/single_z_stage_pareto_diag/crossz_faithfulness.{png,pdf}`.
+
+![Redshift robustness](../results/single_z_stage_pareto_diag/crossz_faithfulness.png)
+
+Sobolev best-loss `grad_err` by redshift:
+
+| param | z=2.6 | z=3.6 | z=4.2 | verdict |
+|---|---|---|---|---|
+| dtau0 | 0.004 | 0.003 | 0.008 | stable pass |
+| tau0 | 0.006 | 0.009 | 0.010 | stable pass |
+| ns | 0.211 | 0.193 | 0.211 | stable pass |
+| Ap | 0.079 | 0.082 | 0.137 | stable pass |
+| omegamh2 | 0.162 | 0.198 | 0.118 | stable pass |
+| herei | 0.186 | 0.060 | **0.709** | reshuffles → fails at z=4.2 |
+| heref | **0.299** | 0.206 | **2.69** | reshuffles |
+| alphaq | 0.097 | 0.173 | **1.56** | reshuffles → fails at z=4.2 |
+| hireionz | **0.324** | 0.090 | 0.203 | borderline at z=2.6 |
+| hub | 0.97 | 0.94 | 1.22 | stable fail (resistant) |
+| bhfeedback | 0.67 | 0.95 | 0.37 | stable fail (resistant) |
+
+**The taxonomy is NOT redshift-uniform.** Cosmology/mean-flux (dtau0, tau0, ns, Ap,
+omegamh2) and the two resisters (hub, bhfeedback) are stable across z. The **He II
+reionization block (herei, heref, alphaq) is faithful at z ≤ 3.6 and blows up at
+z=4.2** — their P1D imprint is redshift-localised (strong near their reion epoch:
+heref ends He II reion at z≈2.6–3.2, herei starts it at z≈3.5–4.1; near-noise away
+from it), so at z=4.2 the GP slope is tiny and the gate **cannot adjudicate** (the
+bhfeedback weak-gradient mechanism, switched on by redshift). Faithfulness tracks
+the physics. Caveats: (i) the GP is least accurate at z=4.2 (~2% vs ~1% at z=3.6),
+so part of the degradation is emulator-limited; (ii) IGM-thermal verdicts must be
+stated per-redshift, and the multi-z Fisher (summed over 9 z-bins) is dominated by
+the redshifts where each parameter is informative (≲3.6 for the He II block).

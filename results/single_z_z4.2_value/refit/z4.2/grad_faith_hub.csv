@@ -1,0 +1,5 @@
+# param=hub z=4.2 tol=0.25 log_space=True source=results/single_z_z4.2_value/refit/z4.2/pareto_hub.csv
+Complexity,Loss,grad_err,value_mse,n_keep,gate_pass,x0_enters
+16,9.166443,1.1277488340628734,0.00029197949704816125,48,False,True
+14,9.177809,1.0003072001890807,0.00029138823384946915,48,False,True
+12,9.258533,1.3724155276228664,0.0002856281368859258,48,False,True
