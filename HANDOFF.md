@@ -66,10 +66,11 @@ referee reports, and a phone-readable `PAPER_NARRATIVE.md` live in
 
 ## How to run
 
-- **Fast tests:** `PYTHONPATH=src pytest tests/ -q -k "not slow"` (412 pass, ~13
-  skip; `test_real_gp_predicts_at_fiducial` is environment-dependent — skips when
-  the upstream emulator is absent, or a pre-existing numpy<2/GPy ABI error if GPy
-  imports under numpy 2.x; unrelated to this code).
+- **Fast tests:** `PYTHONPATH=src pytest tests/ -q -k "not slow"` — on a bare clone:
+  **411 passed, 14 skipped, 0 failed** (emulator-touching tests skip cleanly); with
+  the emulator data present, 412 passed / 13 skipped (`test_real_gp_predicts_at_fiducial`
+  is the one env-dependent case: a pre-existing numpy<2/GPy ABI error if GPy imports
+  under numpy 2.x; unrelated to this code).
 - **Emulator/PySR runs:** need `PYTHON_JULIAPKG_PROJECT=$HOME/.julia_env
   JULIA_DEPOT_PATH=$HOME/.julia` and `PYTHONPATH=src:/home/mfho/student_projects/lya_emulator_full`,
   plus the project venv `.venv` (pinned numpy<2; see README) and `data/kodiaq_gp/`.

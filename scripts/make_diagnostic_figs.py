@@ -1,14 +1,15 @@
 #!/usr/bin/env python
-"""Regenerate the three diagnostic paper figures with referee-requested annotations.
+"""Regenerate the four diagnostic paper figures with referee-requested annotations.
 
-Emulator-free: reads the cached grad-faith sidecars. Produces, into --out-dir
-(PNG + PDF):
+Emulator-free: reads the cached PySR Pareto fronts + grad-faith sidecars. Produces,
+into --out-dir (PNG + PDF):
   1. pareto_faithfulness  -- 11-panel grid, y=value_mse, colour=grad_err, with the
      gate made legible on each panel (bold ring = clears 0.25) + an annotated arrow
      on the ns panel at the low-but-red Mirage cluster.
   2. faithfulness_scorecard -- value vs Sobolev best-loss grad_err, with the two
      above-gate parameters labelled with their numbers.
   3. ns_budget_panel -- the paired budget-vs-Sobolev comparison, endpoints labelled.
+  4. crossz_faithfulness -- redshift robustness of the taxonomy, z=2.6/3.6/4.2.
 
 Usage:
   PYTHONPATH=src python scripts/make_diagnostic_figs.py \

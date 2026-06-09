@@ -27,6 +27,13 @@ def load_front(pareto_csv, sidecar_csv=None) -> pd.DataFrame:
     different objectives); `value_mse` is the emulator-grounded common value
     loss from the sidecar (comparable). grad_err/gate_pass/value_mse are NaN/NA
     when no sidecar is supplied or a complexity has no sidecar row (left join).
+
+    NOTE — the sidecar only scores **Fisher-safe** rows (those whose equation
+    depends on the parameter), so the absolute lowest-`Loss` row can have NaN
+    `grad_err` (e.g. ns). For the *value-optimal faithful* equation, drop the
+    unscored rows first::
+
+        front.dropna(subset=["grad_err"]).sort_values("Loss").iloc[0]
     """
     pareto = pd.read_csv(pareto_csv)[["Complexity", "Loss"]].copy()
     if sidecar_csv is not None and Path(sidecar_csv).exists():
@@ -42,7 +49,7 @@ def load_front(pareto_csv, sidecar_csv=None) -> pd.DataFrame:
 
 
 def render_grid(fronts_by_param, out_path, *, gate_tol=GATE_TOL,
-                param_order=None, ncol=4, y_col="Loss", y_label=None,
+                param_order=None, ncol=4, y_col="value_mse", y_label=None,
                 annotate=None):
     """Render one panel per parameter; colour = grad_err (slope error vs the GP).
 

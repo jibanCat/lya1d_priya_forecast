@@ -64,7 +64,7 @@ def derivative_faithful_multiz(
     z_grid, param_idx: int, tol: float = 0.25, floor_frac: float = 1e-3,
     h: float = 1e-3,
 ) -> bool:
-    """True if the median over (k, z) of |∂eq/∂θ ÷ ∂logP_GP/∂θ − 1| ≤ tol.
+    """True if the median over (k, z) of |∂eq/∂θ ÷ ∂P_GP/∂θ − 1| ≤ tol.
 
     Computes, per z in z_grid, the equation's finite-diff θ-gradient and the
     GP's, masks near-zero GP-gradient bins, and takes the median over all

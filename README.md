@@ -108,9 +108,11 @@ Emulator-free; this is the quickest sanity check on an install:
 PYTHONPATH=src pytest tests/ -q -k "not slow"
 ```
 
-(412 pass, ~13 skip. `test_real_gp_predicts_at_fiducial` is environment-dependent:
-it **skips** when the upstream emulator is absent, or raises a pre-existing
-numpy<2/GPy ABI error if GPy is importable under numpy 2.x — unrelated to this code.)
+On a **bare clone** (no `data/kodiaq_gp`, no upstream emulator): **411 passed, 14
+skipped, 0 failed** — emulator-touching tests skip cleanly. With the emulator data
+present those tests also run (412 passed, 13 skipped); `test_real_gp_predicts_at_fiducial`
+is the one environment-dependent case — it raises a pre-existing numpy<2/GPy ABI error
+if GPy is importable under numpy 2.x, unrelated to this code.
 
 ### Regenerate the diagnostic figures (emulator-free — the paper reproducer)
 
@@ -133,6 +135,31 @@ Outputs (PNG + PDF) into the given directory:
 
 (The committed copies live in `results/single_z_stage_pareto_diag/`; pass a scratch
 `--out-dir` if you only want to inspect without touching them.)
+
+### Use it as a library
+
+The diagnostic is `priya_forecast.pareto_diag` (pure, emulator-free). Load one
+parameter's Pareto front + its grad-faith sidecar, find the value-optimal *faithful*
+equation, and plot a panel:
+
+```python
+from priya_forecast.pareto_diag import load_front, render_grid
+
+front = load_front(
+    "results/single_z_stage9/refit/z3.6/pareto_ns.csv",         # PySR Pareto front
+    "results/single_z_stage9/refit/z3.6/grad_faith_ns.csv",     # grad-faith sidecar
+)
+# the sidecar only scores Fisher-safe rows, so drop unscored (NaN grad_err) rows first:
+best = front.dropna(subset=["grad_err"]).sort_values("Loss").iloc[0]
+print(best["Loss"], best["grad_err"], best["value_mse"])   # value-optimal faithful eq
+
+render_grid({"ns": [{"front": front, "label": "Sobolev@20", "marker": "s"}]},
+            "ns_panel.png", param_order=["ns"], y_col="value_mse")  # color = grad_err, gate 0.25
+```
+
+Sidecar columns: `Complexity, Loss, grad_err, value_mse, n_keep, gate_pass, x0_enters`
+(`grad_err` = slope error vs the GP in linear `P_F`, gate `0.25`; `value_mse` = log-P
+value error). See `docs/PARETO_FAITHFULNESS_WALKTHROUGH.md` for the metric definitions.
 
 ### Re-evaluate the gate / regenerate sidecars (needs the emulator)
 

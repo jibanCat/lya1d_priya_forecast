@@ -256,3 +256,22 @@ the physics. Caveats: (i) the GP is least accurate at z=4.2 (~2% vs ~1% at z=3.6
 so part of the degradation is emulator-limited; (ii) IGM-thermal verdicts must be
 stated per-redshift, and the multi-z Fisher (summed over 9 z-bins) is dominated by
 the redshifts where each parameter is informative (≲3.6 for the He II block).
+
+## Scope & reproducibility (read before quoting numbers)
+
+- **Single-z, single-seed.** The taxonomy is at **z=3.6** (cross-z at 2.6/4.2 is a
+  separate retrained check above). PySR is **stochastic**: the committed fronts are a
+  **single seed** (production kwargs: maxsize 20, niter 50; budget control maxsize 35).
+  A borderline number (e.g. ns 0.193 vs the 0.25 gate) is one draw — treat near-gate
+  verdicts as indicative, not seed-robust, until an across-seed spread is reported.
+- **"multi-z" is a branch-name artifact.** The headline is single-z; the multi-z
+  joint-Sobolev "money plot" was **dropped** (it had a linear-P/log-P target mismatch,
+  now guarded off in `refit_one_param_multi_z`). The multi-z gate code exists but no
+  committed result exercises it.
+- **What a bare clone can reproduce:** the four diagnostic figures + every taxonomy
+  number, **emulator-free**, from the tracked `pareto_*.csv` + `grad_faith_*.csv`
+  (`scripts/make_diagnostic_figs.py`). **What it cannot:** anything needing the GP —
+  re-running the gate, regenerating sidecars, or the **h basis test** (GP-only; its
+  result is committed at `results/h_basis_test/h_basis.json` so it stays verifiable).
+- **GP-as-oracle caveat:** the diagnostic scores symbolic equations against the *GP*,
+  treated as truth; it measures faithfulness *to the emulator*, not to the simulations.

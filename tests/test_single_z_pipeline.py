@@ -15,6 +15,11 @@ import pytest
 from hypothesis import given, settings, strategies as st
 
 from priya_forecast.parameters import PARAM_NAMES
+
+# The shipped example config sets gp.basedir=data/kodiaq_gp, which GPConfig.validate()
+# checks for existence; that data is gitignored, so the round-trip test only runs when
+# the emulator data is present (e.g. on the cluster), not in a bare clone.
+_HAS_GP_DATA = (Path(__file__).parent.parent / "data" / "kodiaq_gp").exists()
 from priya_forecast.single_z.config import (
     DataConfig,
     FisherConfig,
@@ -51,6 +56,10 @@ def _basedir(tmp_path: Path) -> Path:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(
+    not _HAS_GP_DATA,
+    reason="shipped example.yaml validates gp.basedir=data/kodiaq_gp, absent in a bare clone",
+)
 def test_shipped_example_yaml_loads_and_validates():
     """Shipped example config must round-trip — students copy from it."""
     cfg = load_config(

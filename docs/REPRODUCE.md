@@ -1,3 +1,10 @@
+> **⚠️ SUPERSEDED (2026-06-08).** This guide walks through the σ_GP / σ_PySR /
+> σ_PySR/σ_GP *forecast*, which has been **retracted** — σ_perfect_1D ≡ σ_GP is a
+> forced Jacobian identity, so the σ-ratio is not an independent emulator test.
+> Retained for history. The current result is the derivative-faithfulness diagnostic:
+> see [`PARETO_FAITHFULNESS_WALKTHROUGH.md`](PARETO_FAITHFULNESS_WALKTHROUGH.md) and
+> the root `README.md` / `HANDOFF.md`.
+
 # Full reproducibility guide (companion to `README_v2.md`)
 
 `README_v2.md` is a tested-on-Greatlakes cheatsheet: if your environment
