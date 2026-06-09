@@ -175,11 +175,15 @@ not a re-selection.
   weak signal** — under value@20 the feature `x0` first enters only at complexity
   **20** (the max); across the rest of the front the equation does not contain hub
   at all (those candidates are dropped as not-Fisher-safe, carrying no derivative).
-  (b) **Wrong basis** — hub acts like a k-rescaling /
-  Alcock–Paczynski-like distortion, a coordinate transform of k that a per-param
-  *native-k* multiplicative response cannot express. The tell is that even Sobolev,
-  which penalizes the gradient *directly*, plateaus at 0.935 — forcing the slope
-  doesn't help when the functional form isn't in the ansatz.
+  (b) **Basis test — REFUTES the AP hypothesis (2026-06-09, `scripts/h_basis_test.py`).**
+  We had guessed hub acts like a k-rescaling / Alcock–Paczynski-like distortion (a
+  coordinate transform of k a native-k form can't express). The test says **no**:
+  ∂P/∂h is only weakly correlated with the k-rescaling template ∂P/∂lnk
+  (corr ≈ −0.25 at z=2.6/3.6/4.2; the template explains only ~6% of the variance).
+  So hub's resistance is **a weak / under-determined response** (consistent with its
+  stated ~1% P1D effect and x0 entering only at max complexity), **not** a clean
+  basis/expressivity wall. Sobolev still plateaus at 0.935 because the signal is
+  weak, not because the basis is wrong.
 - **bhfeedback** (Sobolev best 0.664): **weak / near-degenerate gradient.**
   bhfeedback is effectively priored out; ∂P/∂bhfeedback is tiny and close to
   noise, so the target the gate/Sobolev tries to match is itself ill-conditioned.
@@ -203,7 +207,7 @@ which the referees flagged.)
 | herei | selection-sensitive | value-optimal unfaithful; coupling is combine-level | 0.251 → 0.060 |
 | heref | robustly faithful | smooth IGM-thermal amplitude | 0.154 → 0.206 (already faithful on value; best-faith 0.039) |
 | alphaq | robustly faithful | smooth IGM-thermal response | 0.152 → 0.173 (best-faith 0.084) |
-| hub | **resistant** | under-search (x0@20) + k-rescaling/AP-like basis | 1.000 → 0.935 (no help) |
+| hub | **resistant** | weak/under-determined response (basis test refutes AP: corr −0.25, ~6% var) + under-search (x0@20) | 1.000 → 0.935 (no help) |
 | omegamh2 | selection-sensitive | value-optimal unfaithful, faithful eq on front | 0.320 → 0.198 (best-faith 0.071) |
 | hireionz | robustly faithful | smooth IGM-thermal response | 0.240 → 0.090 |
 | bhfeedback | **resistant** | weak/degenerate gradient (priored out; gate can't adjudicate) | 1.715 → 0.946 (best-faith 0.664; fails) |
