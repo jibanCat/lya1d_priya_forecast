@@ -195,11 +195,9 @@ not a re-selection.
 
 **These are observed categories at z=3.6, not a redshift-stable taxonomy.** The
 cross-z check (above) shows the He II reionization block reshuffles by z=4.2; treat
-the four boxes as the z=3.6 classification, qualified per-redshift. Several boxes also
-rest on few equations (Ap's pass is a single low-complexity row; hub's front is
-effectively one Fisher-safe row) and near-gate margins (ns clears 0.25 at 0.193) — so
-the categories are **single-seed observations pending an across-seed band**, not
-seed-robust findings.
+the four boxes as the z=3.6 classification, qualified per-redshift. The single-seed numbers below are an optimistic draw — the **across-seed band**
+(below) is the seed-robust version, and it both **confirms** the Sobolev verdict for
+10/11 params and **downgrades** the binary "ns cured" to *borderline*.
 
 **Convention (fixed 2026-06-08):** all `grad_err` numbers below are the
 **value-optimal (best-loss) equation** on each front — the same convention as the
@@ -297,3 +295,51 @@ the redshifts where each parameter is informative (≲3.6 for the He II block).
   result is committed at `results/h_basis_test/h_basis.json` so it stays verifiable).
 - **GP-as-oracle caveat:** the diagnostic scores symbolic equations against the *GP*,
   treated as truth; it measures faithfulness *to the emulator*, not to the simulations.
+
+## Across-seed robustness (z=3.6, seeds 0–4) — the taxonomy with error bars
+
+PySR is stochastic, so the single-seed taxonomy is one draw. We retrained the value
+and Sobolev fronts (and the ns budget@35 control) at **5 seeds** and scored the
+value-optimal equation of each. Aggregator: `scripts/aggregate_seed_band.py`
+(one GP load); runs under `results/seed_band/`; numbers in `seed_band_summary.json`.
+
+![Across-seed band](../results/seed_band/seed_band.png)
+
+best-loss `grad_err`, median [min, max] over 5 seeds:
+
+| param | value | Sobolev | Sobolev gate verdict |
+|---|---|---|---|
+| dtau0 | 0.19 [0.11, 0.22] | 0.01 [0.00, 0.01] | **PASS (stable)** |
+| tau0 | 0.16 [0.08, 0.25] | 0.01 [0.01, 0.01] | **PASS (stable)** |
+| Ap | 0.25 [0.19, 0.28] | 0.18 [0.14, 0.23] | **PASS (stable)** |
+| herei | 0.50 [0.46, 0.53] | 0.08 [0.07, 0.13] | **PASS (stable)** |
+| heref | 0.14 [0.05, 0.51] | 0.10 [0.05, 0.23] | **PASS (stable)** |
+| alphaq | 0.16 [0.10, 0.36] | 0.10 [0.09, 0.22] | **PASS (stable)** |
+| omegamh2 | 0.26 [0.13, 0.43] | 0.15 [0.07, 0.20] | **PASS (stable)** |
+| hireionz | 0.19 [0.12, 0.33] | 0.09 [0.07, 0.20] | **PASS (stable)** |
+| ns | 0.87 [0.58, 0.94] | 0.33 [0.21, 0.42] | **BORDERLINE (straddles 0.25)** |
+| hub | 0.98 (only 3/5 seeds yield a Fisher-safe eq) | 1.00 [0.95, 1.00] | **FAIL (stable, resistant)** |
+| bhfeedback | 1.19 [0.68, 3.19] | 1.36 [1.03, 1.76] | **FAIL (stable, resistant)** |
+| **ns budget@35** | — | 0.57 [0.39, 0.67] (value-loss, deep budget) | **FAILS at all 5 seeds** |
+
+**What the band changes — and what it confirms:**
+
+- **The budget control is seed-robust** (the headline survives): ns value-loss at
+  maxsize 35 fails the gate at *every* seed (0.39–0.67). Deeper search reliably does
+  not fix the slope — the cure is the objective, not the budget.
+- **The Sobolev verdict is seed-stable for 10/11 params:** 8 clear the gate across all
+  seeds, hub + bhfeedback resist across all seeds. The Sobolev *objective* gives
+  reproducible faithfulness.
+- **Value-loss *selection* is seed-fragile** (wide red bars; heref/alphaq/omegamh2/
+  hireionz/ns/Ap all straddle or flip across seeds). This *strengthens* the thesis:
+  picking the value-optimal equation is an unreliable route to a faithful slope; the
+  Sobolev objective is the stable one.
+- **ns is the one genuinely borderline case** — Sobolev cuts it ~2.6× (0.87→0.33
+  median) but it **straddles the gate** [0.21, 0.42]; the committed 0.193 was an
+  optimistic draw. Honest restatement: Sobolev *substantially improves* ns and far
+  exceeds any value-search, but leaves it at the edge of usability — not a clean pass.
+
+**Net for the paper:** report grad_err with seed error bars; state the headline as the
+seed-robust **budget control** + the **value-selection-is-unstable / Sobolev-objective-
+is-stable** contrast; classify ns as borderline rather than "cured"; hub + bhfeedback
+remain robustly resistant.
