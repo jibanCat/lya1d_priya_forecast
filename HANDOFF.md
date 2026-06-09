@@ -1,374 +1,85 @@
-# HANDOFF — single-z forecast pipeline
+# HANDOFF — Lyα P1D PySR forecast / diagnostic
 
-**Last updated:** 2026-06-03
-**Branch:** `single_z_forecast_clean` (NOT merged to `main`)
-**Tip when this was written:** `185aed5` (Stage 7 code complete: multi_z package)
-**Open PR:** https://github.com/jibanCat/lya1d_priya_forecast/pull/3
+**Last updated:** 2026-06-09
+**Branch:** `stage10-multiz-sobolev` (26 commits ahead of `main`; pushed; PR open)
 
 ---
 
-## TL;DR — where to resume
+## TL;DR — what this repo is now
 
-The single-z student-facing forecast pipeline is **built and working
-end to end** through Stage 6, including a real-data production run.
-Stage 6 (`target_space: log`) shipped and the z=3.6 KODIAQ-SQUAD
-`refit_and_forecast` confirmed the structural fix:
+A pipeline that distills the PRIYA multi-fidelity Gaussian-process (GP) emulator of
+the Lyman-α 1D flux power spectrum (P1D) into compact per-parameter symbolic
+equations (PySR), and — the current headline — a **derivative-faithfulness
+diagnostic** that asks whether those equations are trustworthy for a **Fisher
+forecast**.
 
-- **mean |log10(σ_PySR/σ_GP)| dropped 0.615 → 0.366 (40% reduction)**
-- **deep-Mirage params (< 0.2× ratio) went from 3 → 0**
-- 8 of 11 params closer to Fisher-faithful; 3 regressed mildly (tau0, ns, herei)
-- sub-1 Mirage count unchanged at 7/11 — log(P) attenuates *severity*, not headcount
+**Direction (set 2026-06-08):** the project pivoted from a σ_PySR/σ_GP *forecast*
+claim to a **diagnostic / failure-modes** result. The 4-agent review found the
+σ-ratio confounded by construction (σ_perfect_1D ≡ σ_GP is a forced Jacobian
+identity anchored at P_GP(fid); the GP-slice fallback prints GP-derived σ in the
+PySR column). The diagnostic is what the GP-as-oracle setup can honestly support.
 
-Full comparison in `results/single_z_stage6_log/COMPARISON.md`.
-Corner plot at `results/single_z_stage6_log/corner.png` (untracked but reproducible).
+## The diagnostic (the current science)
 
-**Next:** Stage 7 (multi-z Fisher `F = Σ_z F(z)`) and Stage 8 (Sobolev
-derivative-matching loss). Stage 8 addresses what log(P) alone cannot.
+For each parameter, score whether a symbolic equation's **slope** ∂P/∂θ matches the
+GP's — the only thing a Fisher forecast uses. Metric:
+`grad_err = median_k |∂P_F^eq/∂θ ÷ ∂P_F^GP/∂θ − 1|` at fiducial, in **linear P_F**
+(Fisher-consistent), gate 0.25. The **Sobolev** derivative-matching loss is the
+cure. Key results (single-z z=3.6, real KODIAQ-SQUAD):
 
----
+- **Fisher's Mirage:** an equation can be value-accurate yet slope-wrong.
+- **Taxonomy:** robustly faithful {dtau0, tau0, heref, alphaq, hireionz};
+  selection-sensitive {Ap, herei, omegamh2}; **generative Mirage cured by Sobolev**
+  {ns, 0.60→0.19}; **resistant** {hub, bhfeedback}.
+- **Budget control:** ns value-loss at maxsize=35 still fails (0.32) → the Mirage
+  is generative, not search-starvation.
+- **Cross-z (z=2.6/3.6/4.2, retrained):** taxonomy is NOT redshift-uniform — the
+  He II reion block (herei, heref, alphaq) is faithful at z≤3.6 and blows up at
+  z=4.2 (its imprint weakens; the gate can't adjudicate a near-noise slope).
+- **h basis test:** ∂P/∂h is NOT a k-rescaling (corr ≈ −0.25, ~6% var) → h resists
+  because its response is **weak/under-determined**, not an AP coordinate-distortion
+  basis wall. (The earlier "h = AP" guess is refuted.)
 
-## What the pipeline is
+## Code (this session's diagnostic build — all committed, tests pass)
 
-A single-redshift-bin Lyman-α P1D Fisher forecast over the 11 PRIYA
-parameters. One YAML config, one CLI (`scripts/run_pipeline.py`), three
-modes:
+- `src/priya_forecast/grad_faith_io.py` — sidecar format (pure, emulator-free).
+- `src/priya_forecast/pareto_diag.py` — `load_front` + `render_grid` (gate rings).
+- `scripts/eval_grad_faithfulness.py` — per-candidate grad_err + value_mse (needs GP).
+- `scripts/plot_pareto_faithfulness.py`, `scripts/make_grad_faith_sidecars.sh`,
+  `scripts/make_diagnostic_figs.py`, `scripts/h_basis_test.py`.
+- Tests: `tests/test_grad_faith_io.py`, `tests/test_pareto_diag.py` (5, pass).
+- Results: `results/single_z_stage_pareto_diag/` (figures), grad-faith sidecars
+  beside each `pareto_*.csv` under `single_z_stage6_log`, `single_z_stage9`,
+  `decider_budget_z3.6`, and the cross-z `single_z_z{2.6,4.2}_{value,sobolev}`.
+- Walkthrough (source of truth): `docs/PARETO_FAITHFULNESS_WALKTHROUGH.md`.
 
-- `gp_only` — Fisher on the GP emulator (σ_GP).
-- `forecast_only` — load PySR Pareto CSVs → equations → σ_GP /
-  σ_perfect_1D / σ_PySR + corner plot.
-- `refit_and_forecast` — run single-z PySR refits per parameter → emit
-  Pareto CSVs → forecast.
+## Paper integration (separate repo)
 
-Student procedure: `regen_1pvar.py` (regenerate LF/HF training data from
-the emulator) → refit → forecast → `aggregate_z.py` (across-z view).
-Two real measured covariances: KODIAQ-SQUAD (`KSDataLikelihood`,
-Karaçaylı+2021) and eBOSS DR14 (`load_eboss`) — selected by
-`data.source`. No synthetic covariances.
+Paper: `~/Latex/Knowledge-Distillation-using-PySR-with-PRIYA-suite/oja_template.tex`
+(branch `paper-additions`). The diagnostic is integrated into the two Fisher
+`\suggest{}` slots + a Sobolev appendix + taxonomy table + 4 figures, all wrapped in
+a purple `\additions{}` macro (machine-drafted, for the user to rewrite in voice);
+long sections are left as `[OUTLINE]`. PDF builds (17 pp). The prep changeset,
+referee reports, and a phone-readable `PAPER_NARRATIVE.md` live in
+`.../pysr_faithfulness_update/`. The paper `.tex` is intentionally **not committed**
+(reviewed in LaTeX Workshop).
 
-**Code:** `src/priya_forecast/single_z/{config,pipeline,forecast,refit,
-combine,training_data}.py`; scripts `regen_1pvar.py`, `run_pipeline.py`,
-`run_batch.py`, `aggregate_z.py`, `refit_one_param_single_z.py`;
-`slurm/single_z_refit.slurm`; `docs/ONBOARDING.md` + `notebooks/01-03`.
-**~340 tests pass, 10 gated skip, 1 pre-existing unrelated failure**
-(`test_h6_explicit_cross_terms_*` in `test_pysr_hypothesis.py` — predates
-Stage 6, numpy-scalar TypeError).
+## How to run
 
-## Status by stage
-
-| Stage | What | State |
-|-------|------|-------|
-| 1 | foundations: `regen_1pvar`, `combine.py` | done |
-| 2 | `forecast_only` | done |
-| 3 | `refit_and_forecast` (+ seed-retry) | done |
-| 4 | `run_batch` + `aggregate_z` | done |
-| 5 | `ONBOARDING.md` rewrite + 3 notebooks | done |
-| 6 | **log(P) SR target + log-space combine** | **done** (15 commits, production run validated) |
-| 7 | multi-z Fisher `F = Σ_z F(z)` (joint, Approach A) | **done** — production run validated; IGM-thermal rank-deficiency lifted |
-| 8 | cheap levers: `aq` operator + derivative-validation gate | **done** (filter infra shipped, green); production run showed filter≠generator — see below |
-| 9 | Sobolev derivative-matching loss (the generative fix) | **done** — recovers ns (λ=5); GP-slice set back to {hub, bhfeedback} |
-| 10 | mirror Sobolev refit + gate to multi-z; investigate hub | not started |
-
-## The key scientific findings
-
-From the real z=3.6 `refit_and_forecast` runs on KODIAQ-SQUAD:
-
-1. **σ_perfect_1D ≡ σ_GP, exactly.** The additive combine reproduces the
-   GP's first derivatives, and Fisher is first-order. The "3-σ ladder"
-   collapses to σ_GP vs σ_PySR. Confirmed in both linear and log space.
-2. **Single-z all-11-param Fisher is rank-deficient** — σ_GP explodes for
-   the IGM-thermal parameters. Expected; needs multi-z (Stage 7).
-3. **σ_PySR was derivative-unfaithful in linear mode** — σ_PySR/σ_GP
-   spanned 0.09×–27×, including physically impossible sub-1 ratios
-   ("Fisher's Mirage", arXiv:2406.06067). **Stage 6 (log target)
-   attenuates the severity (max sub-1 deviation now 0.35× vs 0.09×
-   before), but does not eliminate it — Stage 8 is required.**
-
-**Research verdict (literature review captured in `memory/active_work.md`):**
-- **#1 — fit `log(P)` not `P`** → ✅ Stage 6 done.
-- **#2 — multi-z forecast `F = Σ_z F(z)`** → Stage 7.
-- **#3 — Sobolev loss** (penalize `[∂_θ logP_SR − ∂_θ logP_GP]²`) → Stage 8.
-
-## Stage 6 — done (recap)
-
-Spec: `docs/superpowers/specs/2026-05-19-single-z-stage6-log-target-design.md`.
-Plan: `docs/superpowers/plans/2026-05-19-single-z-stage6-log-target.md`.
-Implementation: 15 commits across 8 tasks (`07aac6b` … `fe3112b`),
-TDD-driven via `superpowers:subagent-driven-development`; each task got
-spec-compliance + code-quality review with a fix loop, plus a
-whole-Stage opus review (APPROVED FOR MERGE).
-
-What landed:
-- `target_space: linear | log` config flag wired end-to-end through
-  config → `compute_local_normalization` → `_build_training_matrix` →
-  `Refit1DResult.predict_log` → `AdditiveTaylorModel` log-space combine →
-  `run_three_fisher`.
-- Positivity guards with clear `ValueError` on every log-space code path.
-- `scripts/refit_one_param_single_z.py` got `--target-space {linear,log}`;
-  `slurm/single_z_refit.slurm` got matching `TARGET_SPACE` env var.
-- New gated end-to-end test `test_refit_and_forecast_log_space_end_to_end`
-  and the central log-space sanity test
-  `test_run_three_fisher_log_space_perfect_equals_gp` (asserts σ_perfect_1D
-  ≈ σ_GP at rtol=1e-3 in log space too).
-- Production YAML: `configs/single_z/stage6_log_z3.6.yaml`.
-- Production results: `results/single_z_stage6_log/{corner.png,
-  scorecard.md, COMPARISON.md, fisher_*.npz, forecast_table.txt,
-  refit/z3.6/pareto_*.csv}`. corner.png + .npz are untracked
-  (reproducible); COMPARISON.md is committed.
-
-## Stage 7 — multi-z Fisher (DONE — production run validated 2026-06-03)
-
-**Production result** (`results/multi_z_stage7/`, full writeup in its
-`COMPARISON.md`): the multi-z joint Fisher over z∈[2.6,4.2] on KODIAQ
-**lifts the IGM-thermal rank-deficiency** — σ_GP herei 26.7→0.36,
-heref 94→1.07, alphaq 235→1.43, hireionz 86→4.34 vs single-z z=3.6.
-σ_perfect_1D ≡ σ_GP confirmed (linear+log, gated test). A-vs-B cross-z
-diagnostic: joint (A) ~3–5% tighter than the legacy per-z-sum (B) →
-Approach A is correct, legacy was biased. 8/11 params got Fisher-safe PySR
-equations; ns/bhfeedback/dtau0 → GP-slice (their multi-z 4-input equations
-failed the Fisher-safe gate after long retry loops). Mirage persists
-(mean |log10(σ_PySR/σ_GP)| ≈ 0.35) — Stage 8's job.
-
-**Env note (2026-06-03):** the central mamba python drifted to numpy 2.x and
-the `~/.local` numpy<2 pin vanished, breaking GPy on the nodes. Fixed with a
-reproducible **project venv** (`.venv`, pinned `requirements.lock.txt`,
-pyproject caps numpy<2/pandas<3, SLURM uses `$REPO/.venv/bin/python`) — see
-README. Also: concurrent array tasks contend on the shared `~/.julia_env`
-flock (NFS ENOLCK/ESTALE); the SLURM script now staggers Julia init — submit
-multi-param arrays with `--array=...%3`.
-
-### Recap of the build (code, Tasks 1–9)
-
-Spec: `docs/superpowers/specs/2026-06-01-multi-z-stage7-fisher-design.md`.
-Plan: `docs/superpowers/plans/2026-06-01-multi-z-stage7-fisher.md`.
-Built subagent-driven (TDD + per-task spec/quality review), 12 commits
-`9aa985b`…`185aed5`.
-
-**Architecture (Approach A — the key finding):** `KSDataLikelihood` is
-already multi-z native (`z_min`/`z_max` range, loops `z_blocks` calling
-`model.predict(θ,k,z)`, stacks one joint data vector). So the multi-z
-Fisher = **one z-spanning `KSDataLikelihood` + the existing
-`fisher_matrix`** — almost no new Fisher math. The legacy per-z-sum
-(`combine_fisher_phys_arrays`, `scripts/multi_z_aggregate.py`) is kept
-only as a diagnostic oracle.
-
-**What landed (`src/priya_forecast/multi_z/`):** `config.py`
-(`MultiZPipelineConfig`, z_min/z_max), `combine.py`
-(`build_combined_model_multiz`), `refit.py` (`refit_one_param_multi_z`
-+ `build_refit_from_pareto_multiz`, CSV + `norm_*.npz` sidecar),
-`forecast.py` (`run_three_fisher_multiz` joint + `shared_k_and_z_grid`
-guard + `load_refits`), `pipeline.py` (3 modes + `DISPATCH` + `run`).
-Plus `MultiZAdditiveTaylorModel.log_space` branch (`refit_taylor.py`),
-`MultiZNormalizationSpec.save_npz/load_npz`, scripts
-`run_pipeline_multi_z.py` + `refit_one_param_multi_z.py`,
-`slurm/multi_z_refit.slurm`, `configs/multi_z/stage7_z2.6-4.2.yaml`.
-~20 new multi_z tests pass (2 gated-skip locally).
-
-**Two findings from the build:**
-1. **Critical bug caught + fixed** (Task 5): refit reconstruction had been
-   normalizing θ with the prior bounds instead of the empirical Sobol
-   training range used by `predict_normalized` — would have corrupted
-   σ_PySR. The `norm_*.npz` sidecar now persists the empirical
-   `x_param_min/max` + `k_min/max`; regression test pins it.
-2. **KSData covariance is NOT block-diagonal in z** (its own docstring
-   says so). This *confirms Approach A is correct* and means the legacy
-   per-z-sum (Approach B / `multi_z_aggregate.py`) was producing biased
-   multi-z Fisher forecasts for KSData. The A-vs-B test was reframed from
-   an equality assertion into a cross-z-bias **diagnostic**.
-
-Stage 7 unblocks the IGM-thermal params whose single-z Fisher is
-rank-deficient (Stage 6's dtau0 outlier at 20.9×).
-
-### Reproduction recipe (cluster — needs Greatlakes + emulator + the `.venv`)
-
-> Build the project venv first (see README); submit refits with `%3`; cavestru0
-> was out of billing minutes 2026-06 — this run used `--account=yueyingn0`.
-
-```bash
-cd /home/mfho/lya1d_priya_forecast
-
-# Task 10 — one-param calibration (fast, measure real wall time first):
-PYTHON_JULIAPKG_PROJECT=$HOME/.julia_env JULIA_DEPOT_PATH=$HOME/.julia \
-PYTHONPATH=src:/home/mfho/student_projects/lya_emulator_full \
-  python scripts/refit_one_param_multi_z.py --param ns --z-min 3.4 --z-max 3.6 \
-    --basedir data/kodiaq_gp --output-dir results/multi_z_stage7_smoke \
-    --n-total 64 --niterations 20
-
-# Task 11 — full 11-param refit array (~20-44 CPU-hr, ~30-45 min wall):
-sbatch --export=ALL,REPO=$(pwd),BASEDIR=data/kodiaq_gp,\
-OUTPUT_DIR=results/multi_z_stage7,Z_MIN=2.6,Z_MAX=4.2 \
---array=0-10 slurm/multi_z_refit.slurm
-
-# Task 11 — production forecast (writes results/multi_z_stage7/{corner.png,
-#   scorecard.md, forecast_table.txt, fisher_*.npz}):
-PYTHONPATH=src:/home/mfho/student_projects/lya_emulator_full \
-  python scripts/run_pipeline_multi_z.py --config configs/multi_z/stage7_z2.6-4.2.yaml
-
-# Gated tests (validate perfect_1D==GP + A-vs-B cross-z diagnostic):
-PYTHONPATH=src:/home/mfho/student_projects/lya_emulator_full \
-  RUN_SLOW_FORECAST_ONLY=1 pytest tests/test_multi_z_forecast_joint.py \
-  tests/test_multi_z_A_equals_B.py -q
-```
-
-Then write `results/multi_z_stage7/COMPARISON.md` (multi-z vs Stage 6
-single-z z=3.6: IGM-thermal σ_GP no longer rank-deficient; Mirage delta;
-A-vs-B cross-z bias).
-
-## Stage 8 — cheap levers (DONE) → Stage 9 = Sobolev
-
-**Stage 8 shipped** (`aq` operator + derivative-validation gate) and the
-production run produced the key finding, full writeup in
-`results/single_z_stage8/COMPARISON.md`:
-
-- **The gate is a *filter*, not a *generator*.** `aq`+gate correctly *reject*
-  derivative-unfaithful equations but can't *make* the search produce faithful
-  ones. ns/hub/bhfeedback had **no** gate-passing equation (ns: all 6 Fisher-safe
-  eqns 69–97% gradient error) → GP-slice. Rejecting ns (key science param) is a
-  failure, not a win.
-- **The single-z σ_PySR/σ_GP metric is confounded** by rank-deficiency (dtau0
-  passes the gradient gate yet shows σ_PySR/σ_GP=23×). Evaluate levers on
-  **multi-z**, not single-z.
-- **Ratio-response target (lever #1) — spike-validated, NOT shipped.** HF-only
-  `log[P(θ)/P_fid]` gave ns 0.07 grad err, 8–9/11 params faithful. But the
-  focused production wiring anchored the multi-fidelity target on the LF GP
-  (cross-fidelity) → malformed target (loss 2.0), ns failed → retreated. Plumbing
-  **stashed** (`git stash list`: "stage8 lever#1 log_ratio …") for a careful redo.
-- **hub** stays unfaithful even with ratio-response (0.92) — needs the direct loss.
-
-**Reusable for Stage 9:** `derivative_gate.py` (GP/equation finite-diff gradients
-+ faithfulness predicate) validates any Sobolev-trained equation; `custom_operators.py`
-(`aq`) stays.
-
-### Stage 9 — Sobolev derivative loss (DONE 2026-06-04)
-
-**Result** (`results/single_z_stage9/COMPARISON.md`): a custom Julia Sobolev
-`loss_function` (finite-diff tree derivative in-loss + per-fidelity GP target
-gradient via the `weights` channel), **λ=5**, **recovers ns** — the Stage 8
-failure. Per-param gradient faithfulness (gate tol 0.25): ns 0.69 (value) →
-0.134 (Sobolev) ✓. Production GP-slice set narrowed from {ns,hub,bhfeedback}
-(Stage 8) to **{hub, bhfeedback}** — meets the "only those two" criterion.
-
-**Method hierarchy:** aq+gate *filter* (can't generate) → ratio-response
-*indirect generative* (fixed 8/11, fragile wiring, stashed) → Sobolev *direct
-generative* (recovers ns). **hub is genuinely hard** — ~0.93 under every method
-(value/ratio/Sobolev even λ=15); stays GP-slice. σ_PySR/σ_GP at single-z is
-rank-deficiency-confounded (don't judge on it).
-
-**Code:** `src/priya_forecast/sobolev_loss.py` (`make_sobolev_loss(lam,h)`,
-`sobolev_target_weights(...)` — per-fidelity, std-normalized, boundary-clamped);
-`refit_1d_for_param(..., use_sobolev, sobolev_lambda, sobolev_h)`; `PySRConfig`
-+ CLI `--use-sobolev` + SLURM `USE_SOBOLEV`/`SOBOLEV_LAMBDA`. Gated test
-`tests/test_stage9_end_to_end.py`. Reproduce: `sbatch ... USE_SOBOLEV=1,
-SOBOLEV_LAMBDA=5.0 --array=0-10%3 slurm/single_z_refit.slurm` then
-`run_pipeline.py --config configs/single_z/stage9_z3.6.yaml`.
-
-**Stage 10 (next):** mirror the Sobolev refit + gate to multi-z (the
-well-conditioned regime where σ is interpretable) and a hub-specific
-investigation (why ∂P/∂hub resists symbolic fitting).
-
-### (original Stage 9 plan below — superseded by the result above)
-
-Add a derivative-matching term to the PySR loss:
-`L = MSE(P_SR, P_GP) + λ · ‖∂_θ logP_SR − ∂_θ logP_GP‖²`.
-GP-derived target gradients are computed once and fed to PySR as a
-custom Julia loss. This closes the "PySR has the right values but the
-wrong derivatives" gap that Stage 6 attenuated but did not eliminate.
-Latent risk: requires a `LossFunction` Julia callable; not all PySR
-versions support it cleanly.
-
-**Literature-informed levers (2026-06-03 SR-emulator review, full notes in
-`docs/SR_EMULATOR_LITERATURE_NOTES.md`).** The syren family (arXiv:2311.15865,
-2506.08783, 2510.18749) never validates derivative accuracy — so our Sobolev
-loss + a derivative-validation gate are genuine extensions, not reinventions.
-Three highest-ROI changes to fold into Stage 8, each attacking Fisher's-Mirage
-at a different layer:
-1. **Ratio-response target** (target layer): fit `log[P(θ)/P(θ_fid)]` per
-   parameter, not raw `log P`. The derivative IS `∂logP/∂θ` (the Fisher
-   quantity), so this attacks the Mirage at the SR target and composes with
-   the anchor + the Sobolev loss. Biggest single lever.
-2. **`aq(x,y)=x/√(1+y²)` operator, drop raw `/`** (operator layer): raw
-   division makes poles/spurious curvature near zeros — a mechanical cause of
-   derivative-unfaithful equations. `aq` is bounded/smooth. PySR custom binary
-   operator; low effort.
-3. **Derivative-validation selection gate** (selection layer): reject equations
-   on `median|∂logP_SR/∂logP_GP − 1|`, not value RMSE; plus a train/val
-   loss-gap reject (syren's overfitting guard).
-
-Deeper architectural flag (tradeoff, not a directive): syren fits ONE joint
-multivariate expression; our per-parameter-1D + additive combine drops
-cross-terms — relevant to the herei×alphaq coupling
-(`memory/headline_findings.md`). Scoped experiment: a joint 2-param refit on
-herei–alphaq to measure what the additive combine leaves on the table.
-
-## How to run things
-
-- **Fast tests:** `PYTHONPATH=src pytest tests/ -q` — ~340 pass, 10 skip.
-- **Slow/emulator tests:** need `lyaemu` importable —
-  `PYTHONPATH=src:/home/mfho/student_projects/lya_emulator_full` — and
-  `data/kodiaq_gp/`. Gated by env vars: `RUN_SLOW_GP_ONLY`,
-  `RUN_SLOW_FORECAST_ONLY`, `RUN_SLOW_REFIT`, `RUN_SLOW_REGEN_1PVAR`.
-- **PySR / Julia gotcha:** any PySR run MUST set
-  `PYTHON_JULIAPKG_PROJECT=$HOME/.julia_env` and
-  `JULIA_DEPOT_PATH=$HOME/.julia` — otherwise juliapkg tries a read-only
-  system path and fails. The SLURM scripts set these; ad-hoc runs must too.
-- **Regenerated training data:** `data/single_z_1pvar/` (gitignored,
-  22 HDF5s) — produced by `scripts/regen_1pvar.py`; already generated.
-- **Forecast results:** `results/single_z_stage{1,2,3,3_subset,6_log}/`
-  (untracked; not gitignored, just not committed).
-
-### Stage 6 reproduction recipe
-
-```bash
-# 11-task SLURM array, ~5 min/task wall:
-sbatch --export=ALL,REPO=$(pwd),BASEDIR=data/kodiaq_gp,\
-       OUTPUT_DIR=results/single_z_stage6_log,Z=3.6,TARGET_SPACE=log \
-       --array=0-10 slurm/single_z_refit.slurm
-
-# Forecast (~4 min, emulator load dominates):
-PYTHONPATH=src:/home/mfho/student_projects/lya_emulator_full \
-  python scripts/run_pipeline.py --config configs/single_z/stage6_log_z3.6.yaml
-```
-
-## Environment (gotchas discovered 2026-05-20)
-
-- **numpy must be <2 on this machine.** Greatlakes' centrally-installed
-  numpy is now 2.x; the user previously installed numpy 2.4.6 to
-  `~/.local/`. GPy 1.13.2's compiled cython extensions are built against
-  numpy 1.x's `numpy.dtype` (96 bytes); numpy 2.x shrunk it to 88 bytes,
-  producing `ValueError: numpy.dtype size changed`. Fix:
-  `pip install --user "numpy<2"` (1.26.4 verified working).
-- **Five one-line legacy-numpy-API patches** were applied to
-  `~/.local/lib/python3.11/site-packages/`:
-  - `paramz/model.py:36` and `paramz/core/index_operations.py:32`
-  - `GPy/util/pca.py:13`, `GPy/core/sparse_gp_mpi.py:6`,
-    `GPy/models/ss_mrd.py:16`
-  Each replaces a removed numpy-internal import
-  (`numpy.linalg.linalg.LinAlgError`, `numpy.lib.function_base.vectorize`)
-  with its public-API equivalent. These survive on numpy<2 too (they're
-  upstream-correct), so the downgrade + patches are belt-and-braces.
-- **paramz 0.9.6 + GPy 1.13.2** is the working pinning.
-
-## Test status
-
-- Linear path of every Stage 6 test: byte-equivalent to pre-Stage-6.
-- Stage 6 unit tests: positivity guards, log-mean normalization,
-  exp/log inverse consistency, anchor-identity at θ=fid, multi_d mode
-  rejection.
-- Stage 6 integration test: σ_perfect_1D ≈ σ_GP in log-space (rtol=1e-3).
-- Pre-existing unrelated failure:
-  `tests/test_pysr_hypothesis.py::test_h6_explicit_cross_terms_help_modestly_on_non_separable_truth`
-  — numpy scalar TypeError, predates Stage 6 (file last touched at commit
-  `7b30a3b`).
+- **Fast tests:** `PYTHONPATH=src pytest tests/ -q -k "not slow"` (~412 pass, 13
+  skip; 1 pre-existing numpy<2/GPy env error on `test_real_gp_predicts_at_fiducial`).
+- **Emulator/PySR runs:** need `PYTHON_JULIAPKG_PROJECT=$HOME/.julia_env
+  JULIA_DEPOT_PATH=$HOME/.julia` and `PYTHONPATH=src:/home/mfho/student_projects/lya_emulator_full`,
+  plus the project venv `.venv` (pinned numpy<2; see README) and `data/kodiaq_gp/`.
+- **Regenerate the diagnostic figures (emulator-free, from sidecars):**
+  `PYTHONPATH=src python scripts/make_diagnostic_figs.py --out-dir results/single_z_stage_pareto_diag`.
+- **Reproduce a gate eval (needs GP):** `scripts/make_grad_faith_sidecars.sh <pareto_dir> <z>`.
 
 ## Pointers
 
-- Design specs + plans: `docs/superpowers/specs/`,
-  `docs/superpowers/plans/`.
-- Memory index:
-  `~/.claude/projects/-home-mfho-lya1d-priya-forecast/memory/MEMORY.md`
-  — `active_work.md` has the full status + research verdict;
-  `student_pysr_contract.md`, `igm_thermal_z_dependence.md`,
-  `headline_findings.md` are the relevant science memories.
-- Stage 6 PR: https://github.com/jibanCat/lya1d_priya_forecast/pull/3.
-- This file replaced an older HANDOFF.md that described the pre-single-z
-  multi-z Phase 0-7 work; that history is in git and in
-  `docs/PAPER_NOTES.md`.
+- Spec/plan: `docs/superpowers/specs|plans/2026-06-08-pareto-faithfulness-diagnostic*`.
+- Memory: `~/.claude/projects/-home-mfho-lya1d-priya-forecast/memory/` —
+  `active_work.md` (current state + taxonomy + cross-z + h basis test),
+  `review_verdict_sr_emulator.md` (the 4-agent review).
+- Earlier multi-z Sobolev "money plot" plan (Stage 10 Task 4) is **dropped** in
+  favour of the diagnostic; that history is in git.
