@@ -102,7 +102,6 @@ def main():
             ax.annotate(f"{s:.2f}", (xi, min(s, 1.05)), textcoords="offset points",
                         xytext=(0, 7), ha="center", fontsize=8, color="#1a9850",
                         fontweight="bold")
-            bf = bestloss(SOBOLEV, p)  # same here; note best-faith in text
             ax.annotate("resists", (xi, min(s, 1.05)), textcoords="offset points",
                         xytext=(0, 19), ha="center", fontsize=8, color="#7f0000")
     ax.set_xticks(x); ax.set_xticklabels(labels, rotation=35, ha="right")
@@ -145,7 +144,35 @@ def main():
     fig.savefig(out / "ns_budget_panel.png", dpi=150)
     plt.close(fig)
 
-    names = ["pareto_faithfulness", "faithfulness_scorecard", "ns_budget_panel"]
+    # ---------- Figure 4: cross-z robustness (Sobolev best-loss grad_err vs z) ----------
+    CROSSZ = {
+        2.6: "results/single_z_z2.6_sobolev/refit/z2.6",
+        3.6: SOBOLEV,
+        4.2: "results/single_z_z4.2_sobolev/refit/z4.2",
+    }
+    zs = [2.6, 3.6, 4.2]
+    cmapz = plt.get_cmap("tab20")
+    fig, ax = plt.subplots(figsize=(9, 5.2), layout="constrained")
+    for i, p in enumerate(PARAM_NAMES):
+        s = []
+        for z in zs:
+            try:
+                s.append(bestloss(CROSSZ[z], p))
+            except Exception:
+                s.append(float("nan"))
+        ax.plot(zs, np.clip(s, 0, 1.2), marker="o", lw=1.4, color=cmapz(i % 20), label=p)
+    ax.axhline(GATE_TOL, color="k", ls="--", lw=1.3)
+    ax.text(4.2, GATE_TOL + 0.01, "gate 0.25", ha="right", fontsize=9)
+    ax.set_xticks(zs); ax.set_xlabel("redshift z")
+    ax.set_ylabel("Sobolev best-loss grad_err (clipped 1.2)")
+    ax.set_title("Redshift robustness of the derivative-faithfulness taxonomy (Sobolev fits)")
+    ax.set_ylim(0, 1.25); ax.grid(alpha=.25); ax.legend(ncol=2, fontsize=8, loc="upper center")
+    fig.savefig(out / "crossz_faithfulness.pdf")
+    fig.savefig(out / "crossz_faithfulness.png", dpi=150)
+    plt.close(fig)
+
+    names = ["pareto_faithfulness", "faithfulness_scorecard", "ns_budget_panel",
+             "crossz_faithfulness"]
     for dest in args.also_copy_to:
         Path(dest).mkdir(parents=True, exist_ok=True)
         for n in names:
@@ -153,7 +180,7 @@ def main():
                 src = out / f"{n}.{ext}"
                 if src.exists():
                     (Path(dest) / f"{n}.{ext}").write_bytes(src.read_bytes())
-    print(f"wrote 3 figures (png+pdf) to {out}" +
+    print(f"wrote 4 figures (png+pdf) to {out}" +
           (f" and copied PNG+PDF to {args.also_copy_to}" if args.also_copy_to else ""))
 
 

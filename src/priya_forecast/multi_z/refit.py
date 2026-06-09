@@ -238,6 +238,18 @@ def refit_one_param_multi_z(
     pysr_kwargs = pysr_kwargs_for_cfg(cfg)
     k_grid = np.asarray(k_grid, dtype=float)
 
+    # M2 guard: multi-z Sobolev is disabled. The multi-z training target is built
+    # in linear P_F (_build_training_matrix_multiz) while the Sobolev target gradient
+    # is log-P (sobolev_loss) -- this log/linear mismatch would silently corrupt the
+    # forecast. The diagnostic uses single-z Sobolev only; the proper fix (log Y in
+    # the multi-z builder) is a tracked follow-up.
+    if cfg.pysr.use_sobolev:
+        raise NotImplementedError(
+            "Multi-z Sobolev refit is disabled (linear-P_F target vs log-P Sobolev "
+            "gradient mismatch). Use single-z Sobolev, or fix the multi-z builder "
+            "to log Y first."
+        )
+
     result = None
     for attempt in range(max_retries + 1):
         result = refit_1d_multiz_for_param(

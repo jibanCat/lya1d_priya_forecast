@@ -78,12 +78,12 @@ all-red.
 value-loss ● vs Sobolev ■, sorted; gate dashed). Only hub & bhfeedback stay above
 the gate under Sobolev; ns makes the biggest jump.
 
-![Scorecard](../results/single_z_stage_pareto_diag/summary_scorecard.png)
+![Scorecard](../results/single_z_stage_pareto_diag/faithfulness_scorecard.png)
 
 **ns money panel** — the budget control on the honest value axis: budget (▲) reaches
 the lowest value_mse but never goes green; Sobolev (■) matches it and does.
 
-![ns money panel](../results/single_z_stage_pareto_diag/ns_money_panel.png)
+![ns budget panel](../results/single_z_stage_pareto_diag/ns_budget_panel.png)
 
 ## The mechanism the figure makes visible
 

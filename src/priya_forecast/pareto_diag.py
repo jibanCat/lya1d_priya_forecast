@@ -119,4 +119,3 @@ def render_grid(fronts_by_param, out_path, *, gate_tol=GATE_TOL,
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
     return out_path
-    return out_path

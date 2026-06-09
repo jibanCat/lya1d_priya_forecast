@@ -93,6 +93,14 @@ def main():
     # Sobolev objective for Sobolev runs -- is comparable across runs trained with
     # different objectives. Precompute once (independent of the candidate).
     kg = np.asarray(kg, dtype=float)
+    # N1 guard: the candidate gradient uses kg (1pvar k) while the GP target gradient
+    # uses k_grid (kodiaq); they coincide at the default bounds but a non-default
+    # --kmin/--kmax would silently misalign the elementwise ratio.
+    if not np.allclose(np.asarray(k_grid, float), kg):
+        raise ValueError(
+            "k_grid (kodiaq) and kg (1pvar) differ -- grad_err/value_mse would "
+            "misalign. Re-run at the default --kmin/--kmax, or align the grids."
+        )
     theta_grid = np.asarray(d["params_hf"][:, pidx], dtype=float)
     logP_gp_grid = np.empty((theta_grid.size, kg.size), dtype=float)
     for i, t in enumerate(theta_grid):
