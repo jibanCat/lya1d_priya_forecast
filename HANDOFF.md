@@ -1,7 +1,7 @@
 # HANDOFF — Lyα P1D PySR forecast / diagnostic
 
-**Last updated:** 2026-06-09
-**Branch:** `stage10-multiz-sobolev` (pushed; **PR #6** open against `main`)
+**Last updated:** 2026-06-11
+**Branch:** `stage10-multiz-sobolev` (pushed, latest `ea814dc`; **PR #6** open against `main`)
 
 ---
 
@@ -19,6 +19,34 @@ claim to a **diagnostic / failure-modes** result. The 4-agent review found the
 identity anchored at P_GP(fid); the GP-slice fallback prints GP-derived σ in the
 PySR column). The diagnostic is what the GP-as-oracle setup can honestly support.
 
+## Most recent session (2026-06-11): across-seed band → publication blocker DISCHARGED
+
+The 4-referee publishability panel had **one true blocker**: the taxonomy was a
+single PySR seed (PySR is stochastic). Ran the across-seed band (5 seeds) and it
+holds up. Aggregator: `scripts/aggregate_seed_band.py` (loads the GP once, scores
+the value-optimal Fisher-safe equation of every (seed, mode) front); output
+`results/seed_band/seed_band_summary.json` + `seed_band.{pdf,png}` (all committed).
+Verdict:
+- **Budget control is seed-robust:** ns value@maxsize-35 fails the gate at *every*
+  seed (0.39–0.67). Deeper search reliably does not fix the slope.
+- **Sobolev verdict is seed-stable for 10/11:** 8 clear the gate at all seeds;
+  hub + bhfeedback resist at all seeds.
+- **Value-loss *selection* is seed-fragile** (wide whiskers, several straddle) →
+  sharpened thesis: picking the value-optimal equation is an unreliable route to a
+  faithful slope; the **Sobolev objective is the stable one**.
+- **ns is borderline, NOT "cured":** Sobolev 0.33 median [0.21, 0.42] straddles the
+  gate — the committed single-seed 0.193 was an optimistic draw. Reclassified ns as
+  *generative Mirage (borderline)* everywhere.
+- **Fisher-free gate defense** (user dropped the covariance/Fisher gate as "too
+  hard"): re-classifying at gate ∈ {0.20, 0.25, 0.30} gives an **identical split at
+  0.25 and 0.30** → 0.25 is a defensible chosen operating point; readers apply their
+  own tolerance from the reported grad_err. No Fisher machinery needed.
+
+Reframe **propagated this session**: walkthrough threshold-robustness table
+(committed `ea814dc`) + paper `oja_template.tex` sec:fisher_results (`\additions{}`
+seed paragraph + `fig:seed_band`) + taxonomy table ns row + `PAPER_NARRATIVE.md`
+§7f. All paper-repo edits left UNCOMMITTED per that repo's CLAUDE.md.
+
 ## The diagnostic (the current science)
 
 For each parameter, score whether a symbolic equation's **slope** ∂P/∂θ matches the
@@ -29,10 +57,11 @@ cure. Key results (single-z z=3.6, real KODIAQ-SQUAD):
 
 - **Fisher's Mirage:** an equation can be value-accurate yet slope-wrong.
 - **Taxonomy:** robustly faithful {dtau0, tau0, heref, alphaq, hireionz};
-  selection-sensitive {Ap, herei, omegamh2}; **generative Mirage cured by Sobolev**
-  {ns, 0.60→0.19}; **resistant** {hub, bhfeedback}.
-- **Budget control:** ns value-loss at maxsize=35 still fails (0.32) → the Mirage
-  is generative, not search-starvation.
+  selection-sensitive {Ap, herei, omegamh2}; **generative Mirage, Sobolev strongly
+  improves but borderline across seeds** {ns, 0.60→0.33 median [0.21,0.42]};
+  **resistant** {hub, bhfeedback}.
+- **Budget control:** ns value-loss at maxsize=35 still fails (0.32 single-seed;
+  0.39–0.67 across 5 seeds) → the Mirage is generative, not search-starvation.
 - **Cross-z (z=2.6/3.6/4.2, retrained):** taxonomy is NOT redshift-uniform — the
   He II reion block (herei, heref, alphaq) is faithful at z≤3.6 and blows up at
   z=4.2 (its imprint weakens; the gate can't adjudicate a near-noise slope).
@@ -53,16 +82,43 @@ cure. Key results (single-z z=3.6, real KODIAQ-SQUAD):
   `decider_budget_z3.6`, and the cross-z `single_z_z{2.6,4.2}_{value,sobolev}`.
 - Walkthrough (source of truth): `docs/PARETO_FAITHFULNESS_WALKTHROUGH.md`.
 
+## Production result plots (the 5 paper figures)
+
+All git-tracked (`.pdf` + `.png`), regenerated emulator-free from the sidecars:
+
+| figure | code repo (source of truth) | paper repo (`\includegraphics`) |
+|---|---|---|
+| `pareto_faithfulness` (central) | `results/single_z_stage_pareto_diag/` | `~/Latex/…/figs/` |
+| `faithfulness_scorecard` (one-glance) | `results/single_z_stage_pareto_diag/` | `~/Latex/…/figs/` |
+| `ns_budget_panel` (money plot) | `results/single_z_stage_pareto_diag/` | `~/Latex/…/figs/` |
+| `crossz_faithfulness` (z-robustness) | `results/single_z_stage_pareto_diag/` | `~/Latex/…/figs/` |
+| `seed_band` (across-seed band) | `results/seed_band/` | `~/Latex/…/figs/` |
+
+Regenerate the first four: `PYTHONPATH=src python scripts/make_diagnostic_figs.py
+--out-dir results/single_z_stage_pareto_diag`. Regenerate `seed_band` (needs GP):
+`scripts/aggregate_seed_band.py` then its plotter. Paper-repo `figs/` copies are
+**uncommitted** (paper repo isn't committed).
+
 ## Paper integration (separate repo)
 
-Paper: `~/Latex/Knowledge-Distillation-using-PySR-with-PRIYA-suite/oja_template.tex`
-(branch `paper-additions`). The diagnostic is integrated into the two Fisher
-`\suggest{}` slots + a Sobolev appendix + taxonomy table + 4 figures, all wrapped in
-a purple `\additions{}` macro (machine-drafted, for the user to rewrite in voice);
-long sections are left as `[OUTLINE]`. PDF builds (17 pp). The prep changeset,
-referee reports, and a phone-readable `PAPER_NARRATIVE.md` live in
-`.../pysr_faithfulness_update/`. The paper `.tex` is intentionally **not committed**
-(reviewed in LaTeX Workshop).
+Paper: `~/Latex/Knowledge-Distillation-using-PySR-with-PRIYA-suite/oja_template.tex`.
+The diagnostic is integrated into `sec:fisher` (methods: Fisher/grad_err/Sobolev eqs
++ Mirage paragraph) and `sec:fisher_results` (central-result paragraph, seed-
+robustness paragraph, **5 figures** incl. `fig:seed_band`, taxonomy table), plus a
+Sobolev appendix — all wrapped in a purple `\additions{}` macro (machine-drafted, for
+the user to rewrite in voice). PDF builds, **17 pp, `fig:seed_band` resolves** (only
+pre-existing `sec:2d_preds`/`sec:3d_preds` refs undefined — unrelated student stubs).
+The prep changeset, referee reports, and a phone-readable `PAPER_NARRATIVE.md`
+(§7f = seed band) live in `.../pysr_faithfulness_update/`. The paper repo is
+intentionally **not committed** (user reviews the PDF in LaTeX Workshop).
+
+**Immediate next step (offered, not yet done):** two of my own
+`\additions{[OUTLINE … to flesh out]}` blocks still render literally in purple —
+`oja_template.tex:478–483` (methods: stencil through the combined model + the
+non-negligible-k mask; gate-as-selection vs Sobolev-as-generative; diagonal-Fisher
+caveat) and `:651–657` (discussion: per-parameter table reading; the two resisters
+incl. the h basis-test refutation; cross-z implication; honest caveats). Content is
+all decided — just needs prose. The student stubs at `:453`/`:489` are NOT mine.
 
 ## How to run
 
