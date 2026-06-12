@@ -1,7 +1,7 @@
 # HANDOFF — Lyα P1D PySR forecast / diagnostic
 
-**Last updated:** 2026-06-11
-**Branch:** `stage10-multiz-sobolev` (pushed, latest `ea814dc`; **PR #6** open against `main`)
+**Last updated:** 2026-06-12
+**Branch:** `stage10-multiz-sobolev` (pushed, latest `412ca81`; **PR #6** open against `main`)
 
 ---
 
@@ -97,7 +97,22 @@ All git-tracked (`.pdf` + `.png`), regenerated emulator-free from the sidecars:
 Regenerate the first four: `PYTHONPATH=src python scripts/make_diagnostic_figs.py
 --out-dir results/single_z_stage_pareto_diag`. Regenerate `seed_band` (needs GP):
 `scripts/aggregate_seed_band.py` then its plotter. Paper-repo `figs/` copies are
-**uncommitted** (paper repo isn't committed).
+**uncommitted** (paper repo isn't committed); after regenerating, re-copy the
+changed `.pdf` into `~/Latex/…/figs/` by hand (or `--also-copy-to`).
+
+**Gate-colour convention (2026-06-12, commits `a7fb45f`+`412ca81`):** both gate
+figures (`pareto_faithfulness`, `ns_budget_panel`) use a **hard two-tone** —
+**green = faithful (grad_err ≤ 0.25), red = Mirage (> 0.25)** — via
+`ListedColormap(["#1a9850","#d6604d"]) + BoundaryNorm([0, gate+ε, 1])`, so the
+fill colour and the **bold-ring** pass/fail flag always agree (the old diverging
+RdYlGn_r centred on the gate made near-gate points an ambiguous cream on *both*
+sides — a referee/user-noticed legibility bug). `pareto_faithfulness` also moved
+its long y-label to a single `fig.supylabel` (it was colliding with the next
+column's tick labels). The `render_grid` helper lives in
+`src/priya_forecast/pareto_diag.py`; `ns_budget_panel` is drawn inline in
+`scripts/make_diagnostic_figs.py`. Reminder on commits: re-rendering rewrites PDF
+metadata for *all four* figures, so `git checkout --` the ones you didn't change
+to keep diffs to the real edit.
 
 ## Paper integration (separate repo)
 
@@ -142,3 +157,8 @@ all decided — just needs prose. The student stubs at `:453`/`:489` are NOT min
   `review_verdict_sr_emulator.md` (the 4-agent review).
 - Earlier multi-z Sobolev "money plot" plan (Stage 10 Task 4) is **dropped** in
   favour of the diagnostic; that history is in git.
+- **Env note (2026-06-12):** the `/home` login banner "Using 79.2 GB of quota
+  80 GB" is a **stale nightly snapshot** — `home-quota` reports the live number
+  (~70 GiB used, ~10 GiB free after a cache sweep). Real space sits in conda envs
+  (~24 GB), `texlive` (12 GB), `MATLAB` (9.5 GB); regenerable caches were already
+  cleared. Don't panic-delete on the banner.
