@@ -114,8 +114,9 @@ def main():
     plt.close(fig)
 
     # ---------- Figure 3: ns money panel (endpoints labelled) ----------
-    cmap = plt.get_cmap("RdYlGn_r")
-    norm = mcolors.TwoSlopeNorm(vmin=0.0, vcenter=GATE_TOL, vmax=1.0)
+    # Same hard two-tone as the pareto grid: green faithful (<=0.25) / red Mirage.
+    cmap = mcolors.ListedColormap(["#1a9850", "#d6604d"])
+    norm = mcolors.BoundaryNorm([0.0, GATE_TOL + 1e-12, 1.0], cmap.N)
     fig, ax = plt.subplots(figsize=(7.8, 5.4), layout="constrained")
     sc = None
     for lab, d, mk in [("value@20", VALUE, "o"), ("value@budget (maxsize 35)", BUDGET, "^"),
@@ -139,8 +140,8 @@ def main():
     ax.set_title("ns — budget reaches the lowest value error but never goes green;\n"
                  "Sobolev clears the gate at a comparable (~24% higher) value error")
     ax.grid(which="both", alpha=.25); ax.legend(loc="upper right", fontsize=9)
-    cb = fig.colorbar(sc, ax=ax); cb.set_label("grad_err (clipped 1)")
-    cb.ax.axhline(GATE_TOL, color="k", lw=1.2)
+    cb = fig.colorbar(sc, ax=ax, ticks=[GATE_TOL])
+    cb.set_label("grad_err: green = faithful (≤ 0.25)   red = Mirage (> 0.25)")
     fig.savefig(out / "ns_budget_panel.pdf")
     fig.savefig(out / "ns_budget_panel.png", dpi=150)
     plt.close(fig)
