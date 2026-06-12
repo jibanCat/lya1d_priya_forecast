@@ -56,9 +56,10 @@ def render_grid(fronts_by_param, out_path, *, gate_tol=GATE_TOL,
     fronts_by_param: {param: [ {front: DataFrame, label: str, marker: str}, ... ]}
     y_col: which front column on the (log) y-axis. "value_mse" is the common,
     cross-objective-comparable value loss; "Loss" is the raw PySR training loss.
-    Gate legibility: markers that clear the gate (grad_err <= gate_tol) get a
-    **bold black ring**, failing markers a thin grey edge, and not-Fisher-safe
-    candidates a grey fill -- so pass/fail is readable on each panel, not only on
+    Gate legibility: hard two-tone fill -- green at/below the gate (faithful),
+    red above it (Mirage) -- plus a **bold black ring** on markers that clear the
+    gate (thin grey edge on failing markers, grey fill on not-Fisher-safe ones),
+    so colour and ring agree and pass/fail is readable on each panel, not only on
     the colorbar. `annotate`: optional {param: dict(text=, xy=, xytext=)}.
     """
     params = list(param_order) if param_order else list(fronts_by_param)
@@ -66,8 +67,12 @@ def render_grid(fronts_by_param, out_path, *, gate_tol=GATE_TOL,
     nrow = int(np.ceil(len(params) / ncol))
     fig, axes = plt.subplots(nrow, ncol, figsize=(4 * ncol, 3 * nrow),
                              squeeze=False, layout="constrained")
-    cmap = plt.get_cmap("RdYlGn_r")
-    norm = mcolors.TwoSlopeNorm(vmin=0.0, vcenter=gate_tol, vmax=1.0)
+    # Hard two-tone so colour and the pass/fail ring always agree: green at or
+    # below the gate (faithful), red above it (the Mirage). The old diverging map
+    # centred on the gate rendered near-gate points an ambiguous cream on *both*
+    # sides, so a barely-failing point looked as faithful as a passing one.
+    cmap = mcolors.ListedColormap(["#1a9850", "#d6604d"])
+    norm = mcolors.BoundaryNorm([0.0, gate_tol + 1e-12, 1.0], cmap.N)
     last_sc = None
 
     for i, p in enumerate(params):
@@ -103,7 +108,10 @@ def render_grid(fronts_by_param, out_path, *, gate_tol=GATE_TOL,
         ax.set_yscale("log")
         ax.set_title(p)
         ax.set_xlabel("complexity")
-        ax.set_ylabel(y_label or y_col)
+        # One shared y-label (fig.supylabel below) instead of repeating the long
+        # label on every panel, where it collided with the next column's ticks.
+        ax.tick_params(axis="both", labelsize=8)
+        ax.tick_params(axis="y", which="minor", labelsize=6)
         ax.grid(True, which="both", alpha=0.2)
         if any(s.get("label") for s in fronts_by_param.get(p, [])):
             ax.legend(fontsize=7, loc="best")
@@ -116,12 +124,14 @@ def render_grid(fronts_by_param, out_path, *, gate_tol=GATE_TOL,
     for j in range(len(params), nrow * ncol):
         axes[j // ncol][j % ncol].axis("off")
 
+    fig.supylabel(y_label or y_col, fontsize=11)
+
     if last_sc is not None:
         cbar = fig.colorbar(last_sc, ax=axes.ravel().tolist(),
-                            fraction=0.025, pad=0.01)
-        cbar.set_label("grad_err = slope error vs GP  (median |∂P_eq/∂P_GP − 1|)\n"
-                       "bold ring = clears the 0.25 gate (faithful)")
-        cbar.ax.axhline(gate_tol, color="k", lw=1.2)
+                            fraction=0.025, pad=0.01, ticks=[gate_tol])
+        cbar.set_label("derivative faithfulness vs GP (grad_err)\n"
+                       "green = faithful (≤ 0.25)   red = Mirage (> 0.25)\n"
+                       "bold ring = clears the gate")
 
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
