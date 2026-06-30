@@ -7,6 +7,8 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from priya_forecast.single_z.refit import kodiaq_k_grid, pysr_kwargs_for_cfg
 
@@ -33,6 +35,52 @@ def test_pysr_kwargs_for_cfg_smart_and_default():
         pysr=PySRConfig(smart_kwargs=False, niterations=9)))
     assert plain["niterations"] == 9
     assert "sqrt" in plain["unary_operators"]
+
+
+def test_pysr_kwargs_loss_decoupled_from_operators():
+    """Operator set (smart_kwargs) and training loss (use_anova_loss) are
+    independent knobs. The production value baseline = no-trig operators +
+    plain MSE (no ANOVA)."""
+    from priya_forecast.single_z.config import PipelineConfig, PySRConfig
+
+    # Default production value baseline: smart operators, MSE, no ANOVA.
+    value = pysr_kwargs_for_cfg(PipelineConfig(
+        pysr=PySRConfig(smart_kwargs=True, use_anova_loss=False)))
+    assert "loss_function" not in value
+    assert "elementwise_loss" in value
+    # No trig — oscillatory derivatives wreck Fisher conditioning.
+    assert set(value["unary_operators"]) == {"exp", "log", "square"}
+
+    # Ablation: same operators, ANOVA loss instead of MSE.
+    anova = pysr_kwargs_for_cfg(PipelineConfig(
+        pysr=PySRConfig(smart_kwargs=True, use_anova_loss=True)))
+    assert "loss_function" in anova
+    assert "elementwise_loss" not in anova
+    assert set(anova["unary_operators"]) == {"exp", "log", "square"}
+
+
+@settings(max_examples=24, deadline=None)
+@given(
+    smart=st.booleans(),
+    anova=st.booleans(),
+    niter=st.integers(min_value=1, max_value=500),
+)
+def test_property_exactly_one_loss_and_no_trig_when_smart(smart, anova, niter):
+    """Invariant: PySR forbids both elementwise_loss and loss_function, so
+    exactly one must be present; and the smart operator set never contains
+    trig functions."""
+    from priya_forecast.single_z.config import PipelineConfig, PySRConfig
+
+    kw = pysr_kwargs_for_cfg(PipelineConfig(
+        pysr=PySRConfig(smart_kwargs=smart, use_anova_loss=anova,
+                        niterations=niter)))
+    has_ew = "elementwise_loss" in kw
+    has_lf = "loss_function" in kw
+    assert has_ew != has_lf  # exactly one
+    assert has_lf == anova   # loss_function present iff ANOVA requested
+    assert kw["niterations"] == niter
+    if smart:
+        assert not ({"sin", "cos", "tan"} & set(kw["unary_operators"]))
 
 
 def test_refit_one_param_single_z_retries_until_usable(tmp_path, monkeypatch):

@@ -231,6 +231,13 @@ class PipelineConfig:
             raise ValueError(
                 f"target_space must be one of {VALID_TARGET_SPACES}."
             )
+        if self.pysr.use_sobolev and self.target_space != "log":
+            raise ValueError(
+                "use_sobolev=True requires target_space='log': the Sobolev "
+                "loss matches the GP's d(logP)/dtheta, so a 'linear' target "
+                "silently mismatches the gradient and corrupts the fit. "
+                "Set target_space: log."
+            )
         if self.derivative_tol <= 0:
             raise ValueError("derivative_tol must be > 0.")
         self.k_range.validate()

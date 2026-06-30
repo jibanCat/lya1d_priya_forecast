@@ -36,11 +36,26 @@ def main() -> None:
     p.add_argument("--kmax", type=float, default=0.04)
     p.add_argument("--niterations", type=int, default=50)
     p.add_argument("--maxsize", type=int, default=20)
+    p.add_argument("--populations", type=int, default=24)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--target-space", choices=("linear", "log"), default="linear")
     p.add_argument("--use-sobolev", action="store_true")
     p.add_argument("--sobolev-lambda", type=float, default=1.0)
+    p.add_argument(
+        "--anova-loss", action="store_true",
+        help="Use the dimension-balanced ANOVA loss (ablation only). Default "
+             "OFF: the value baseline trains on plain MSE.",
+    )
     args = p.parse_args()
+
+    # Guard: Sobolev matches d(logP)/dtheta, so a linear-P target silently
+    # mismatches the gradient. Fail loud rather than corrupt the fit.
+    if args.use_sobolev and args.target_space != "log":
+        p.error("--use-sobolev requires --target-space log "
+                "(the Sobolev loss matches d(logP)/dtheta).")
+    if args.use_sobolev and args.anova_loss:
+        p.error("--use-sobolev and --anova-loss are mutually exclusive "
+                "(Sobolev overrides the training loss).")
 
     from priya_forecast.models.gp_model import GPModel
 
@@ -48,11 +63,13 @@ def main() -> None:
         mode="refit_and_forecast", redshift=args.z,
         output_dir=args.output_dir, gp=GPConfig(basedir=args.basedir),
         pysr=PySRConfig(niterations=args.niterations, maxsize=args.maxsize,
-                        seed=args.seed,
+                        populations=args.populations, seed=args.seed,
                         use_sobolev=args.use_sobolev,
-                        sobolev_lambda=args.sobolev_lambda),
+                        sobolev_lambda=args.sobolev_lambda,
+                        use_anova_loss=args.anova_loss),
         target_space=args.target_space,
     )
+    cfg.validate()
     k_grid = _refit.kodiaq_k_grid(args.kmin, args.kmax, 48)
     refit_dir = Path(args.output_dir) / "refit" / f"z{args.z}"
     fid = np.array([pp.fid for pp in PARAMS_11D], dtype=float)

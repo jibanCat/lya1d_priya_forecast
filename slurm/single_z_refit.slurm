@@ -1,14 +1,22 @@
 #!/bin/bash
 # GreatLakes SLURM array — single-z PySR refit, 11 params for one z-bin.
 #
-# Submit one array job per z-bin (the batch driver does this 13×):
+# Submit one array job per z-bin. Env knobs (all via --export):
+#   Z TARGET_SPACE USE_SOBOLEV SOBOLEV_LAMBDA ANOVA_LOSS SEED MAXSIZE
+#   POPULATIONS NITERATIONS  (budget defaults: 24 / 50).
+# NOTE: USE_SOBOLEV=1 requires TARGET_SPACE=log (the CLI enforces it).
+#
+# Production Sobolev fit (one z), higher budget:
 #   sbatch --export=ALL,REPO=/home/mfho/lya1d_priya_forecast,\
 #                    BASEDIR=data/kodiaq_gp,\
-#                    OUTPUT_DIR=results/single_z_run,Z=3.6 \
-#          --array=0-10 \
-#          slurm/single_z_refit.slurm
+#                    OUTPUT_DIR=results/paper_production_20260630_perz_sobolev_z2.6-4.2/refit_sobolev,\
+#                    Z=3.6,TARGET_SPACE=log,USE_SOBOLEV=1,SOBOLEV_LAMBDA=5,\
+#                    MAXSIZE=20,POPULATIONS=48,NITERATIONS=200,SEED=0 \
+#          --array=0-10 slurm/single_z_refit.slurm
+# Value (no-gradient, plain-MSE) baseline: drop USE_SOBOLEV/SOBOLEV_LAMBDA,
+#   keep TARGET_SPACE=log, point OUTPUT_DIR at .../refit_value.
 
-#SBATCH --account=cavestru0
+#SBATCH --account=yueyingn0
 #SBATCH --partition=standard
 #SBATCH --nodes=1
 #SBATCH --ntasks=4
@@ -30,8 +38,13 @@ USE_SOBOLEV=${USE_SOBOLEV:-0}
 SOBOLEV_LAMBDA=${SOBOLEV_LAMBDA:-1.0}
 SEED=${SEED:-0}
 MAXSIZE=${MAXSIZE:-20}
+POPULATIONS=${POPULATIONS:-24}
+NITERATIONS=${NITERATIONS:-50}
+ANOVA_LOSS=${ANOVA_LOSS:-0}
 SOBOLEV_ARGS=""
 [ "$USE_SOBOLEV" = "1" ] && SOBOLEV_ARGS="--use-sobolev --sobolev-lambda ${SOBOLEV_LAMBDA}"
+ANOVA_ARGS=""
+[ "$ANOVA_LOSS" = "1" ] && ANOVA_ARGS="--anova-loss"
 
 PARAMS=(dtau0 tau0 ns Ap herei heref alphaq hub omegamh2 hireionz bhfeedback)
 PARAM=${PARAMS[$SLURM_ARRAY_TASK_ID]:?Array index out of range}
@@ -53,6 +66,8 @@ cd "$REPO"
 "$PY" scripts/refit_one_param_single_z.py \
     --param "$PARAM" --z "$Z" \
     --basedir "$BASEDIR" --output-dir "$OUTPUT_DIR" \
-    --target-space "$TARGET_SPACE" --seed "$SEED" --maxsize "$MAXSIZE" $SOBOLEV_ARGS
+    --target-space "$TARGET_SPACE" --seed "$SEED" --maxsize "$MAXSIZE" \
+    --populations "$POPULATIONS" --niterations "$NITERATIONS" \
+    $SOBOLEV_ARGS $ANOVA_ARGS
 
 echo "[slurm] ${PARAM} z=${Z} done"
