@@ -860,6 +860,9 @@ def refit_1d_multiz_for_param(
         raise ValueError(
             "use_sobolev=True requires gp_lf and gp_hf for the multi-z refit."
         )
+    # NOTE: the multi-z Sobolev path is out of scope for the per-z production
+    # paper and unvalidated (the builder's target-space vs the d(logP)/dtheta
+    # weights are not guaranteed consistent). Use the single-z path for production.
     from pysr import PySRRegressor  # type: ignore[import-not-found]
 
     payload = _generate_1pvar_multiz_inline(
@@ -1066,6 +1069,12 @@ def refit_1d_for_param(
         raise ValueError(
             "use_sobolev=True requires gp_lf and gp_hf (the inline-GP refit path); "
             "the legacy data_dir path cannot compute Sobolev target gradients."
+        )
+    if use_sobolev and not log_space:
+        raise ValueError(
+            "use_sobolev=True requires log_space=True: the Sobolev weights are "
+            "d(logP)/dtheta, so matching them against a linear-P target is a "
+            "self-contradictory objective. Pass log_space=True (target_space='log')."
         )
     if use_sobolev:
         from priya_forecast.sobolev_loss import make_sobolev_loss, sobolev_target_weights

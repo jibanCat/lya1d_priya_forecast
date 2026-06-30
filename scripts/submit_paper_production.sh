@@ -59,13 +59,13 @@ submit() {  # $1=name $2=array_spec $3=outdir  rest=ENV assignments
          --export="$exports" "$SLURM"
 }
 
-# ---- helper: dependent grad-faith sidecar job (afterok) --------------------
+# ---- helper: dependent grad-faith sidecar job (afterany) --------------------
 sidecar() {  # $1=name $2=depjobid $3=refit_dir $4=z
   local name="$1" dep="$2" dir="$3" z="$4"
   local cmd="cd $REPO && export PYTHON_JULIAPKG_PROJECT=$HOME/.julia_env JULIA_DEPOT_PATH=$HOME/.julia PYTHONPATH=${LYA_EMULATOR}:$REPO/src && scripts/make_grad_faith_sidecars.sh $dir $z --log-space"
-  if [ "$DRY" = "1" ]; then echo "DRY sidecar $name afterok:$dep on $dir" >&2; echo "DRYSC_$name"; return; fi
+  if [ "$DRY" = "1" ]; then echo "DRY sidecar $name afterany:$dep on $dir" >&2; echo "DRYSC_$name"; return; fi
   sbatch --parsable --account="$ACCOUNT" --time="$WALLT" --mem=8G --cpus-per-task=4 \
-         --partition=standard --job-name="$name" --dependency="afterok:$dep" \
+         --partition=standard --job-name="$name" --dependency="afterany:$dep" \
          --wrap "$cmd"
 }
 
@@ -94,16 +94,16 @@ COMMON="TARGET_SPACE=log,MAXSIZE=$MAXSIZE,POPULATIONS=$POPULATIONS,NITERATIONS=$
 # ===== main per-z fits: Sobolev + value baseline ===========================
 for z in "${ZS[@]}"; do
   jid=$(submit "sob_z${z}" 0-10 "$PROD_DIR/sobolev" \
-        "Z=$z,USE_SOBOLEV=1,SOBOLEV_LAMBDA=$LAMBDA,SEED=0,$COMMON")
+        "Z=$z,USE_SOBOLEV=1,SOBOLEV_LAMBDA=$LAMBDA,SEED=0,SAVE_ARTIFACTS=1,$COMMON")
   log_job "sobolev z=$z" "$jid" "0-10" "$PROD_DIR/sobolev/refit/z$z"
   sc=$(sidecar "sc_sob_z${z}" "$jid" "$PROD_DIR/sobolev/refit/z$z" "$z")
-  log_job "  sidecar sobolev z=$z" "$sc" "afterok:$jid" "grad_faith"
+  log_job "  sidecar sobolev z=$z" "$sc" "afterany:$jid" "grad_faith"
 
   jid=$(submit "val_z${z}" 0-10 "$PROD_DIR/value" \
         "Z=$z,USE_SOBOLEV=0,SEED=0,$COMMON")
   log_job "value z=$z" "$jid" "0-10" "$PROD_DIR/value/refit/z$z"
   sc=$(sidecar "sc_val_z${z}" "$jid" "$PROD_DIR/value/refit/z$z" "$z")
-  log_job "  sidecar value z=$z" "$sc" "afterok:$jid" "grad_faith"
+  log_job "  sidecar value z=$z" "$sc" "afterany:$jid" "grad_faith"
 done
 
 # ===== seed band at z=3.6: value + sobolev + ns budget control =============
@@ -121,7 +121,7 @@ for S in "${SEEDS[@]}"; do
   log_job "seedband ns-budget seed=$S" "$jid" "$NS_INDEX" "seed_band/z3.6_seed${S}_budget"
   if [ "$S" = "0" ]; then  # the ns_budget panel reads seed0's budget dir
     sc=$(sidecar "sc_bud_s0" "$jid" "$PROD_DIR/seed_band/z3.6_seed0_budget/refit/z3.6" "3.6")
-    log_job "  sidecar ns-budget seed=0" "$sc" "afterok:$jid" "grad_faith_ns"
+    log_job "  sidecar ns-budget seed=0" "$sc" "afterany:$jid" "grad_faith_ns"
   fi
 done
 

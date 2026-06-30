@@ -86,7 +86,8 @@ def main():
         _NORM[p] = fc.per_param_local_norm(
             flux_lf_z=d["flux_lf_z"], k_grid=kg, param_min=float(meta.prior[0]),
             param_max=float(meta.prior[1]), log_space=True)
-        target = gp_param_gradient(gp=gp, fid=fid, k_grid=kg, z=Z, param_idx=pidx)
+        target = gp_param_gradient(gp=gp, fid=fid, k_grid=kg, z=Z, param_idx=pidx,
+                                   log_space=True)
         rec = {"value": [], "sobolev": []}
         for S in SEEDS:
             for mode in ("value", "sobolev"):
@@ -99,7 +100,7 @@ def main():
     d = load_1pvar(param_name="ns", z=Z, data_dir="data/single_z_1pvar")
     kg = np.asarray(d["kfkms_lf_z"][0], float)
     target = gp_param_gradient(gp=gp, fid=fid, k_grid=kg, z=Z,
-                               param_idx=PARAM_NAMES.index("ns"))
+                               param_idx=PARAM_NAMES.index("ns"), log_space=True)
     budget = [best_loss_grad_err(band / f"z3.6_seed{S}_budget" / f"refit/z{Z}/pareto_ns.csv",
                                  "ns", meta, kg, target) for S in SEEDS]
 

@@ -53,3 +53,24 @@ def write_grad_faith_sidecar(out_path, rows, *, param, z, tol,
 def read_grad_faith_sidecar(path) -> pd.DataFrame:
     """Read a sidecar CSV, skipping the leading '#' provenance comment."""
     return pd.read_csv(path, comment="#")
+
+
+def knee_row(df: pd.DataFrame, *, rel_tol: float = 0.1,
+             loss_col: str = "Loss", complexity_col: str = "Complexity") -> pd.Series:
+    """The Pareto-knee candidate: the lowest-complexity row whose loss is within
+    `rel_tol` (relative) of the minimum loss on the front.
+
+    The plain best-loss (``idxmin``) pick degenerates to the *most-complex*
+    equation when a front is complexity-truncated (loss still falling at the
+    maxsize ceiling), biasing toward ill-behaved high-order derivatives — the
+    exact Fisher pathology the gate tries to suppress. The knee picks the
+    simplest equation that is essentially as accurate (the Pareto-rational
+    choice, far better-behaved in its derivatives). On a truncated front with no
+    real knee it reduces to ~best-loss, which is the honest outcome.
+    """
+    if df.empty:
+        raise ValueError("empty front")
+    lmin = float(df[loss_col].min())
+    thresh = lmin * (1.0 + rel_tol) if lmin > 0 else lmin + rel_tol * max(abs(lmin), 1e-12)
+    elig = df[df[loss_col] <= thresh]
+    return elig.sort_values(complexity_col).iloc[0]

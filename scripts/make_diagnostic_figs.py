@@ -11,9 +11,21 @@ into --out-dir (PNG + PDF):
   3. ns_budget_panel -- the paired budget-vs-Sobolev comparison, endpoints labelled.
   4. crossz_faithfulness -- redshift robustness of the taxonomy, z=2.6/3.6/4.2.
 
-Usage:
+Usage (defaults reproduce the committed single-z diagnostic figures):
   PYTHONPATH=src python scripts/make_diagnostic_figs.py \
     --out-dir results/single_z_stage_pareto_diag
+
+Paper production run (results/paper_production_20260630_perz_sobolev_z2.6-4.2),
+layout value/refit/z<z>, sobolev/refit/z<z>, seed_band/z3.6_seed0_budget/refit/z3.6:
+  PROD=results/paper_production_20260630_perz_sobolev_z2.6-4.2
+  PYTHONPATH=src python scripts/make_diagnostic_figs.py \
+    --value-dir   $PROD/value/refit/z3.6 \
+    --sobolev-dir $PROD/sobolev/refit/z3.6 \
+    --budget-dir  $PROD/seed_band/z3.6_seed0_budget/refit/z3.6 \
+    --crossz-dirs 2.6=$PROD/sobolev/refit/z2.6 \
+                  3.6=$PROD/sobolev/refit/z3.6 \
+                  4.2=$PROD/sobolev/refit/z4.2 \
+    --out-dir     $PROD/figs
 """
 from __future__ import annotations
 
@@ -30,9 +42,25 @@ from priya_forecast.parameters import PARAM_NAMES
 from priya_forecast.grad_faith_io import read_grad_faith_sidecar
 from priya_forecast.pareto_diag import load_front, render_grid, GATE_TOL
 
-VALUE = "results/single_z_stage6_log/refit/z3.6"
-SOBOLEV = "results/single_z_stage9/refit/z3.6"
-BUDGET = "results/decider_budget_z3.6/refit/z3.6"
+# Enlarged, print-legible typography for paper production (column-width PDFs).
+# rcParams set here are global, so the shared pareto-grid renderer in
+# priya_forecast.pareto_diag picks them up for any size it does not set explicitly.
+plt.rcParams.update({
+    "font.size": 14,
+    "axes.titlesize": 16,
+    "axes.labelsize": 15,
+    "xtick.labelsize": 12,
+    "ytick.labelsize": 12,
+    "legend.fontsize": 12,
+    "figure.titlesize": 17,
+    "savefig.dpi": 150,
+})
+
+# Default input dirs reproduce the committed single-z diagnostic figures; each is
+# overridable on the CLI so the generators can be pointed at a production run.
+DEFAULT_VALUE = "results/single_z_stage6_log/refit/z3.6"
+DEFAULT_SOBOLEV = "results/single_z_stage9/refit/z3.6"
+DEFAULT_BUDGET = "results/decider_budget_z3.6/refit/z3.6"
 
 
 def bestloss(d, p, col="grad_err"):
@@ -40,14 +68,44 @@ def bestloss(d, p, col="grad_err"):
     return float(df.iloc[0][col])
 
 
+def parse_crossz(tokens, sobolev_dir):
+    """Build the {z: dir} cross-z map. `tokens` is a list of 'z=path' strings;
+    when empty, fall back to the committed default (z=3.6 reuses --sobolev-dir)."""
+    if not tokens:
+        return {
+            2.6: "results/single_z_z2.6_sobolev/refit/z2.6",
+            3.6: sobolev_dir,
+            4.2: "results/single_z_z4.2_sobolev/refit/z4.2",
+        }
+    out = {}
+    for tok in tokens:
+        z, _, path = tok.partition("=")
+        out[float(z)] = path
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out-dir", default="results/single_z_stage_pareto_diag")
+    ap.add_argument("--value-dir", default=DEFAULT_VALUE,
+                    help="dir holding value-loss pareto_<p>.csv + grad_faith_<p>.csv")
+    ap.add_argument("--sobolev-dir", default=DEFAULT_SOBOLEV,
+                    help="dir holding Sobolev-loss pareto_<p>.csv + grad_faith_<p>.csv")
+    ap.add_argument("--budget-dir", default=DEFAULT_BUDGET,
+                    help="dir holding the value@budget ns front (pareto_ns/grad_faith_ns)")
+    ap.add_argument("--crossz-dirs", nargs="*", default=[], metavar="Z=DIR",
+                    help="cross-z Sobolev dirs as 'z=path' tokens "
+                         "(e.g. 2.6=.../sobolev/refit/z2.6); "
+                         "default uses the committed single-z z2.6/z3.6/z4.2 dirs")
     ap.add_argument("--also-copy-to", action="append", default=[],
                     help="extra dirs to copy the PNGs into (repeatable)")
     args = ap.parse_args()
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
+
+    VALUE = args.value_dir
+    SOBOLEV = args.sobolev_dir
+    BUDGET = args.budget_dir
 
     # ---------- Figure 1: the grid (gate rings + ns arrow) ----------
     fronts = {}
@@ -97,18 +155,18 @@ def main():
     ax.scatter(x, np.clip(sob, 0, 1.05), s=80, marker="s", facecolor="#1a9850",
                edgecolor="k", lw=.5, zorder=3, label="Sobolev@20 (value-optimal eq)")
     ax.axhline(GATE_TOL, color="k", ls="--", lw=1.2)
-    ax.text(0.2, GATE_TOL + 0.02, "gate 0.25", fontsize=9)
+    ax.text(0.2, GATE_TOL + 0.02, "gate 0.25", fontsize=12)
     for xi, (p, v, s) in zip(x, rows):
         if s > GATE_TOL:  # the resisters: label both numbers
             ax.annotate(f"{s:.2f}", (xi, min(s, 1.05)), textcoords="offset points",
-                        xytext=(0, 7), ha="center", fontsize=8, color="#1a9850",
+                        xytext=(0, 7), ha="center", fontsize=11, color="#1a9850",
                         fontweight="bold")
             ax.annotate("resists", (xi, min(s, 1.05)), textcoords="offset points",
-                        xytext=(0, 19), ha="center", fontsize=8, color="#7f0000")
+                        xytext=(0, 21), ha="center", fontsize=11, color="#7f0000")
     ax.set_xticks(x); ax.set_xticklabels(labels, rotation=35, ha="right")
     ax.set_ylabel("grad_err of value-optimal eq (clipped 1.05)")
     ax.set_title("Per-parameter derivative faithfulness: value-loss vs Sobolev (z=3.6)")
-    ax.set_ylim(0, 1.12); ax.grid(axis="y", alpha=.25); ax.legend(loc="upper left", fontsize=9)
+    ax.set_ylim(0, 1.12); ax.grid(axis="y", alpha=.25); ax.legend(loc="upper left", fontsize=12)
     fig.savefig(out / "faithfulness_scorecard.pdf")
     fig.savefig(out / "faithfulness_scorecard.png", dpi=150)
     plt.close(fig)
@@ -127,32 +185,39 @@ def main():
     # label the two load-bearing endpoints (best-loss of budget and Sobolev)
     bdf = read_grad_faith_sidecar(f"{BUDGET}/grad_faith_ns.csv").sort_values("Loss").iloc[0]
     sdf = read_grad_faith_sidecar(f"{SOBOLEV}/grad_faith_ns.csv").sort_values("Loss").iloc[0]
-    ax.annotate(f"budget: grad_err {bdf['grad_err']:.3f} FAIL\nvalue {bdf['value_mse']:.1e}",
+    # PASS/FAIL + colour are derived from the actual grad_err, not hardcoded:
+    # at the higher maxsize=35 budget the value-loss ns point is seed-fragile
+    # (passes some seeds, fails others), so the label must follow the data.
+    def _verdict(g):
+        return ("PASS", "#1a9850") if float(g) <= GATE_TOL else ("FAIL", "#7f0000")
+    b_word, b_color = _verdict(bdf["grad_err"])
+    s_word, s_color = _verdict(sdf["grad_err"])
+    ax.annotate(f"budget (maxsize 35): grad_err {bdf['grad_err']:.3f} {b_word}\nvalue {bdf['value_mse']:.1e}",
                 xy=(bdf["Complexity"], bdf["value_mse"]), xytext=(20, bdf["value_mse"] * 0.45),
-                fontsize=8, color="#7f0000",
-                arrowprops=dict(arrowstyle="->", color="#7f0000", lw=1.2))
-    ax.annotate(f"Sobolev: grad_err {sdf['grad_err']:.3f} PASS\nvalue {sdf['value_mse']:.1e}",
+                fontsize=11, color=b_color,
+                arrowprops=dict(arrowstyle="->", color=b_color, lw=1.2))
+    ax.annotate(f"Sobolev: grad_err {sdf['grad_err']:.3f} {s_word}\nvalue {sdf['value_mse']:.1e}",
                 xy=(sdf["Complexity"], sdf["value_mse"]), xytext=(7, sdf["value_mse"] * 2.6),
-                fontsize=8, color="#1a9850",
-                arrowprops=dict(arrowstyle="->", color="#1a9850", lw=1.2))
+                fontsize=11, color=s_color,
+                arrowprops=dict(arrowstyle="->", color=s_color, lw=1.2))
     ax.set_yscale("log"); ax.set_xlabel("complexity")
     ax.set_ylabel("value MSE vs GP (log P, HF) — lower is better")
-    ax.set_title("ns — budget reaches the lowest value error but never goes green;\n"
-                 "Sobolev clears the gate at a comparable (~24% higher) value error")
-    ax.grid(which="both", alpha=.25); ax.legend(loc="upper right", fontsize=9)
+    # Explicit (smaller than rcParams axes.titlesize) so this long two-line title
+    # fits inside the narrow single-panel figure instead of overflowing its edges.
+    ax.set_title("ns — a deeper value-loss budget (maxsize 35) reaches low value error but its\n"
+                 "slope faithfulness is seed-fragile; the Sobolev objective clears the gate reliably",
+                 fontsize=13)
+    ax.grid(which="both", alpha=.25); ax.legend(loc="upper right", fontsize=12)
     cb = fig.colorbar(sc, ax=ax, ticks=[GATE_TOL])
-    cb.set_label("grad_err: green = faithful (≤ 0.25)   red = Mirage (> 0.25)")
+    # Explicit size: this long vertical label is clipped at the larger rcParams size.
+    cb.set_label("grad_err: green = faithful (≤ 0.25)   red = Mirage (> 0.25)", fontsize=11)
     fig.savefig(out / "ns_budget_panel.pdf")
     fig.savefig(out / "ns_budget_panel.png", dpi=150)
     plt.close(fig)
 
     # ---------- Figure 4: cross-z robustness (Sobolev best-loss grad_err vs z) ----------
-    CROSSZ = {
-        2.6: "results/single_z_z2.6_sobolev/refit/z2.6",
-        3.6: SOBOLEV,
-        4.2: "results/single_z_z4.2_sobolev/refit/z4.2",
-    }
-    zs = [2.6, 3.6, 4.2]
+    CROSSZ = parse_crossz(args.crossz_dirs, SOBOLEV)
+    zs = sorted(CROSSZ)
     cmapz = plt.get_cmap("tab20")
     fig, ax = plt.subplots(figsize=(9, 5.2), layout="constrained")
     for i, p in enumerate(PARAM_NAMES):
@@ -164,11 +229,11 @@ def main():
                 s.append(float("nan"))
         ax.plot(zs, np.clip(s, 0, 1.2), marker="o", lw=1.4, color=cmapz(i % 20), label=p)
     ax.axhline(GATE_TOL, color="k", ls="--", lw=1.3)
-    ax.text(4.2, GATE_TOL + 0.01, "gate 0.25", ha="right", fontsize=9)
+    ax.text(max(zs), GATE_TOL + 0.01, "gate 0.25", ha="right", fontsize=12)
     ax.set_xticks(zs); ax.set_xlabel("redshift z")
     ax.set_ylabel("Sobolev best-loss grad_err (clipped 1.2)")
     ax.set_title("Redshift robustness of the derivative-faithfulness taxonomy (Sobolev fits)")
-    ax.set_ylim(0, 1.25); ax.grid(alpha=.25); ax.legend(ncol=2, fontsize=8, loc="upper center")
+    ax.set_ylim(0, 1.25); ax.grid(alpha=.25); ax.legend(ncol=2, fontsize=10, loc="upper center")
     fig.savefig(out / "crossz_faithfulness.pdf")
     fig.savefig(out / "crossz_faithfulness.png", dpi=150)
     plt.close(fig)

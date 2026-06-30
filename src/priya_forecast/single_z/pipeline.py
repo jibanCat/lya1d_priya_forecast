@@ -229,6 +229,7 @@ def run_forecast_only(cfg: PipelineConfig) -> dict:
             tgt = gp_param_gradient(
                 gp=gp, fid=fid, k_grid=k_refit, z=cfg.redshift,
                 param_idx=PARAM_NAMES.index(param),
+                log_space=(cfg.target_space == "log"),
             )
             refits[param] = _fc.build_refit_from_pareto_gated(
                 param_name=param, z=cfg.redshift, pareto_csv=csv,
@@ -284,6 +285,7 @@ def run_refit_and_forecast(cfg: PipelineConfig) -> dict:
             tgt = gp_param_gradient(
                 gp=gp_hf, fid=fid, k_grid=k_refit, z=cfg.redshift,
                 param_idx=PARAM_NAMES.index(param),
+                log_space=(cfg.target_space == "log"),
             )
             refits[param] = _fc.build_refit_from_pareto_gated(
                 param_name=param, z=cfg.redshift, pareto_csv=csv,

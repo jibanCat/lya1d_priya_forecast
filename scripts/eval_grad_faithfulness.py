@@ -75,7 +75,7 @@ def main():
     _ = gp_hf.predict(fid, k_grid, args.z)
 
     target = gp_param_gradient(gp=gp_hf, fid=fid, k_grid=k_grid, z=args.z,
-                               param_idx=pidx)
+                               param_idx=pidx, log_space=args.log_space)
 
     df = load_pareto_csv(args.pareto)
     safe = fc._filter_fisher_safe(df, n_features=3)
@@ -116,7 +116,7 @@ def main():
             meta=meta, k_grid=kg, norm=norm, log_space=args.log_space,
         )
         g = equation_param_gradient(refit=cand, fid_value=float(meta.fid),
-                                    k_grid=kg, z=args.z)
+                                    k_grid=kg, z=args.z, log_space=args.log_space)
         err, nkeep = median_rel_error(g, target)
         logP_eq = np.array([
             cand.predict_log(theta_phys=float(t), k=kg,
