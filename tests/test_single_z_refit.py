@@ -118,3 +118,48 @@ def test_refit_one_param_single_z_retries_until_usable(tmp_path, monkeypatch):
     # attempt 0 (seed 0) had no x0 equation → retried; attempt 1 (seed 1) usable
     assert calls == [0, 1]
     assert result.seed == 1
+
+
+def test_save_artifacts_propagates_to_engine(tmp_path, monkeypatch):
+    """The CLI/wrapper --save-artifacts flag must reach refit_1d_for_param."""
+    import pandas as pd
+    import priya_forecast.single_z.refit as refit_mod
+    from priya_forecast.single_z.config import GPConfig, PipelineConfig, PySRConfig
+
+    seen = {}
+
+    class _R:
+        equation_str = "x0 + x1"
+
+    def fake_refit(*, pareto_csv_out, save_artifacts=False, **kwargs):
+        seen["save_artifacts"] = save_artifacts
+        pd.DataFrame({"Complexity": [3], "Loss": [0.1],
+                      "Equation": ["x0 + x1"]}).to_csv(pareto_csv_out, index=False)
+        return _R()
+
+    monkeypatch.setattr(refit_mod, "refit_1d_for_param", fake_refit)
+    cfg = PipelineConfig(mode="refit_and_forecast",
+                         gp=GPConfig(basedir="data/kodiaq_gp"),
+                         pysr=PySRConfig(seed=0))
+    refit_mod.refit_one_param_single_z(
+        param_name="ns", z=3.6, cfg=cfg, gp_lf=None, gp_hf=None,
+        k_grid=np.linspace(0.001, 0.04, 8), out_dir=tmp_path,
+        save_artifacts=True,
+    )
+    assert seen["save_artifacts"] is True
+
+
+def test_cli_rejects_sobolev_without_log_target():
+    """The CLI guard fires before any GP import (fast, no heavy deps)."""
+    import subprocess
+    import sys
+    repo = Path(__file__).resolve().parent.parent
+    env = {**os.environ, "PYTHONPATH": f"{repo}/src"}
+    out = subprocess.run(
+        [sys.executable, str(repo / "scripts" / "refit_one_param_single_z.py"),
+         "--param", "ns", "--z", "3.6", "--output-dir", "/tmp/_x",
+         "--use-sobolev", "--target-space", "linear"],
+        capture_output=True, text=True, env=env, timeout=120,
+    )
+    assert out.returncode != 0
+    assert "target-space log" in out.stderr

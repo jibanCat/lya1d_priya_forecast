@@ -1000,6 +1000,7 @@ def refit_1d_for_param(
     use_sobolev: bool = False,
     sobolev_lambda: float = 1.0,
     sobolev_h: float = 1e-4,
+    save_artifacts: bool = False,
 ) -> Refit1DResult:
     """Train a 1D PySR equation for `param_name`.
 
@@ -1131,4 +1132,15 @@ def refit_1d_for_param(
             columns={"complexity": "Complexity", "loss": "Loss",
                      "equation": "Equation"}
         ).to_csv(pareto_csv_out, index=False)
+        if save_artifacts:
+            # Persist the canonical predict object + its training payload so the
+            # prediction-figure regenerators (regen_fig1/3/4) read straight from
+            # this run's dir — keeps the production dir self-contained.
+            import pickle as _pickle
+            base = pareto_csv_out.parent
+            for sub, obj in (("refits", result), ("payloads", payload)):
+                d = base / sub
+                d.mkdir(parents=True, exist_ok=True)
+                with open(d / f"{param_name}.pkl", "wb") as _fh:
+                    _pickle.dump(obj, _fh)
     return result

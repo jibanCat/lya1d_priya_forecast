@@ -71,6 +71,7 @@ def refit_one_param_single_z(
     k_grid: np.ndarray,
     out_dir: str | Path,
     max_retries: int = 4,
+    save_artifacts: bool = False,
 ):
     """Refit one parameter at one z-bin; write `pareto_{param}.csv`.
 
@@ -101,6 +102,7 @@ def refit_one_param_single_z(
             log_space=(cfg.target_space == "log"),
             use_sobolev=cfg.pysr.use_sobolev,
             sobolev_lambda=cfg.pysr.sobolev_lambda,
+            save_artifacts=save_artifacts,
         )
         # PySR equations have 3 inputs (x0=θ_norm, x1=k_norm, x2=resolution).
         safe = _filter_fisher_safe(load_pareto_csv(pareto_csv), n_features=3)

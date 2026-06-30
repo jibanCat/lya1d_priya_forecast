@@ -1,9 +1,16 @@
 """Finite-difference derivative-validation gate for PySR equations.
 
 Compares a candidate equation's central-difference dP/dtheta at fid against
-the GP's, using the SAME stencil the Fisher matrix consumes (fisher.py).
-Equations whose gradient is unfaithful (the "Fisher's-Mirage" pathology) are
-rejected before best_loss selection.
+the GP's, per k-bin, and flags equations whose *slope shape* is unfaithful
+(the "Fisher's-Mirage" pathology) before best_loss selection.
+
+This is a deliberately covariance-free, legible operating-point metric:
+``median_k |dP_eq/dP_GP - 1|`` over non-negligible k-bins, tolerance 0.25.
+It is NOT the covariance-weighted Fisher quantity ``sigma_eq/sigma_GP`` and
+uses a simpler 3-point stencil (h=1e-3) than ``fisher.py`` (step_frac=0.01).
+It is reported as a per-bin slope-shape error so readers apply their own
+tolerance; the multi-z forecast's marginalized sigma ratio is the
+confirmatory Fisher-level cross-check.
 """
 from __future__ import annotations
 

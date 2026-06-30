@@ -29,6 +29,17 @@ def test_sobolev_requires_log_target():
         cfg.validate()
 
 
+def test_sobolev_anova_mutually_exclusive():
+    # Sobolev overrides the loss, so requesting ANOVA too would silently
+    # ignore it; the config must reject the combination (parity with the CLI).
+    cfg = PipelineConfig(
+        target_space="log",
+        pysr=PySRConfig(use_sobolev=True, sobolev_lambda=5.0, use_anova_loss=True),
+    )
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        cfg.validate()
+
+
 def test_sobolev_with_log_target_passes_guard(tmp_path):
     # tmp_path gives gp.validate() an existing basedir so we isolate the guard.
     from priya_forecast.single_z.config import GPConfig

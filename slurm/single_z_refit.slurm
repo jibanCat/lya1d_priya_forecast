@@ -2,19 +2,20 @@
 # GreatLakes SLURM array — single-z PySR refit, 11 params for one z-bin.
 #
 # Submit one array job per z-bin. Env knobs (all via --export):
-#   Z TARGET_SPACE USE_SOBOLEV SOBOLEV_LAMBDA ANOVA_LOSS SEED MAXSIZE
-#   POPULATIONS NITERATIONS  (budget defaults: 24 / 50).
+#   Z TARGET_SPACE USE_SOBOLEV SOBOLEV_LAMBDA ANOVA_LOSS SAVE_ARTIFACTS SEED
+#   MAXSIZE POPULATIONS NITERATIONS  (budget defaults: 24 / 50).
 # NOTE: USE_SOBOLEV=1 requires TARGET_SPACE=log (the CLI enforces it).
+# LYA_EMULATOR overrides the upstream emulator path (default = author's home).
 #
 # Production Sobolev fit (one z), higher budget:
 #   sbatch --export=ALL,REPO=/home/mfho/lya1d_priya_forecast,\
 #                    BASEDIR=data/kodiaq_gp,\
-#                    OUTPUT_DIR=results/paper_production_20260630_perz_sobolev_z2.6-4.2/refit_sobolev,\
+#                    OUTPUT_DIR=results/paper_production_20260630_perz_sobolev_z2.6-4.2/sobolev,\
 #                    Z=3.6,TARGET_SPACE=log,USE_SOBOLEV=1,SOBOLEV_LAMBDA=5,\
-#                    MAXSIZE=20,POPULATIONS=48,NITERATIONS=200,SEED=0 \
+#                    MAXSIZE=20,POPULATIONS=48,NITERATIONS=200,SAVE_ARTIFACTS=1,SEED=0 \
 #          --array=0-10 slurm/single_z_refit.slurm
 # Value (no-gradient, plain-MSE) baseline: drop USE_SOBOLEV/SOBOLEV_LAMBDA,
-#   keep TARGET_SPACE=log, point OUTPUT_DIR at .../refit_value.
+#   keep TARGET_SPACE=log, point OUTPUT_DIR at .../value.
 
 #SBATCH --account=yueyingn0
 #SBATCH --partition=standard
@@ -41,10 +42,13 @@ MAXSIZE=${MAXSIZE:-20}
 POPULATIONS=${POPULATIONS:-24}
 NITERATIONS=${NITERATIONS:-50}
 ANOVA_LOSS=${ANOVA_LOSS:-0}
+SAVE_ARTIFACTS=${SAVE_ARTIFACTS:-0}
 SOBOLEV_ARGS=""
 [ "$USE_SOBOLEV" = "1" ] && SOBOLEV_ARGS="--use-sobolev --sobolev-lambda ${SOBOLEV_LAMBDA}"
 ANOVA_ARGS=""
 [ "$ANOVA_LOSS" = "1" ] && ANOVA_ARGS="--anova-loss"
+ARTIFACT_ARGS=""
+[ "$SAVE_ARTIFACTS" = "1" ] && ARTIFACT_ARGS="--save-artifacts"
 
 PARAMS=(dtau0 tau0 ns Ap herei heref alphaq hub omegamh2 hireionz bhfeedback)
 PARAM=${PARAMS[$SLURM_ARRAY_TASK_ID]:?Array index out of range}
@@ -60,7 +64,7 @@ PY="${REPO}/.venv/bin/python"
 
 export PYTHON_JULIAPKG_PROJECT="${HOME}/.julia_env"
 export JULIA_DEPOT_PATH="${HOME}/.julia"
-export PYTHONPATH="/home/mfho/student_projects/lya_emulator_full:${REPO}/src"
+export PYTHONPATH="${LYA_EMULATOR:-/home/mfho/student_projects/lya_emulator_full}:${REPO}/src"
 
 cd "$REPO"
 "$PY" scripts/refit_one_param_single_z.py \
@@ -68,6 +72,6 @@ cd "$REPO"
     --basedir "$BASEDIR" --output-dir "$OUTPUT_DIR" \
     --target-space "$TARGET_SPACE" --seed "$SEED" --maxsize "$MAXSIZE" \
     --populations "$POPULATIONS" --niterations "$NITERATIONS" \
-    $SOBOLEV_ARGS $ANOVA_ARGS
+    $SOBOLEV_ARGS $ANOVA_ARGS $ARTIFACT_ARGS
 
 echo "[slurm] ${PARAM} z=${Z} done"

@@ -71,8 +71,10 @@ def dim_balanced_loss_corr(
     Catches **linear** residual-vs-feature dependence. Cheaper to compute
     than ANOVA but less expressive — a residual that depends on x_d
     nonlinearly (with mean ~0) will have corr ≈ 0 and slip through.
-    Recommended only as a sanity check / cheap fallback; use
-    `dim_balanced_loss_anova` for production fits.
+    Recommended only as a sanity check / cheap fallback; `dim_balanced_loss_anova`
+    is the more expressive variant. Both are **optional ablation levers** — the
+    production recipe trains the Sobolev gradient loss (value baseline = plain
+    MSE); ANOVA is not the production default. See feedback_anova_loss_impact.
     """
     prediction, target, X = _validate_inputs(prediction, target, X)
     residual = prediction - target
@@ -149,7 +151,8 @@ def dim_balanced_loss_anova(
     alpha: float = DEFAULT_ALPHA,
     n_bins: int = 10,
 ) -> float:
-    """Functional ANOVA main-effect version (RECOMMENDED).
+    """Functional ANOVA main-effect version (the more expressive dim-balanced
+    loss; an optional ablation lever, NOT the production default).
 
     `L = MSE + α · Σ_d ‖r_d‖²`, where `r_d` is the main effect of x_d
     on the residual. Catches both linear and nonlinear residual
@@ -196,8 +199,9 @@ function loss_function(tree, dataset::Dataset{T,L}, options) where {T,L}
 end
 """
 """Correlation² version (legacy / cheap fallback). See
-`dim_balanced_loss_corr` (Python ref) for semantics. Use
-`JULIA_LOSS_FUNCTION_ANOVA` for production fits."""
+`dim_balanced_loss_corr` (Python ref) for semantics. `JULIA_LOSS_FUNCTION_ANOVA`
+is the more expressive variant — both are optional ablation levers; the
+production recipe uses the Sobolev gradient loss (value baseline = plain MSE)."""
 
 
 JULIA_LOSS_FUNCTION_ANOVA = r"""

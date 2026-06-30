@@ -46,6 +46,12 @@ def main() -> None:
         help="Use the dimension-balanced ANOVA loss (ablation only). Default "
              "OFF: the value baseline trains on plain MSE.",
     )
+    p.add_argument(
+        "--save-artifacts", action="store_true",
+        help="Also pickle the Refit1DResult + payload into refits/<param>.pkl "
+             "and payloads/<param>.pkl beside the Pareto CSV, so the prediction-"
+             "figure regenerators (regen_fig1/3/4) read straight from this run.",
+    )
     args = p.parse_args()
 
     # Guard: Sobolev matches d(logP)/dtheta, so a linear-P target silently
@@ -86,6 +92,7 @@ def main() -> None:
     result = _refit.refit_one_param_single_z(
         param_name=args.param, z=args.z, cfg=cfg,
         gp_lf=gp_lf, gp_hf=gp_hf, k_grid=k_grid, out_dir=refit_dir,
+        save_artifacts=args.save_artifacts,
     )
     print(f"[{time.time() - t0:.0f}s] {args.param} z={args.z} -> "
           f"{refit_dir}/pareto_{args.param}.csv "

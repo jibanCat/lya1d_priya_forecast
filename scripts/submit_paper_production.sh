@@ -19,7 +19,8 @@ cd "$REPO"
 
 RUN_ID="prod-20260630-perz-sobolev"
 PROD_DIR="results/paper_production_20260630_perz_sobolev_z2.6-4.2"
-ACCOUNT="yueyingn0"
+ACCOUNT="${SLURM_ACCOUNT:-yueyingn0}"   # override with SLURM_ACCOUNT=...
+LYA_EMULATOR="${LYA_EMULATOR:-/home/mfho/student_projects/lya_emulator_full}"
 ZS=(2.6 3.6 4.2)
 SEEDS=(0 1 2 3 4)
 LAMBDA=5
@@ -36,8 +37,13 @@ GIT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 GIT_DIRTY=""; git diff --quiet || GIT_DIRTY=" (+uncommitted)"
 STAMP="$(date '+%Y-%m-%d %H:%M:%S %Z')"
 
-mkdir -p "$PROD_DIR"
-MANIFEST="$PROD_DIR/RUN_MANIFEST.md"
+# Dry mode must be side-effect-free: don't create the dir or clobber the manifest.
+if [ "$DRY" = "1" ]; then
+  MANIFEST="/dev/null"
+else
+  mkdir -p "$PROD_DIR"
+  MANIFEST="$PROD_DIR/RUN_MANIFEST.md"
+fi
 
 # ---- helper: submit one array job, echo the job id -------------------------
 submit() {  # $1=name $2=array_spec $3=outdir  rest=ENV assignments
@@ -56,7 +62,7 @@ submit() {  # $1=name $2=array_spec $3=outdir  rest=ENV assignments
 # ---- helper: dependent grad-faith sidecar job (afterok) --------------------
 sidecar() {  # $1=name $2=depjobid $3=refit_dir $4=z
   local name="$1" dep="$2" dir="$3" z="$4"
-  local cmd="cd $REPO && export PYTHON_JULIAPKG_PROJECT=$HOME/.julia_env JULIA_DEPOT_PATH=$HOME/.julia PYTHONPATH=src:/home/mfho/student_projects/lya_emulator_full && scripts/make_grad_faith_sidecars.sh $dir $z --log-space"
+  local cmd="cd $REPO && export PYTHON_JULIAPKG_PROJECT=$HOME/.julia_env JULIA_DEPOT_PATH=$HOME/.julia PYTHONPATH=${LYA_EMULATOR}:$REPO/src && scripts/make_grad_faith_sidecars.sh $dir $z --log-space"
   if [ "$DRY" = "1" ]; then echo "DRY sidecar $name afterok:$dep on $dir" >&2; echo "DRYSC_$name"; return; fi
   sbatch --parsable --account="$ACCOUNT" --time="$WALLT" --mem=8G --cpus-per-task=4 \
          --partition=standard --job-name="$name" --dependency="afterok:$dep" \

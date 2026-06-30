@@ -238,6 +238,12 @@ class PipelineConfig:
                 "silently mismatches the gradient and corrupts the fit. "
                 "Set target_space: log."
             )
+        if self.pysr.use_sobolev and self.pysr.use_anova_loss:
+            raise ValueError(
+                "use_sobolev and use_anova_loss are mutually exclusive: the "
+                "Sobolev loss overrides the training loss, so ANOVA would be "
+                "silently ignored. Set use_anova_loss: false."
+            )
         if self.derivative_tol <= 0:
             raise ValueError("derivative_tol must be > 0.")
         self.k_range.validate()
