@@ -51,7 +51,8 @@ def best_loss_grad_err(csv, param, meta, kg, target):
     safe = fc._filter_fisher_safe(df, n_features=3)
     if safe.empty:
         return np.nan
-    row = safe.sort_values("Loss").iloc[0]
+    from priya_forecast.grad_faith_io import knee_row
+    row = knee_row(safe)  # Pareto-knee pick (see grad_faith_io.knee_row)
     cand = fc._refit_from_row(
         equation_str=str(row["Equation"]), complexity=int(row["Complexity"]),
         loss=float(row["Loss"]), df=df, param_name=param, z=Z, meta=meta,
