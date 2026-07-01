@@ -2,6 +2,9 @@
 import importlib.util
 import pathlib
 
+from hypothesis import given, settings
+from hypothesis import strategies as st
+
 from priya_forecast.grad_faith_io import (
     SIDECAR_COLUMNS, read_grad_faith_sidecar, write_grad_faith_sidecar,
 )
@@ -16,6 +19,11 @@ def _load_stamp_script():
     spec.loader.exec_module(mod)
     return mod
 
+
+stamp_header = _load_stamp_script().stamp_header
+
+
+# ---- unit tests ----------------------------------------------------------
 
 def test_git_stamp_never_empty():
     s = git_stamp()
@@ -37,9 +45,32 @@ def test_sidecar_header_carries_git_and_still_reads(tmp_path):
 
 
 def test_backfill_stamp_header_is_idempotent():
-    stamp_header = _load_stamp_script().stamp_header
     h0 = "# param=ns z=3.6 tol=0.25 log_space=True source=foo/pareto_ns.csv\n"
     h1 = stamp_header(h0, "abc1234")
     assert "git=abc1234" in h1 and h1.endswith("\n") and "source=foo" in h1
     assert stamp_header(h1, "abc1234") is None            # already stamped -> no double-stamp
     assert stamp_header("Complexity,Loss\n", "abc1234") is None  # not a header line
+
+
+# ---- property-based test -------------------------------------------------
+
+_TOKEN = st.text(
+    alphabet=st.characters(blacklist_characters=" #\n=\t"), min_size=1, max_size=10,
+)
+_HEXISH = st.text(alphabet="0123456789abcdef", min_size=4, max_size=16)
+
+
+@settings(max_examples=40, deadline=None)
+@given(param=_TOKEN, git=_HEXISH)
+def test_stamp_header_inserts_exactly_once_before_source_and_is_idempotent(param, git):
+    """For any well-formed sidecar header, back-filling inserts one space-delimited
+    git=<hash> before source=, keeps it a comment line, and never double-stamps."""
+    h0 = f"# param={param} z=3.6 tol=0.25 log_space=True source=x/pareto.csv\n"
+    h1 = stamp_header(h0, git)
+    assert h1 is not None
+    assert h1.startswith("# ")
+    assert f" git={git} " in h1                         # inserted, space-delimited
+    assert h1.count(f"git={git}") == 1                  # exactly once
+    assert h1.index(f"git={git}") < h1.index("source=")  # before source=
+    assert "source=x/pareto.csv" in h1                  # source preserved
+    assert stamp_header(h1, git) is None                # idempotent
