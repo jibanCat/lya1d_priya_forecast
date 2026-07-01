@@ -237,3 +237,4 @@ __marimo__/
 notebooks/_build_*.py
 
 results/_repro_scratch/
+results/_tutorial_scratch/
