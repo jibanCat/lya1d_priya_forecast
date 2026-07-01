@@ -1,0 +1,33 @@
+dtau0         LF:   0.007% (max   0.023%)   HF:   0.114% (max   0.538%)
+tau0          LF:   0.221% (max   1.041%)   HF:   0.244% (max   1.213%)
+ns            LF:   0.860% (max   5.299%)   HF:   5.160% (max  10.782%)
+Ap            LF:   1.636% (max   4.490%)   HF:   1.182% (max   4.490%)
+herei         LF:   0.107% (max   0.808%)   HF:   0.285% (max   1.362%)
+heref         LF:   0.588% (max   2.768%)   HF:   1.071% (max   7.410%)
+alphaq        LF:   1.240% (max   1.946%)   HF:   1.464% (max   3.176%)
+hub           LF:   0.209% (max   1.721%)   HF:   1.678% (max  10.504%)
+omegamh2      LF:   0.167% (max   2.015%)   HF:   1.157% (max   5.279%)
+hireionz      LF:   0.099% (max   1.281%)   HF:   1.610% (max   7.762%)
+bhfeedback    LF:   0.104% (max   1.199%)   HF:   0.377% (max   2.090%)
+
+--- LaTeX ---
+\begin{table}[!h]
+\caption{\label{tab:stats_table} Mean and maximum relative percent error of the per-parameter 1D PySR equations at $z=3.6$ on the production Sobol training sample, evaluated at low and high fidelity. Rows are sorted by descending high-fidelity mean error. Recomputed from the production refits.}
+\begin{ruledtabular}
+\centering
+\begin{tabular}{c|cccc}
+Parameter & LF mean (\%) & LF max (\%) & HF mean (\%) & HF max (\%) \\
+\hline
+$n_S$ & 0.86 & 5.30 & 5.16 & 10.78 \\
+$h$ & 0.21 & 1.72 & 1.68 & 10.50 \\
+$z_{Hi}$ & 0.10 & 1.28 & 1.61 & 7.76 \\
+$\alpha_q$ & 1.24 & 1.95 & 1.46 & 3.18 \\
+$A_P$ & 1.64 & 4.49 & 1.18 & 4.49 \\
+$\Omega_0 h^2$ & 0.17 & 2.02 & 1.16 & 5.28 \\
+$z_{Hef}$ & 0.59 & 2.77 & 1.07 & 7.41 \\
+$\epsilon_{AGN}$ & 0.10 & 1.20 & 0.38 & 2.09 \\
+$z_{Hei}$ & 0.11 & 0.81 & 0.29 & 1.36 \\
+$\tau_0$ & 0.22 & 1.04 & 0.24 & 1.21 \\
+\end{tabular}
+\end{ruledtabular}
+\end{table}

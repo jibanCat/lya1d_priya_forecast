@@ -1,0 +1,18 @@
+\begin{table*}[!h]
+\caption{\label{tab:eqs} Per-parameter 1D PySR equations (Sobolev objective, $z=3.6$ production refits). $x_0$ is the normalized parameter; $x_1,x_2$ are the $k$/resolution features. aq is the PySR analytic-quotient operator.}
+\begin{ruledtabular}\centering
+\begin{tabular}{c|cc|l}
+Param & cmplx & loss & equation \\
+\hline
+$d\tau_0$ & 20 & 0.002149 & \verb|(x0 * 3.3990898) + (-1.694589 - square(square(aq(square(aq(x2 * 1.2794386, x0 * -0.08799678)), x1 + -0.075152986))))| \\
+$\tau_0$ & 20 & 0.002396 & \verb|((x2 * aq(-0.5111359, x1)) + 0.3953571) + ((x0 - exp(x0 * -1.1378667)) * (2.010049 - (x2 * -0.060667098)))| \\
+$n_S$ & 20 & 8.901 & \verb|(((aq(7.173209, square(exp(x0) * square(x1 * 12.231928))) - x0) + -2.8458169) * (x2 - x0)) - x2| \\
+$A_P$ & 20 & 12.56 & \verb|square(x0) - square(aq((1.2758272 - (x0 * exp(x1))) * (x2 + 0.959206), exp(square(x1)) + -1.8219881))| \\
+$z_{Hei}$ & 20 & 0.6738 & \verb|aq(aq(x0 * 4.217855, x2 * (x0 * 1.8287722)) - exp(x2), square(aq(x1, square(x0)))) - 0.37036908| \\
+$z_{Hef}$ & 20 & 18.88 & \verb|(((aq(x2, x0 + x2) * 21.312387) + (x0 * 11.451199)) * (aq(x0, square(x1)) + -1.7643517)) + 13.6623745| \\
+$\alpha_q$ & 20 & 9.564 & \verb|((aq(1601.1101, square(square(square(x1 * x2)))) + -1598.3196) * aq(1.6343628 - x0, x2 + x0)) + -3.5175257| \\
+$h$ & 19 & 385.9 & \verb|square(-1.8753233 * (square(x1) + log(x2 + x0))) - ((square(x0) + aq(-71.77047, x2)) + 66.73844)| \\
+$\Omega_0 h^2$ & 20 & 68.46 & \verb|square(aq(x2, square(x0)) - (square(x1) - ((x0 + -0.3432269) * 2.242719))) - ((x2 * 17.277315) - 6.142204)| \\
+$z_{Hi}$ & 20 & 8.227 & \verb|(aq((x2 * -62.55704) + 33.885803, exp(aq(1.5835264, x0))) + -3.5045056) + square(square(aq(x0 - 1.5552967, x2)))| \\
+$\epsilon_{AGN}$ & 20 & 12.28 & \verb|square(log(square(aq(x0, x1) + x2))) + (aq(square(x2 * x2), aq(exp(x1), x0)) * -35.35155)| \\
+\end{tabular}\end{ruledtabular}\end{table*}

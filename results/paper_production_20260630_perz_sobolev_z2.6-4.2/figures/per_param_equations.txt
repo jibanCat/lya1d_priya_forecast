@@ -1,0 +1,15 @@
+Per-parameter 1D PySR equations (sobolev z=3.6 production refits)
+These are the equations the prediction figures evaluate via .predict().
+
+      param cmplx       loss  equation (x0=normalized param; x1,x2 = k / resolution features)
+      dtau0    20   0.002149  (x0 * 3.3990898) + (-1.694589 - square(square(aq(square(aq(x2 * 1.2794386, x0 * -0.08799678)), x1 + -0.075152986))))
+       tau0    20   0.002396  ((x2 * aq(-0.5111359, x1)) + 0.3953571) + ((x0 - exp(x0 * -1.1378667)) * (2.010049 - (x2 * -0.060667098)))
+         ns    20      8.901  (((aq(7.173209, square(exp(x0) * square(x1 * 12.231928))) - x0) + -2.8458169) * (x2 - x0)) - x2
+         Ap    20      12.56  square(x0) - square(aq((1.2758272 - (x0 * exp(x1))) * (x2 + 0.959206), exp(square(x1)) + -1.8219881))
+      herei    20     0.6738  aq(aq(x0 * 4.217855, x2 * (x0 * 1.8287722)) - exp(x2), square(aq(x1, square(x0)))) - 0.37036908
+      heref    20      18.88  (((aq(x2, x0 + x2) * 21.312387) + (x0 * 11.451199)) * (aq(x0, square(x1)) + -1.7643517)) + 13.6623745
+     alphaq    20      9.564  ((aq(1601.1101, square(square(square(x1 * x2)))) + -1598.3196) * aq(1.6343628 - x0, x2 + x0)) + -3.5175257
+        hub    19      385.9  square(-1.8753233 * (square(x1) + log(x2 + x0))) - ((square(x0) + aq(-71.77047, x2)) + 66.73844)
+   omegamh2    20      68.46  square(aq(x2, square(x0)) - (square(x1) - ((x0 + -0.3432269) * 2.242719))) - ((x2 * 17.277315) - 6.142204)
+   hireionz    20      8.227  (aq((x2 * -62.55704) + 33.885803, exp(aq(1.5835264, x0))) + -3.5045056) + square(square(aq(x0 - 1.5552967, x2)))
+ bhfeedback    20      12.28  square(log(square(aq(x0, x1) + x2))) + (aq(square(x2 * x2), aq(exp(x1), x0)) * -35.35155)
