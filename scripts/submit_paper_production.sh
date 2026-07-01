@@ -19,7 +19,7 @@ cd "$REPO"
 
 RUN_ID="prod-20260630-perz-sobolev"
 PROD_DIR="results/paper_production_20260630_perz_sobolev_z2.6-4.2"
-ACCOUNT="${SLURM_ACCOUNT:-yueyingn0}"   # override with SLURM_ACCOUNT=...
+ACCOUNT="${SLURM_ACCOUNT:-cavestru0}"   # override with SLURM_ACCOUNT=... (yueyingn0 expired 2026-07-01)
 LYA_EMULATOR="${LYA_EMULATOR:-/home/mfho/student_projects/lya_emulator_full}"
 ZS=(2.6 3.6 4.2)
 SEEDS=(0 1 2 3 4)
@@ -76,7 +76,7 @@ echo "# RUN MANIFEST — $RUN_ID" > "$MANIFEST"
   echo
   echo "- **git:** \`$GIT_HASH\` @ \`$GIT_BRANCH\`$GIT_DIRTY"
   echo "- **submitted:** $STAMP"
-  echo "- **account:** $ACCOUNT (expires 2026-07-01)"
+  echo "- **account:** $ACCOUNT"
   echo "- **recipe:** one PySR model per (param, z); Sobolev lambda=$LAMBDA, log target, no ANOVA."
   echo "- **budget:** maxsize=$MAXSIZE, populations=$POPULATIONS, niterations=$NITERATIONS (value baseline = plain MSE, same operators/budget)."
   echo "- **grid:** z = ${ZS[*]}; seed band seeds = ${SEEDS[*]} at z=3.6; ns budget control maxsize=$BUDGET_MAXSIZE."

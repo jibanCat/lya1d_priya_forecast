@@ -17,7 +17,7 @@
 # Value (no-gradient, plain-MSE) baseline: drop USE_SOBOLEV/SOBOLEV_LAMBDA,
 #   keep TARGET_SPACE=log, point OUTPUT_DIR at .../value.
 
-#SBATCH --account=yueyingn0
+#SBATCH --account=cavestru0
 #SBATCH --partition=standard
 #SBATCH --nodes=1
 #SBATCH --ntasks=4
