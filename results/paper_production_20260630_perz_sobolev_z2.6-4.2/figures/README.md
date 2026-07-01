@@ -4,7 +4,7 @@
 Each row: file → what it shows → paper `\label` → regen command → data source.
 Env for the GP-backed (tier-2) commands: see `../../../REPRODUCE.md`. `$PROD` = this run dir.
 The reusable API is `priya_forecast.paper_figures` (path/format-decoupled); the tutorial
-is `notebooks/figures_tutorial.ipynb`.
+is `notebooks/reproduce_paper.ipynb`.
 
 ## Figures
 | file | shows | label | regen | source |

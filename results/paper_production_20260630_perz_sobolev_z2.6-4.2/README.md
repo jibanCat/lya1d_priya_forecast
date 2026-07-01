@@ -25,6 +25,6 @@ The **CSVs / sidecars / JSON / table fragments are committed** — the paper's
 emulator-free figures + tables (taxonomy, diagnostic figures, sensitivity, seed
 band) replay from them with only the light deps in `requirements-figures.txt`
 (see `REPRODUCE.md` Step 1, or the reusable module `priya_forecast.paper_figures`
-and `notebooks/figures_tutorial.ipynb`). The **PNG/PDF figures** are regenerable;
+and `notebooks/reproduce_paper.ipynb`). The **PNG/PDF figures** are regenerable;
 `data/kodiaq_gp/` (the GP basedir, 43 MB) is **git-ignored** — the GP-backed
 prediction figures need it (build via `scripts/prep_kodiaq_gp.py`, `REPRODUCE.md` Step 2).

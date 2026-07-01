@@ -192,17 +192,14 @@ python -m ipykernel install --user --name priya-forecast --display-name "priya-f
 PYTHONPATH=src jupyter lab        # then open a notebook from notebooks/
 ```
 
-**Start here — emulator-free (no GP/PySR/Julia):**
-- `notebooks/reproduce_paper_figures.ipynb` — regenerates the four diagnostic
-  figures from the committed sidecars (the paper reproducer).
-- `notebooks/tutorial_01_explore_diagnostic.ipynb` — a guided tour of the
-  diagnostic (the Mirage in one table, the taxonomy, the budget control).
-
-**Older GP/forecast walkthroughs (need the emulator prerequisites):**
-`01_gp_only.ipynb`, `02_forecast_only.ipynb`, `03_refit_and_forecast.ipynb` —
-these predate the diagnostic pivot and still exercise the σ-forecast path; treat
-[`docs/PARETO_FAITHFULNESS_WALKTHROUGH.md`](docs/PARETO_FAITHFULNESS_WALKTHROUGH.md)
-as the authoritative current result.
+**One notebook — `notebooks/reproduce_paper.ipynb`** reproduces **every figure and
+table in the paper**. *Tier 1* (Tables 1/2/6/7 + the `pareto_faithfulness`,
+`faithfulness_scorecard`, `ns_budget_panel`, `seed_band` figures) runs **emulator-free**
+from the committed sidecars; *Tier 2* (the `pysr_pred_tau0_Ap`, `pysr_graphs_3.6_dtau0`,
+`multid_bestworst` prediction plots + Table 3) runs the GP-backed regen scripts if the
+emulator is available, else prints the command and skips. See
+[`REPRODUCE.md`](REPRODUCE.md); current science is
+[`docs/PARETO_FAITHFULNESS_WALKTHROUGH.md`](docs/PARETO_FAITHFULNESS_WALKTHROUGH.md).
 
 ---
 
@@ -219,8 +216,8 @@ scripts/                 Drivers and runners: make_diagnostic_figs.py (figure
                          pipeline/HPO entry points.
 tests/                   pytest suite (run with -k "not slow"); emulator-touching
                          tests are gated/skipped.
-notebooks/               reproduce_paper_figures.ipynb + tutorial_01_explore_diagnostic.ipynb
-                         (emulator-free, start here); 01–03 (older GP/forecast walkthroughs).
+notebooks/               reproduce_paper.ipynb — the single notebook that reproduces
+                         every paper figure and table (Tier-1 emulator-free + Tier-2 GP).
 docs/                    PARETO_FAITHFULNESS_WALKTHROUGH.md (current science),
                          plus design specs, figures, and historical notes.
 configs/                 YAML run configs (default, diagnostic, single_z, multi_z,

@@ -201,18 +201,22 @@ PY
 **Expected**: `gate 0.25 | ns sobolev band [0.212, 0.123, 0.246]` (median, min, max
 over 5 seeds) — derivative faithfulness is seed-dependent right at the gate.
 
-### 1f. One-command option: run the whole Tier-1 notebook
+### 1f. One-command option: the single whole-paper notebook
 
-`notebooks/reproduce_paper_figures.ipynb` executes every Tier-1 figure **and**
-Tables 1, 2, 6, 7 top-to-bottom, showing each inline, and documents the Tier-2
-commands. To run it headlessly (needs `pip install nbconvert ipykernel` in the
-env and the diagnostic-figure TeX install):
+`notebooks/reproduce_paper.ipynb` is **the one notebook that reproduces every figure
+and table in the paper**. Tier-1 (Tables 1/2/6/7 + the `pareto_faithfulness`,
+`faithfulness_scorecard`, `ns_budget_panel`, `seed_band` figures) runs emulator-free;
+the **Tier-2 GP-backed cells** (the `pysr_pred_tau0_Ap` / `pysr_graphs_3.6_dtau0` /
+`multid_bestworst` prediction plots + Table 3) run automatically **if the GP emulator
+is available** (Step 2), else print the exact command and skip — the notebook always
+completes. To run it headlessly (needs `pip install nbconvert ipykernel`):
 
 ```bash
-python -m ipykernel install --user --name priya-forecast-venv
-jupyter nbconvert --to notebook --execute \
-    --ExecutePreprocessor.kernel_name=priya-forecast-venv \
-    notebooks/reproduce_paper_figures.ipynb
+python -m ipykernel install --user --name priya-venv
+# Tier-2 cells also need the Step-2 env vars (LYA_EMULATOR, FIGREPO, data/kodiaq_gp):
+jupyter nbconvert --to notebook --execute --inplace \
+    --ExecutePreprocessor.kernel_name=priya-venv \
+    notebooks/reproduce_paper.ipynb
 ```
 
 Or just open it in Jupyter and **Run All**. Reproduced figures land in

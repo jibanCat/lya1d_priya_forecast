@@ -36,7 +36,7 @@ import json
 sb = json.load(open("seed_band_summary.json"))
 sb["params"]["ns"]["sobolev"]      # -> [median, min, max, n] e.g. [0.212, 0.123, 0.246, 5]
 ```
-Or via the reusable module: `pf.plot_seed_band(pf.load_run())` (see `notebooks/figures_tutorial.ipynb`).
+Or via the reusable module: `pf.plot_seed_band(pf.load_run())` (see `notebooks/reproduce_paper.ipynb`).
 
 ## How to reproduce
 1. Re-run the 5-seed fits (Tier-3, SLURM) via `scripts/submit_paper_production.sh` (seeds 0–4 at z=3.6).
