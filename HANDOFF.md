@@ -1,5 +1,9 @@
 # HANDOFF — Lyα P1D PySR forecast / diagnostic
 
+> **2026-06-30 UPDATE:** major per-z Sobolev "production mode" run + honest reframe
+> (the budget arm refuted "ns Mirage is generative, not search-starvation") + gate/knee
+> bug fixes + paper/notebook update. **See [`docs/HANDOFF_2026-06-30_perz_sobolev.md`](docs/HANDOFF_2026-06-30_perz_sobolev.md)** for the current state, final numbers, commits, and pending work (Phase E paper review, repo cleanup, Phase F).
+
 **Last updated:** 2026-06-12
 **Branch:** `stage10-multiz-sobolev` (pushed, latest `412ca81`; **PR #6** open against `main`)
 
