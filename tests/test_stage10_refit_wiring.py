@@ -63,6 +63,7 @@ def test_multiz_refit_assembles_sobolev(monkeypatch):
         param_name="ns", z_min=3.0, z_max=4.0, k_grid=k,
         gp_lf=_GP(), gp_hf=_GP(), n_total=nt,
         use_sobolev=True, sobolev_lambda=3.0,
+        _allow_unvalidated_sobolev=True,  # deliberately exercise the disabled mechanism
     )
 
     assert "loss_function" in cap["kwargs"], "loss_function not injected into PySR kwargs"
@@ -144,5 +145,23 @@ def test_multiz_refit_sobolev_requires_gps(monkeypatch):
         R.refit_1d_multiz_for_param(
             param_name="ns", z_min=3.0, z_max=4.0, k_grid=k,
             gp_lf=None, gp_hf=None, n_total=nt,
+            use_sobolev=True,
+        )
+
+
+def test_multiz_refit_low_level_sobolev_guard():
+    """Defense-in-depth (M2): the low-level refit_1d_multiz_for_param must itself
+    refuse a multi-z Sobolev fit BY DEFAULT. The multi-z training target is built in
+    linear P_F (_build_training_matrix_multiz) while the Sobolev target gradient is
+    log-P (sobolev_loss._fidelity_grad_weights_multiz); that log/linear mismatch would
+    silently corrupt the fit. The driver refit_one_param_multi_z already guards this;
+    this closes the gap for a direct library caller. The tested wiring path opts in
+    explicitly via _allow_unvalidated_sobolev=True (see test_multiz_refit_assembles_sobolev)."""
+    import pytest
+    with pytest.raises(NotImplementedError, match="Multi-z Sobolev"):
+        R.refit_1d_multiz_for_param(
+            param_name="ns", z_min=3.0, z_max=4.0,
+            k_grid=np.linspace(0.01, 0.04, 4),
+            gp_lf=object(), gp_hf=object(), n_total=4,
             use_sobolev=True,
         )

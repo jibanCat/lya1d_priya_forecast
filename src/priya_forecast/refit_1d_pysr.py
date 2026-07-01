@@ -846,6 +846,7 @@ def refit_1d_multiz_for_param(
     use_sobolev: bool = False,
     sobolev_lambda: float = 1.0,
     sobolev_h: float = 1e-4,
+    _allow_unvalidated_sobolev: bool = False,
 ) -> Refit1DResult:
     """Multi-z 1D PySR refit: one equation in `(θ_norm, k_norm, res, z_norm)`.
 
@@ -860,9 +861,21 @@ def refit_1d_multiz_for_param(
         raise ValueError(
             "use_sobolev=True requires gp_lf and gp_hf for the multi-z refit."
         )
-    # NOTE: the multi-z Sobolev path is out of scope for the per-z production
-    # paper and unvalidated (the builder's target-space vs the d(logP)/dtheta
-    # weights are not guaranteed consistent). Use the single-z path for production.
+    # M2 guard (defense-in-depth): the multi-z training target is built in linear
+    # P_F by _build_training_matrix_multiz, but the Sobolev target gradient is
+    # d(logP)/dtheta (sobolev_loss._fidelity_grad_weights_multiz). That log/linear
+    # mismatch makes the derivative term incoherent and would silently corrupt the
+    # fit, so multi-z Sobolev is disabled. The single-z path (refit_1d_for_param,
+    # log_space=True) is the supported/validated route, and the driver
+    # refit_one_param_multi_z guards this too. _allow_unvalidated_sobolev=True
+    # bypasses the guard ONLY to exercise the loss/weights wiring in tests.
+    if use_sobolev and not _allow_unvalidated_sobolev:
+        raise NotImplementedError(
+            "Multi-z Sobolev refit is disabled: the multi-z training target is linear "
+            "P_F while the Sobolev target gradient is log-P, an inconsistent objective "
+            "that would silently corrupt the fit. Use the single-z Sobolev path "
+            "(refit_1d_for_param with log_space=True)."
+        )
     from pysr import PySRRegressor  # type: ignore[import-not-found]
 
     payload = _generate_1pvar_multiz_inline(
