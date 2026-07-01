@@ -1150,10 +1150,13 @@ def refit_1d_for_param(
         pareto_csv_out.parent.mkdir(parents=True, exist_ok=True)
         # PySR's equations_ has lowercase columns; write them capitalized so
         # `load_pareto_csv` reads them without case coercion.
-        model.equations_.rename(
-            columns={"complexity": "Complexity", "loss": "Loss",
-                     "equation": "Equation"}
-        ).to_csv(pareto_csv_out, index=False)
+        from priya_forecast.provenance import git_stamp
+        with open(pareto_csv_out, "w") as _fh:
+            _fh.write(f"# git={git_stamp()} source=pysr_hall_of_fame\n")
+            model.equations_.rename(
+                columns={"complexity": "Complexity", "loss": "Loss",
+                         "equation": "Equation"}
+            ).to_csv(_fh, index=False)
         if save_artifacts:
             # Persist the canonical predict object + its training payload so the
             # prediction-figure regenerators (regen_fig1/3/4) read straight from

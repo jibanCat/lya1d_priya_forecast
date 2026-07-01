@@ -1,3 +1,4 @@
+# git=7aa26af source=maxsize_sweep
 param,loss,maxsize,grad_err,complexity
 dtau0,sobolev,20,0.0027100802677121,19
 dtau0,sobolev,30,0.0026934951453072,27

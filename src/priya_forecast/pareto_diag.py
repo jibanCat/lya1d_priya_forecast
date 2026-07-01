@@ -35,7 +35,7 @@ def load_front(pareto_csv, sidecar_csv=None) -> pd.DataFrame:
 
         front.dropna(subset=["grad_err"]).sort_values("Loss").iloc[0]
     """
-    pareto = pd.read_csv(pareto_csv)[["Complexity", "Loss"]].copy()
+    pareto = pd.read_csv(pareto_csv, comment="#")[["Complexity", "Loss"]].copy()
     if sidecar_csv is not None and Path(sidecar_csv).exists():
         side = read_grad_faith_sidecar(sidecar_csv)
         cols = ["Complexity", "grad_err", "gate_pass"]

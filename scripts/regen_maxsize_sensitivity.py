@@ -107,7 +107,9 @@ def gather(prod: Path, z: float):
 
 def write_csv(out_csv: Path, rows: list[dict]) -> None:
     cols = ["param", "loss", "maxsize", "grad_err", "complexity"]
+    from priya_forecast.provenance import git_stamp
     with open(out_csv, "w", newline="") as fh:
+        fh.write(f"# git={git_stamp()} source=maxsize_sweep\n")
         w = csv.DictWriter(fh, fieldnames=cols)
         w.writeheader()
         for r in sorted(rows, key=lambda r: (r["loss"], PARAM_NAMES.index(r["param"]), r["maxsize"])):

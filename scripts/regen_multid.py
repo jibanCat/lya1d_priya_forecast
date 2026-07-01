@@ -254,7 +254,9 @@ def _summarize(rel: np.ndarray, k_grid: np.ndarray) -> dict:
 def _write_csv(out_csv: Path, rows: list[dict]) -> None:
     cols = ["dim", "params", "n_varied", "mean_pct", "p90_pct", "max_pct",
             "max_k", "gp_sliced", "role"]
+    from priya_forecast.provenance import git_stamp
     with open(out_csv, "w", newline="") as fh:
+        fh.write(f"# git={git_stamp()} source=multid_combine\n")
         w = csv.DictWriter(fh, fieldnames=cols)
         w.writeheader()
         for r in rows:

@@ -74,3 +74,21 @@ def test_stamp_header_inserts_exactly_once_before_source_and_is_idempotent(param
     assert h1.index(f"git={git}") < h1.index("source=")  # before source=
     assert "source=x/pareto.csv" in h1                  # source preserved
     assert stamp_header(h1, git) is None                # idempotent
+
+
+def test_headerless_csv_readers_tolerate_git_stamp(tmp_path):
+    """pareto/maxsize/multid readers skip a leading '# git=...' provenance line."""
+    import pandas as pd
+
+    from priya_forecast.pareto_diag import load_front
+    p = tmp_path / "pareto_ns.csv"
+    p.write_text("# git=abc1234 source=pysr_hall_of_fame\n"
+                 "Complexity,Loss,Equation\n1,0.5,x0\n2,0.4,x0*x0\n")
+    front = load_front(p, None)                          # forecast/figure reader
+    assert len(front) == 2 and "Complexity" in front.columns
+
+    m = tmp_path / "maxsize_sensitivity.csv"
+    m.write_text("# git=abc1234 source=maxsize_sweep\n"
+                 "param,loss,maxsize,grad_err,complexity\nns,sobolev,20,0.16,18\n")
+    df = pd.read_csv(m, comment="#")
+    assert df.iloc[0]["param"] == "ns" and float(df.iloc[0]["grad_err"]) == 0.16

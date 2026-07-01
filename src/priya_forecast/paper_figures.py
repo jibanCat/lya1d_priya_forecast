@@ -127,11 +127,11 @@ def load_run(
 
     ms = base / figures_sub / "maxsize_sensitivity.csv"
     if ms.exists():
-        run.maxsize = pd.read_csv(ms)
+        run.maxsize = pd.read_csv(ms, comment="#")
 
     md = base / figures_sub / f"multid_z{z}" / "multid_bestworst.csv"
     if md.exists():
-        run.multid = pd.read_csv(md)
+        run.multid = pd.read_csv(md, comment="#")
 
     for cz in crossz:
         d = _zdir(base, sobolev_sub, cz)

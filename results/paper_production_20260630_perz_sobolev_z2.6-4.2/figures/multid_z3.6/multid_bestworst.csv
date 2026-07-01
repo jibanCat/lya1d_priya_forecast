@@ -1,3 +1,4 @@
+# git=7aa26af source=multid_combine
 dim,params,n_varied,mean_pct,p90_pct,max_pct,max_k,gp_sliced,role
 2D,dtau0-Ap,2,0.7338,1.6954,2.8428,0.00351,,
 2D,herei-alphaq,2,0.6755,1.6036,8.7006,0.001,,

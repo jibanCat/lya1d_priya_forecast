@@ -125,7 +125,7 @@ def load_pareto_csv(path: str | Path) -> pd.DataFrame:
     Returns columns ['Complexity', 'Loss', 'Equation'] with capitalization
     coerced. Robust to PySR version drift across `Complexity/complexity` etc.
     """
-    df = pd.read_csv(path)
+    df = pd.read_csv(path, comment="#")
     rename = {}
     for col in df.columns:
         cl = col.strip().lower()
