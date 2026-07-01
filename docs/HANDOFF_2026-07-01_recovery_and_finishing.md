@@ -96,19 +96,21 @@ All build clean (16 pp). `\mfho` markers **46 → 42**.
 
 ## 5. Reproducibility state (student-facing, built + verified)
 
-- **`notebooks/figures_tutorial.ipynb`** (tracked) — the **reproduce-AND-tweak** notebook.
-  Emulator-free (light deps), CWD-robust, no hard-coded paths (`pf.load_run()`), reproduces
-  every emulator-free figure + Tables 6/7 via `priya_forecast.paper_figures`, with explicit
-  knobs (`gate=`, `paper_style(usetex=, scale=)`, `highlight=`, series recolour, reuse-on-new-run).
-- **`notebooks/reproduce_paper_figures.ipynb`** (tracked) — straight top-to-bottom repro + Tier-2 command docs.
+- **ONE notebook: `notebooks/reproduce_paper.ipynb`** (tracked; builder
+  `_build_reproduce_paper.py`, git-ignored) — reproduces **every figure and table in
+  `oja_template.tex`**, executed end-to-end with the GP (0 errors, 7 figs + 5 tables embedded):
+  *Tier 1* emulator-free (Tables 1/2/6/7 + pareto_faithfulness/faithfulness_scorecard/
+  ns_budget_panel/seed_band via `priya_forecast.paper_figures`, with tweak knobs) and *Tier 2*
+  GP-backed (the pysr_pred_tau0_Ap / pysr_graphs_3.6_dtau0 / multid_bestworst prediction plots +
+  Table 3), which auto-run if the emulator is present (`HAVE_GP`) else print the command + skip.
+  The old overlapping notebooks (`reproduce_paper_figures`, `figures_tutorial`,
+  `tutorial_01_explore_diagnostic`, `01/02/03`) were **deleted** in this consolidation.
 - **`REPRODUCE.md`** — 3-tier guide (Tier-1 emulator-free ~2 min; Tier-2 GP prediction figs; Tier-3 re-fit).
-- Verified this session (referee): `paper_figures` imports in `.venv`; `load_run()` populates all
-  sidecars/budget/seed_band/maxsize/multid/crossz; Tier-1 numbers reproduce verbatim; 401 tracked
-  files back the light-deps path.
-- **Minor follow-ups (non-blocking):** the tutorial writes `pareto_faithfulness_tutorial.png` to the
-  repo root (cosmetic — could target `_tutorial_scratch/`); the notebooks' hard-coded FIGREPO path
-  for Tier-2 (the builder `_build_reproduce_paper_figures.py`, gitignored) still uses a personal path —
-  REPRODUCE.md §2d now gives the clone URL, but the notebook cell could be de-personalized on next regen.
+- All four Tier-2 regen scripts verified to run in-env (regen_fig1/fig3/multid + **regen_table2**,
+  which the old REPRODUCE gotcha wrongly called broken — Table 3 reproduces cleanly).
+- **Minor follow-up (non-blocking):** no `pdftoppm`/`pdf2image` in the venv, so the Tier-2 cells
+  regenerate the fresh PDF but display the committed reference PNG (identical); install poppler to
+  show the freshly-regenerated figure. FIGREPO defaults to a sibling clone (overridable via `$FIGREPO`).
 
 ---
 
@@ -132,5 +134,5 @@ pass → merge PR #6 → submission checklist.
 - Decision sheet: `docs/PAPER_MFHO_DECISION_SHEET_2026-07-01.md`
 - Production artifacts: `results/paper_production_20260630_perz_sobolev_z2.6-4.2/` (README + RUN_MANIFEST)
 - grad_err adjudication evidence: `docs/pr_review/VERDICT.md` (banner) + `docs/PARETO_FAITHFULNESS_WALKTHROUGH.md:48-57`
-- Reproduce: `REPRODUCE.md`, `notebooks/figures_tutorial.ipynb`, `priya_forecast.paper_figures`
+- Reproduce: `REPRODUCE.md`, `notebooks/reproduce_paper.ipynb`, `priya_forecast.paper_figures`
 - Memory: `active_work.md` (2026-07-01 recovery section = live resume pointer)
