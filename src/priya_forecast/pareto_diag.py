@@ -110,28 +110,31 @@ def render_grid(fronts_by_param, out_path, *, gate_tol=GATE_TOL,
         ax.set_xlabel("complexity")
         # One shared y-label (fig.supylabel below) instead of repeating the long
         # label on every panel, where it collided with the next column's ticks.
-        ax.tick_params(axis="both", labelsize=11)
-        ax.tick_params(axis="y", which="minor", labelsize=9)
+        ax.tick_params(axis="both", labelsize=15)
+        ax.tick_params(axis="y", which="minor", labelsize=12)
         ax.grid(True, which="both", alpha=0.2)
         if any(s.get("label") for s in fronts_by_param.get(p, [])):
-            ax.legend(fontsize=10, loc="best")
+            ax.legend(fontsize=14, loc="best")
         if p in annotate:
             a = annotate[p]
-            ax.annotate(a["text"], xy=a["xy"], xytext=a["xytext"], fontsize=11,
+            ax.annotate(a["text"], xy=a["xy"], xytext=a["xytext"], fontsize=15,
                         color="#6e0b0b", fontweight="bold",
                         arrowprops=dict(arrowstyle="->", color="#6e0b0b", lw=1.4))
 
     for j in range(len(params), nrow * ncol):
         axes[j // ncol][j % ncol].axis("off")
 
-    fig.supylabel(y_label or y_col, fontsize=15)
+    fig.supylabel(y_label or y_col, fontsize=22)
 
     if last_sc is not None:
         cbar = fig.colorbar(last_sc, ax=axes.ravel().tolist(),
                             fraction=0.025, pad=0.01, ticks=[gate_tol])
-        cbar.set_label("derivative faithfulness vs GP (grad_err)\n"
-                       "green = faithful (≤ 0.25)   red = Mirage (> 0.25)\n"
-                       "bold ring = clears the gate")
+        cbar.set_label(r"derivative faithfulness vs GP ($\mathrm{grad\_err}$)"
+                       "\n"
+                       r"green = faithful ($\leq 0.25$)   red = Mirage ($> 0.25$)"
+                       "\n"
+                       r"bold ring = clears the gate", fontsize=16)
+        cbar.ax.tick_params(labelsize=15)
 
     fig.savefig(out_path, dpi=150)
     plt.close(fig)

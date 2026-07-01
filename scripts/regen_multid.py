@@ -269,8 +269,11 @@ def _make_figure(out_base: Path, rows: list[dict], summaries: dict,
     import matplotlib.pyplot as plt
 
     plt.rcParams.update({
-        "font.size": 15, "axes.titlesize": 17, "axes.labelsize": 16,
-        "xtick.labelsize": 13, "ytick.labelsize": 13, "legend.fontsize": 12.5,
+        "text.usetex": True,
+        "text.latex.preamble": r"\usepackage{amsmath}\usepackage{amssymb}",
+        "font.family": "serif",
+        "font.size": 18, "axes.titlesize": 20, "axes.labelsize": 22,
+        "xtick.labelsize": 17, "ytick.labelsize": 17, "legend.fontsize": 16,
     })
 
     # Pick best (lowest mean) and worst (highest mean) per dimensionality.
@@ -298,16 +301,16 @@ def _make_figure(out_base: Path, rows: list[dict], summaries: dict,
         s = summaries[row["params"]]
         axL.plot(
             k_grid, s["per_k_mean_pct"], lw=2.4, ms=5, markevery=4,
-            label=f"{dim} {role}: {row['params']}  (mean {row['mean_pct']:.1f}%)",
+            label=rf"{dim} {role}: {row['params']}  (mean {row['mean_pct']:.1f}\%)",
             **style[(dim, role)],
         )
     axL.set_xscale("log")
     axL.set_yscale("log")
-    axL.set_xlabel("k  [s/km]")
-    axL.set_ylabel("mean relative error  [%]")
-    axL.set_title(f"Multi-D combine vs GP   (z={z}, n_Sobol={n_sobol})")
+    axL.set_xlabel(r"$k\,[\mathrm{s\,km^{-1}}]$")
+    axL.set_ylabel(r"mean relative error  [\%]")
+    axL.set_title(rf"Multi-D combine vs GP   ($z={z}$, $n_{{\mathrm{{Sobol}}}}={n_sobol}$)")
     axL.axhline(1.0, ls=":", color="0.4", lw=1.0)
-    axL.text(k_grid[0], 1.05, "1%", color="0.4", fontsize=11, va="bottom")
+    axL.text(k_grid[0], 1.05, r"1\%", color="0.4", fontsize=15, va="bottom")
     axL.grid(alpha=0.3, which="both")
     axL.legend(loc="upper left", frameon=False)
 
@@ -325,10 +328,10 @@ def _make_figure(out_base: Path, rows: list[dict], summaries: dict,
     axR.scatter(maxs, y, color="0.15", marker="x", s=70, lw=2.0,
                 label="max", zorder=5)
     axR.set_yticks(y)
-    axR.set_yticklabels(labels, fontsize=12)
+    axR.set_yticklabels(labels, fontsize=15)
     axR.invert_yaxis()
     axR.set_xscale("log")
-    axR.set_xlabel("relative error  [%]")
+    axR.set_xlabel(r"relative error  [\%]")
     axR.set_title("Per-combo error (mean / p90 / max)")
     axR.grid(alpha=0.3, axis="x", which="both")
     # Legend entries: dim colors + marker meanings.

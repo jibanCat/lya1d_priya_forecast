@@ -120,8 +120,12 @@ def make_figure(out_base: Path, rows: list[dict], *, z: float) -> None:
     import matplotlib.pyplot as plt
 
     plt.rcParams.update({
-        "font.size": 16, "axes.titlesize": 19, "axes.labelsize": 17,
-        "xtick.labelsize": 14, "ytick.labelsize": 14, "legend.fontsize": 11.5,
+        "text.usetex": True,
+        "text.latex.preamble": r"\usepackage{amsmath}\usepackage{amssymb}",
+        "font.family": "serif",
+        "font.size": 18, "axes.titlesize": 22, "axes.labelsize": 22,
+        "xtick.labelsize": 17, "ytick.labelsize": 17, "legend.fontsize": 16,
+        "figure.titlesize": 20,
     })
     cmap = plt.get_cmap("tab20")
     # Parameters whose value-loss faithfulness is budget-sensitive: highlight.
@@ -142,18 +146,18 @@ def make_figure(out_base: Path, rows: list[dict], *, z: float) -> None:
                     alpha=1.0 if hot else 0.8, zorder=5 if hot else 3,
                     label=p + (" *" if hot else ""))
         ax.axhline(GATE, color="k", ls="--", lw=1.6)
-        ax.text(20, GATE * 1.06, "gate 0.25", fontsize=13, va="bottom")
+        ax.text(20, GATE * 1.06, "gate 0.25", fontsize=16, va="bottom")
         ax.set_yscale("log")
         ax.set_xticks(MAXSIZES)
-        ax.set_xlabel("PySR maxsize (complexity budget)")
-        ax.set_title(f"{loss}-loss")
+        ax.set_xlabel(r"PySR $\mathrm{maxsize}$ (complexity budget)")
+        ax.set_title(rf"{loss}-loss")
         ax.grid(alpha=0.3, which="both")
-    axes[0].set_ylabel("knee-selected grad_err  (log scale)")
+    axes[0].set_ylabel(r"knee-selected $\mathrm{grad\_err}$  (log scale)")
     axes[1].legend(ncol=2, loc="upper right", frameon=True, framealpha=0.9)
     fig.suptitle(
-        f"Derivative faithfulness vs complexity budget (z={z}): "
+        rf"Derivative faithfulness vs complexity budget ($z={z}$): "
         "value-loss is budget-sensitive, Sobolev is search-efficient",
-        fontsize=18,
+        fontsize=20,
     )
     fig.tight_layout(rect=(0, 0, 1, 0.96))
     for ext in ("png", "pdf"):
