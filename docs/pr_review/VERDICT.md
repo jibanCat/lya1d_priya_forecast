@@ -1,5 +1,17 @@
 # PR #6 — Meta-review VERDICT
 
+> **⚠️ SUPERSEDED IN PART (2026-07-01).** The consensus bullet below (§2, "The metric
+> lives in the right space … `grad_err` is a ratio of **linear-P** slopes … correctly
+> labelled") is **obsolete**. Since this review, the gate was switched to **log-space**
+> (`derivative_gate.py` log-transforms then calls `predict_log`; every production sidecar
+> carries `log_space=True`; commit `7aa26af` + `docs/PARETO_FAITHFULNESS_WALKTHROUGH.md:48-57`).
+> Log-space is **not** a mislabel and **not** a proxy: because the deployed model is the
+> fiducial-anchored additive combine, `∂P_F/∂θ|fid = P_GP(fid)·∂logP_eq/∂θ`, so the anchor
+> cancels in the GP ratio and the equation's **log**-slope ratio equals the deployed
+> combine's **linear** (Fisher-space) slope ratio — the Fisher-relevant quantity for the
+> linear-P_F covariance. This review scored the *un-deployed* standalone equation. The M1
+> (figure-generator) and M2 (multi-z Sobolev log/linear guard) must-fixes below still stand.
+
 Branch `stage10-multiz-sobolev` → `main`. Synthesised from four independent lenses:
 bayesian_fisher, cs_ml, cosmology, symbolic_regression. All four ran the code and
 re-derived numbers from the committed sidecars; this verdict deduplicates and
