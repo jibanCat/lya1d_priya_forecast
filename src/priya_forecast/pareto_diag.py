@@ -110,21 +110,21 @@ def render_grid(fronts_by_param, out_path, *, gate_tol=GATE_TOL,
         ax.set_xlabel("complexity")
         # One shared y-label (fig.supylabel below) instead of repeating the long
         # label on every panel, where it collided with the next column's ticks.
-        ax.tick_params(axis="both", labelsize=8)
-        ax.tick_params(axis="y", which="minor", labelsize=6)
+        ax.tick_params(axis="both", labelsize=11)
+        ax.tick_params(axis="y", which="minor", labelsize=9)
         ax.grid(True, which="both", alpha=0.2)
         if any(s.get("label") for s in fronts_by_param.get(p, [])):
-            ax.legend(fontsize=7, loc="best")
+            ax.legend(fontsize=10, loc="best")
         if p in annotate:
             a = annotate[p]
-            ax.annotate(a["text"], xy=a["xy"], xytext=a["xytext"], fontsize=8,
+            ax.annotate(a["text"], xy=a["xy"], xytext=a["xytext"], fontsize=11,
                         color="#6e0b0b", fontweight="bold",
                         arrowprops=dict(arrowstyle="->", color="#6e0b0b", lw=1.4))
 
     for j in range(len(params), nrow * ncol):
         axes[j // ncol][j % ncol].axis("off")
 
-    fig.supylabel(y_label or y_col, fontsize=11)
+    fig.supylabel(y_label or y_col, fontsize=15)
 
     if last_sc is not None:
         cbar = fig.colorbar(last_sc, ax=axes.ravel().tolist(),
