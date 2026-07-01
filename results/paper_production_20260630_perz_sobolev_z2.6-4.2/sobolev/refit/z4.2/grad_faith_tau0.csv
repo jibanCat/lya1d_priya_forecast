@@ -1,4 +1,4 @@
-# param=tau0 z=4.2 tol=0.25 log_space=True source=results/paper_production_20260630_perz_sobolev_z2.6-4.2/sobolev/refit/z4.2/pareto_tau0.csv
+# param=tau0 z=4.2 tol=0.25 log_space=True git=7aa26af source=results/paper_production_20260630_perz_sobolev_z2.6-4.2/sobolev/refit/z4.2/pareto_tau0.csv
 Complexity,Loss,grad_err,value_mse,n_keep,gate_pass,x0_enters
 20,0.0065421495,0.0011835208650723406,2.4714126904510532e-05,48,True,True
 19,0.0067779007,0.0012325627930177552,2.1951208916735305e-05,48,True,True

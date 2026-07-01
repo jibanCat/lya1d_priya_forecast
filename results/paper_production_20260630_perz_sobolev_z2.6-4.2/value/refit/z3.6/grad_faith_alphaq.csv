@@ -1,4 +1,4 @@
-# param=alphaq z=3.6 tol=0.25 log_space=True source=results/paper_production_20260630_perz_sobolev_z2.6-4.2/value/refit/z3.6/pareto_alphaq.csv
+# param=alphaq z=3.6 tol=0.25 log_space=True git=7aa26af source=results/paper_production_20260630_perz_sobolev_z2.6-4.2/value/refit/z3.6/pareto_alphaq.csv
 Complexity,Loss,grad_err,value_mse,n_keep,gate_pass,x0_enters
 20,0.29426458,0.12556534681900916,2.9062049231438493e-05,48,True,True
 19,0.38629028,0.5011056091457481,3.302057741107325e-05,48,False,True

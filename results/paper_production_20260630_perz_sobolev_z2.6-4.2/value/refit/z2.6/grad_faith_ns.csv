@@ -1,4 +1,4 @@
-# param=ns z=2.6 tol=0.25 log_space=True source=results/paper_production_20260630_perz_sobolev_z2.6-4.2/value/refit/z2.6/pareto_ns.csv
+# param=ns z=2.6 tol=0.25 log_space=True git=7aa26af source=results/paper_production_20260630_perz_sobolev_z2.6-4.2/value/refit/z2.6/pareto_ns.csv
 Complexity,Loss,grad_err,value_mse,n_keep,gate_pass,x0_enters
 19,0.94626606,0.6304155001692039,0.000932334945953552,48,False,True
 18,1.0427305,0.5776092227555474,0.0010644022413747475,48,False,True

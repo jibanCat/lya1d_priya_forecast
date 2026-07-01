@@ -46,5 +46,7 @@ Or via the reusable module: `pf.plot_seed_band(pf.load_run())` (see `notebooks/f
        --band-dir results/paper_production_20260630_perz_sobolev_z2.6-4.2/seed_band \
        --out      results/paper_production_20260630_perz_sobolev_z2.6-4.2/seed_band/seed_band_summary.json
    ```
-The per-seed `grad_faith_<p>.csv` sidecars carry their own `# param= z= tol= log_space= source=`
-provenance header; see `../sobolev/README.md` for the CSV column schema.
+`seed_band_summary.json` carries a top-level `"git"` field (the producing code hash;
+convention `priya_forecast.provenance.git_stamp`). The per-seed `grad_faith_<p>.csv`
+sidecars carry their own `# param= z= tol= log_space= git= source=` provenance header;
+see `../sobolev/README.md` for the CSV column schema.

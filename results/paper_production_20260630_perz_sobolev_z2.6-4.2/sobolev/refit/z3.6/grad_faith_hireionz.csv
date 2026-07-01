@@ -1,4 +1,4 @@
-# param=hireionz z=3.6 tol=0.25 log_space=True source=results/paper_production_20260630_perz_sobolev_z2.6-4.2/sobolev/refit/z3.6/pareto_hireionz.csv
+# param=hireionz z=3.6 tol=0.25 log_space=True git=7aa26af source=results/paper_production_20260630_perz_sobolev_z2.6-4.2/sobolev/refit/z3.6/pareto_hireionz.csv
 Complexity,Loss,grad_err,value_mse,n_keep,gate_pass,x0_enters
 20,8.226795,0.1075153207352057,0.0006838820506291356,48,True,True
 19,8.576644,0.16666082992447684,0.0007886249542506074,48,True,True

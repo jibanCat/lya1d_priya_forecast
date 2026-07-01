@@ -42,8 +42,9 @@ def write_grad_faith_sidecar(out_path, rows, *, param, z, tol,
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     df = pd.DataFrame(list(rows), columns=SIDECAR_COLUMNS)
+    from priya_forecast.provenance import git_stamp
     header = (f"# param={param} z={z} tol={tol} log_space={log_space} "
-              f"source={source_pareto}\n")
+              f"git={git_stamp()} source={source_pareto}\n")
     with open(out_path, "w") as fh:
         fh.write(header)
         df.to_csv(fh, index=False)

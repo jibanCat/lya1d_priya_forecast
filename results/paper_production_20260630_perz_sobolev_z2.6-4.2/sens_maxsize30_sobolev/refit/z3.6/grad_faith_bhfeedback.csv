@@ -1,4 +1,4 @@
-# param=bhfeedback z=3.6 tol=0.25 log_space=True source=results/paper_production_20260630_perz_sobolev_z2.6-4.2/sens_maxsize30_sobolev/refit/z3.6/pareto_bhfeedback.csv
+# param=bhfeedback z=3.6 tol=0.25 log_space=True git=7aa26af source=results/paper_production_20260630_perz_sobolev_z2.6-4.2/sens_maxsize30_sobolev/refit/z3.6/pareto_bhfeedback.csv
 Complexity,Loss,grad_err,value_mse,n_keep,gate_pass,x0_enters
 30,7.8420453,0.7181355860556053,3.195421997489845e-05,48,False,True
 29,7.933716,0.8563854085475984,3.178988429225628e-05,48,False,True

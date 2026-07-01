@@ -1,4 +1,4 @@
-# param=omegamh2 z=3.6 tol=0.25 log_space=True source=results/paper_production_20260630_perz_sobolev_z2.6-4.2/sens_maxsize30_sobolev/refit/z3.6/pareto_omegamh2.csv
+# param=omegamh2 z=3.6 tol=0.25 log_space=True git=7aa26af source=results/paper_production_20260630_perz_sobolev_z2.6-4.2/sens_maxsize30_sobolev/refit/z3.6/pareto_omegamh2.csv
 Complexity,Loss,grad_err,value_mse,n_keep,gate_pass,x0_enters
 29,59.782867,0.19627249460139695,0.00019116085784286977,48,True,True
 27,60.04236,0.16338303915257268,0.00018011670158638585,48,True,True

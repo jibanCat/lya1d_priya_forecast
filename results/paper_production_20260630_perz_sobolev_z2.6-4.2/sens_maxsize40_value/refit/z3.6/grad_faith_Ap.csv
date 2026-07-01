@@ -1,4 +1,4 @@
-# param=Ap z=3.6 tol=0.25 log_space=True source=results/paper_production_20260630_perz_sobolev_z2.6-4.2/sens_maxsize40_value/refit/z3.6/pareto_Ap.csv
+# param=Ap z=3.6 tol=0.25 log_space=True git=7aa26af source=results/paper_production_20260630_perz_sobolev_z2.6-4.2/sens_maxsize40_value/refit/z3.6/pareto_Ap.csv
 Complexity,Loss,grad_err,value_mse,n_keep,gate_pass,x0_enters
 40,0.049233362,0.018048343563478175,2.7289917666978118e-05,48,True,True
 39,0.05052946,0.02568814524273605,2.7398268429929723e-05,48,True,True

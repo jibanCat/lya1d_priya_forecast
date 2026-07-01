@@ -1,4 +1,4 @@
-# param=herei z=2.6 tol=0.25 log_space=True source=results/paper_production_20260630_perz_sobolev_z2.6-4.2/sobolev/refit/z2.6/pareto_herei.csv
+# param=herei z=2.6 tol=0.25 log_space=True git=7aa26af source=results/paper_production_20260630_perz_sobolev_z2.6-4.2/sobolev/refit/z2.6/pareto_herei.csv
 Complexity,Loss,grad_err,value_mse,n_keep,gate_pass,x0_enters
 19,46.346985,0.19553413452110446,0.00012659804741146617,48,True,True
 18,53.60345,0.20781018910460602,0.000322738124817207,48,True,True

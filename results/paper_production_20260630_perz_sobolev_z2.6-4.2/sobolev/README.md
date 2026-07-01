@@ -12,7 +12,9 @@ dirs, plain MSE for `value/`), so it is **not comparable across losses** — use
 x2=resolution`. Produced by `scripts/refit_one_param_single_z.py`.
 
 ### `grad_faith_<param>.csv` — the emulator-scored sidecar
-A `#`-comment provenance header (`# param= z= tol= log_space= source=`) then columns:
+A `#`-comment provenance header (`# param= z= tol= log_space= git= source=`, where
+`git=` is the short hash of the code that produced the file — the provenance convention,
+`priya_forecast.provenance.git_stamp`) then columns:
 `Complexity, Loss, grad_err, value_mse, n_keep, gate_pass, x0_enters`.
 - `grad_err` = the production gate metric, `median_k |∂logP_eq/∂θ ÷ ∂logP_GP/∂θ − 1|`
   at fiducial (**log-space**), gate 0.25.

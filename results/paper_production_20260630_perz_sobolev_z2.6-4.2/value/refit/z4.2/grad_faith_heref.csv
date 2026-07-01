@@ -1,4 +1,4 @@
-# param=heref z=4.2 tol=0.25 log_space=True source=results/paper_production_20260630_perz_sobolev_z2.6-4.2/value/refit/z4.2/pareto_heref.csv
+# param=heref z=4.2 tol=0.25 log_space=True git=7aa26af source=results/paper_production_20260630_perz_sobolev_z2.6-4.2/value/refit/z4.2/pareto_heref.csv
 Complexity,Loss,grad_err,value_mse,n_keep,gate_pass,x0_enters
 20,0.08029255,5.5561628312803535,1.186627629542768e-05,48,False,True
 19,0.08997193,13.438540686352393,1.2315811447802746e-05,48,False,True

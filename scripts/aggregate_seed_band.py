@@ -112,7 +112,8 @@ def main():
         return float(np.median(a)), float(a.min()), float(a.max()), int(a.size)
 
     print(f"{'param':>10} | {'value med[min,max] n':>28} | {'sobolev med[min,max] n':>28} | flips")
-    summary = {"gate": GATE, "seeds": SEEDS, "params": {}}
+    from priya_forecast.provenance import git_stamp
+    summary = {"gate": GATE, "seeds": SEEDS, "git": git_stamp(), "params": {}}
     for p in PARAM_NAMES:
         vm, vlo, vhi, vn = stat(raw[p]["value"])
         sm, slo, shi, sn = stat(raw[p]["sobolev"])

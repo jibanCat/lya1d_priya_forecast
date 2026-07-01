@@ -1,4 +1,4 @@
-# param=hub z=3.6 tol=0.25 log_space=True source=results/paper_production_20260630_perz_sobolev_z2.6-4.2/sobolev/refit/z3.6/pareto_hub.csv
+# param=hub z=3.6 tol=0.25 log_space=True git=7aa26af source=results/paper_production_20260630_perz_sobolev_z2.6-4.2/sobolev/refit/z3.6/pareto_hub.csv
 Complexity,Loss,grad_err,value_mse,n_keep,gate_pass,x0_enters
 19,385.88824,0.9845273028678903,0.0005698745194987455,48,False,True
 18,387.83167,1.0008561558911833,0.0005970921585513541,48,False,True
