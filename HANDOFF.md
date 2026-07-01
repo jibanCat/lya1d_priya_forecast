@@ -55,8 +55,8 @@ seed paragraph + `fig:seed_band`) + taxonomy table ns row + `PAPER_NARRATIVE.md`
 
 For each parameter, score whether a symbolic equation's **slope** ∂P/∂θ matches the
 GP's — the only thing a Fisher forecast uses. Metric:
-`grad_err = median_k |∂P_F^eq/∂θ ÷ ∂P_F^GP/∂θ − 1|` at fiducial, in **linear P_F**
-(Fisher-consistent), gate 0.25. The **Sobolev** derivative-matching loss is the
+`grad_err = median_k |∂logP_F^eq/∂θ ÷ ∂logP_F^GP/∂θ − 1|` at fiducial, in **log-P_F**
+(the at-fid-anchored-combine Fisher-relevant ratio; production runs `--log-space`), gate 0.25. The **Sobolev** derivative-matching loss is the
 cure. Key results (single-z z=3.6, real KODIAQ-SQUAD):
 
 - **Fisher's Mirage:** an equation can be value-accurate yet slope-wrong.

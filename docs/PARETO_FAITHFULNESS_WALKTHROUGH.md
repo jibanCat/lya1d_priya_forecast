@@ -45,13 +45,16 @@ all-red.
   right value, wrong slope). `grad_err` is clipped at 1 for color only; the
   sidecar keeps the raw value.
 
-> **Metric space (was mislabeled — fixed 2026-06-08).** `grad_err` differences the
-> **linear/raw P** prediction, `∂P_F/∂θ` — NOT `∂logP`: both `gp.predict` and
-> `refit.predict` return raw `P_F`, so the gate is a ratio of linear-P slopes. This
-> is the Fisher-consistent quantity (the paper's Fisher matrix uses `∂P_F/∂θ`
-> against the linear-P KSData covariance), so the label is corrected to `∂P_F`
-> everywhere; the numbers are unchanged. Note `value_mse` *is* in log-P space
-> (`mean (logP_eq − logP_GP)²`) — that one is correctly labeled.
+> **Metric space (corrected 2026-06-30).** The production `grad_err` is the
+> **log-derivative** ratio, `median_k |∂logP_F^eq/∂θ ÷ ∂logP_F^GP/∂θ − 1|` — the
+> gate runs with `--log-space` (`make_grad_faith_sidecars.sh`, `submit_paper_production.sh`).
+> This is the Fisher-relevant quantity for the *deployed* model: the at-fiducial-
+> anchored additive combine has `∂P_F/∂θ|fid = P_GP(fid)·∂logP_eq/∂θ`, so the log-slope
+> ratio equals the combined-model linear-slope ratio (the `P_GP(fid)` value factor
+> cancels). An earlier note here claimed a **linear**-P ratio with "numbers
+> unchanged" — that was the un-anchored raw-`P` rationale and is **superseded**: a
+> standalone equation's linear-vs-log ratio differ by its ~1%/bin value error, which
+> can flip pass/fail near the gate. `value_mse` is also log-P (`mean(logP_eq−logP_GP)²`).
 
 > **Why the y-axis is `value_mse`, not the PySR `Loss` column.** The PySR `Loss`
 > is the *training objective*, which differs by run: for Sobolev it is

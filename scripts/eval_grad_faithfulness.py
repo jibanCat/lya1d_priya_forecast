@@ -57,7 +57,12 @@ def main():
     p.add_argument("--kmin", type=float, default=0.001)
     p.add_argument("--kmax", type=float, default=0.04)
     p.add_argument("--tol", type=float, default=0.25)
-    p.add_argument("--log-space", action="store_true")
+    # Default to log-space (the production gate space); --linear-space opts out.
+    # --log-space is kept as a harmless no-op so existing callers still parse.
+    p.add_argument("--log-space", action="store_true", default=True,
+                   help="(default) score in log-P, matching production.")
+    p.add_argument("--linear-space", dest="log_space", action="store_false",
+                   help="score in linear P (legacy; not the production gate).")
     p.add_argument("--data-1pvar", default="data/single_z_1pvar")
     p.add_argument("--out", default=None,
                    help="write a grad-faith sidecar CSV to this path")
