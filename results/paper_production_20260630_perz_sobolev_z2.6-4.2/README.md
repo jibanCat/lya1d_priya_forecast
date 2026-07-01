@@ -15,7 +15,7 @@ derivative-faithfulness ("Fisher's Mirage") results.
 | path | contents |
 |---|---|
 | `sobolev/refit/z<z>/`, `value/refit/z<z>/` | per-param `pareto_<p>.csv` (the PySR front) + `grad_faith_<p>.csv` (the emulator-scored sidecar). `sobolev/refit/z3.6/` also has `refits/`+`payloads/` pkls (the prediction-fig artifacts). See `sobolev/README.md` for the CSV schema. |
-| `seed_band/z3.6_seed{0..4}_{value,sobolev,budget}/refit/z3.6/` | the 5-seed fronts; aggregated by `scripts/aggregate_seed_band.py` into `seed_band/seed_band_summary.json`. |
+| `seed_band/z3.6_seed{0..4}_{value,sobolev,budget}/refit/z3.6/` | the 5-seed fronts; aggregated by `scripts/aggregate_seed_band.py` into `seed_band/seed_band_summary.json`. See `seed_band/README.md` for the JSON schema. |
 | `budget35_value/`, `budget35_sobolev/` | the `maxsize=35` budget-control arm. |
 | `sens_maxsize{30,40}_{value,sobolev}/` | the maxsize-sensitivity sweep. |
 | `figures/` | every regenerated paper figure (PDF/PNG) + the table fragments (`*.tex`/`*.txt`) + `maxsize_sensitivity.csv` + `multid_z3.6/multid_bestworst.csv`. See `figures/README.md`. |
