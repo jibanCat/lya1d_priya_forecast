@@ -4,6 +4,13 @@
 **Compute node:** the OnDemand session (gl3083) ends ~23:00 on 2026-06-30; the shared filesystem (commits, results/, paper edits) persists. **SLURM allocation `yueyingn0` expires 2026-07-01.**
 **No pending compute jobs** — all fits + GP re-scoring finished (see "Production run").
 
+## 2026-06-30 ~21:45 FINAL UPDATE — paper review folded + everything pushed
+- **Code repo pushed** → `origin/stage10-multiz-sobolev` HEAD **`061ddc4`** (PR #6). Includes: all Phase A–D + rework commits, the re-derived artifacts, usetex/large-font figure scripts, and the committed prediction-fig pickles (repro must-fix).
+- **Paper repo pushed** → `origin/paper-additions` HEAD **`7337fff`** (github.com/jibanCat/Knowledge-Distillation-using-PySR-with-PRIYA-suite). The reframe + the author's figure-by-figure review feedback are folded in, ALL wrapped in `\additions{}`/`\mfho{}`; superseded student prose is `\begin{comment}`-blocked, never reworded. latexmk clean, 16 pp, no undefined refs.
+- **Author review applied (12 items):** Fig 3/4 widened; Figs 2,5,10,11 + Tables 4,5 + the ANOVA appendix + the joint-multiparam appendix dropped (restorable comment blocks); Table 7 equations rendered in LaTeX (raw sympy kept in `% sympy:` comments); Fisher-forecast presentation removed (§2.3/§4.4 renamed "Derivative faithfulness"; `eq:fisher_singlez` commented; `grad_err`+Sobolev method + the Fisher's-Mirage motivation KEPT); all figures regenerated with `text.usetex` + large fonts.
+- **14 `\mfho` author-decision points remain in the paper** (the author's to-do): Fisher-motivation-entirely? · `eq:norm` empirical-vs-at-fid anchor · log-space combine · abstract + conclusion reframe (drafted) · Table 1 priors vs hypercube · Fig 2 holdout keep/refresh · restore maxsize_sens figure? · compact vs c=20 τ0/Ap forms.
+- A 2-agent cross-check is verifying feedback fidelity + numbers-match-data + figure legibility (findings to be appended).
+
 ## What this session did
 Drove the project into "production mode" (one PySR model per param per z, Sobolev/gradient loss, no ANOVA) and, when the multi-lens review found the production data **refuted a headline claim**, executed an honest reframe + fixed three correctness bugs + re-derived everything + updated the paper and a reproducibility notebook.
 
