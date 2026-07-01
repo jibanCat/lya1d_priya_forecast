@@ -52,7 +52,7 @@ results/paper_production_20260630_perz_sobolev_z2.6-4.2/
 │   ├── z3.6_seed0_budget/refit/z3.6/      #   ns budget control (maxsize 35)
 │   └── seed_band_summary.json             #   aggregated 5-seed medians/ranges
 ├── sens_maxsize{30,40}_{value,sobolev}/   # maxsize sweep
-└── figures/                               # the committed PDFs + table .txt/.tex of record
+└── figures/                               # table .txt/.tex/.csv of record (committed); figure PDFs are regenerable
 ```
 
 ---
@@ -277,7 +277,9 @@ export JULIA_DEPOT_PATH=$HOME/.julia
 export PYTHONPATH=src:$LYA_EMULATOR                 # src + the emulator repo root
 PY=python                                           # the .venv python (GPy + lyaemu)
 PROD=results/paper_production_20260630_perz_sobolev_z2.6-4.2
-FIGREPO=/path/to/Knowledge-Distillation-using-PySR-with-PRIYA-suite   # the paper's LaTeX repo
+# The Fig 1/3/4 + Table 3 regen scripts live in the paper's LaTeX repo — clone it:
+FIGREPO=$PWD/../Knowledge-Distillation-using-PySR-with-PRIYA-suite
+git clone https://github.com/jibanCat/Knowledge-Distillation-using-PySR-with-PRIYA-suite.git "$FIGREPO"
 ```
 
 ```bash
@@ -377,10 +379,11 @@ paper's LaTeX repo.
   `text.usetex=True`. Without a `latex`/`dvipng` install it raises a
   matplotlib LaTeX error. The **table** reproductions and the
   `seed_band`/`maxsize` figures do not.
-- **`regen_fig1.py` hard-codes `results/refit_phase2_production`,** which already
-  exists as a real directory in the repo. `ln -sfn <target> results/refit_phase2_production`
-  will create a *nested* symlink inside it instead of replacing it — move the
-  directory aside first (see §2d).
+- **`regen_fig1.py` *defaults* `--refit-dir` to `results/refit_phase2_production`**
+  (the older refit set). Pass `--refit-dir $PROD/sobolev/refit/z3.6` explicitly — as
+  §2d does, and as `regen_fig3.py`/`regen_fig4.py` require — to point it at the
+  production Sobolev fits. (No symlink workaround is needed; the earlier hard-coded
+  path was replaced by the `--refit-dir` flag on 2026-06-30.)
 - **Table 3 (`table2_stats.tex`) does not cleanly re-run from the committed
   pickles.** `regen_table2.py` expects a payload schema (`pld['payload']`,
   `z_per_row`) that the production `sobolev/refit/z3.6/payloads/*.pkl` do **not**
