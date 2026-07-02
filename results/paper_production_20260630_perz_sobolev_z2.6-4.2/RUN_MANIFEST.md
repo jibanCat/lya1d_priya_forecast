@@ -1,8 +1,10 @@
 # RUN MANIFEST — prod-20260630-perz-sobolev
 
 - **git:** `fc914fc` @ `stage10-multiz-sobolev` (+uncommitted at submit time)
-- **released:** the produced artifacts are committed and shipped in `main` under tag `v1.0-paper`
-  (`a84e36d`); committed grad-faith sidecars record the scoring code as `git=7aa26af`. Because the
+- **released:** the produced artifacts are committed in `main`; the code is released at tag
+  `v1.0-paper` (`a84e36d`), and the committed grad-faith sidecars record the scoring code as
+  `git=7aa26af`. (The seed-band Tier-1 sidecars were committed just after the tag, still in `main`.)
+  Because the
   run carried uncommitted working-tree changes, the figures/CSVs are **not** byte-regenerable from a
   single clean checkout — reproduce from the committed artifacts (Tier 1, no GP) or re-run the
   pipeline (Tier 3). See `REPRODUCE.md`.
