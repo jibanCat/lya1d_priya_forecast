@@ -1,0 +1,2 @@
+# param=hub z=3.6 tol=0.25 log_space=True git=a84e36d+dirty source=results/paper_production_20260630_perz_sobolev_z2.6-4.2/seed_band/z3.6_seed1_value/refit/z3.6/pareto_hub.csv
+Complexity,Loss,grad_err,value_mse,n_keep,gate_pass,x0_enters

@@ -1,0 +1,6 @@
+# param=omegamh2 z=3.6 tol=0.25 log_space=True git=a84e36d+dirty source=results/paper_production_20260630_perz_sobolev_z2.6-4.2/seed_band/z3.6_seed1_value/refit/z3.6/pareto_omegamh2.csv
+Complexity,Loss,grad_err,value_mse,n_keep,gate_pass,x0_enters
+11,6.057657,0.29016504384059505,0.00021108538729302324,48,False,True
+10,6.1676946,0.2582404844889188,0.00021469964640829074,48,False,True
+9,6.19706,0.21779491135689122,0.00021302600954862397,48,True,True
+7,6.3302073,0.27044659270797455,0.0002179088301702359,48,False,True

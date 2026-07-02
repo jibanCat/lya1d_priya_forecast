@@ -1,6 +1,11 @@
 # RUN MANIFEST — prod-20260630-perz-sobolev
 
-- **git:** `fc914fc` @ `stage10-multiz-sobolev` (+uncommitted)
+- **git:** `fc914fc` @ `stage10-multiz-sobolev` (+uncommitted at submit time)
+- **released:** the produced artifacts are committed and shipped in `main` under tag `v1.0-paper`
+  (`a84e36d`); committed grad-faith sidecars record the scoring code as `git=7aa26af`. Because the
+  run carried uncommitted working-tree changes, the figures/CSVs are **not** byte-regenerable from a
+  single clean checkout — reproduce from the committed artifacts (Tier 1, no GP) or re-run the
+  pipeline (Tier 3). See `REPRODUCE.md`.
 - **submitted:** 2026-06-30 13:48:14 EDT
 - **account:** yueyingn0 (expires 2026-07-01)
 - **recipe:** one PySR model per (param, z); Sobolev lambda=5, log target, no ANOVA.
