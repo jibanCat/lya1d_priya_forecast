@@ -27,11 +27,11 @@ How the machinery is reused (nothing is reinvented here):
     combine built with all 11 refits serves every combo.
   * GP truth: priya_forecast.models.gp_model.GPModel(fidelity="hf").
 
-Run (validation against the existing single-z stage-9 refit dir, z=3.6):
+Run (against the committed paper-production Sobolev refit dir, z=3.6):
   export PYTHON_JULIAPKG_PROJECT=$HOME/.julia_env JULIA_DEPOT_PATH=$HOME/.julia
-  export PYTHONPATH=src:/home/mfho/student_projects/lya_emulator_full
+  export PYTHONPATH=src:$LYA_EMULATOR
   .venv/bin/python scripts/regen_multid.py \\
-      --refit-dir results/single_z_stage9 --z 3.6 \\
+      --refit-dir results/paper_production_20260630_perz_sobolev_z2.6-4.2/sobolev --z 3.6 \\
       --basedir data/kodiaq_gp --out-dir <out> --n-sobol 256
 
 Production (per-z Sobolev refits, run once per z bin):
@@ -358,8 +358,9 @@ def main() -> None:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     ap.add_argument(
-        "--refit-dir", type=Path, default=Path("results/single_z_stage9"),
-        help="Dir containing refit/z<z>/pareto_<param>.csv (default: stage9).",
+        "--refit-dir", type=Path,
+        default=Path("results/paper_production_20260630_perz_sobolev_z2.6-4.2/sobolev"),
+        help="Dir containing refit/z<z>/pareto_<param>.csv (default: the production Sobolev run).",
     )
     ap.add_argument("--z", type=float, default=3.6)
     ap.add_argument("--basedir", type=Path, default=Path("data/kodiaq_gp"),

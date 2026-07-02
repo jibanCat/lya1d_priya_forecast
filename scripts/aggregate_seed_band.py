@@ -67,8 +67,8 @@ _NORM: dict = {}
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--basedir", default="data/kodiaq_gp")
-    ap.add_argument("--band-dir", default="results/seed_band")
-    ap.add_argument("--out", default="results/seed_band/seed_band_summary.json")
+    ap.add_argument("--band-dir", default="results/paper_production_20260630_perz_sobolev_z2.6-4.2/seed_band")
+    ap.add_argument("--out", default="results/paper_production_20260630_perz_sobolev_z2.6-4.2/seed_band/seed_band_summary.json")
     args = ap.parse_args()
 
     from priya_forecast.models.gp_model import GPModel

@@ -7,9 +7,9 @@ if a matching grad_faith_<param>.csv sidecar sits beside it (or in
 
 Example (Phase-1 gray first cut, no cluster):
   PYTHONPATH=src python scripts/plot_pareto_faithfulness.py \
-    --series value@20=results/single_z_stage6_log/refit/z3.6 \
-    --series Sobolev@20=results/single_z_stage9/refit/z3.6 \
-    --out results/single_z_stage_pareto_diag/pareto_faithfulness.png
+    --series value@20=results/paper_production_20260630_perz_sobolev_z2.6-4.2/value/refit/z3.6 \
+    --series Sobolev@20=results/paper_production_20260630_perz_sobolev_z2.6-4.2/sobolev/refit/z3.6 \
+    --out results/_repro_scratch/pareto_faithfulness.png
 """
 from __future__ import annotations
 

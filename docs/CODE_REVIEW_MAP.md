@@ -4,7 +4,7 @@ A by-eye review guide to the pipeline that produces every result in the paper: w
 run, in what order, and — for each core file — the exact functions to read and which
 **paper claim** they back. Line numbers are as of code git `ffbe28f` and drift a little;
 the function names are stable. Companion: `REPRODUCE.md` (how to run) and
-`docs/PAPER_MFHO_DECISION_SHEET_2026-07-01.md` (open author decisions).
+`docs/dev/PAPER_MFHO_DECISION_SHEET_2026-07-01.md` (open author decisions).
 
 ---
 
@@ -111,7 +111,7 @@ log-slope-of-the-combine the Fisher-relevant quantity — see `refit_taylor.py` 
 ## Part 5 — Things to keep in mind while reviewing
 1. **grad_err is log-space and that is correct** — not a mislabel: via the anchored combine
    (`refit_taylor.py`) the log-slope ratio = the deployed model's linear Fisher-space slope ratio.
-   `docs/pr_review/VERDICT.md`'s "linear-P, correctly labelled" bullet is **superseded** (banner there).
+   `docs/dev/pr_review/VERDICT.md`'s "linear-P, correctly labelled" bullet is **superseded** (banner there).
 2. **Knee, not best-loss** — Tables 6/7 use `knee_row`; the committed `taxonomy_table.tex` /
    `per_param_equations.tex` on disk are the *old best-loss* cut (different numbers) — don't mix them.
 3. **Single-z is production; multi-z Sobolev is disabled** (guarded, M2).

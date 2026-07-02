@@ -238,3 +238,22 @@ notebooks/_build_*.py
 
 results/_repro_scratch/
 results/_tutorial_scratch/
+
+# --- Public release: under results/ ship ONLY the committed runs the paper/notebook read.
+# Ignore everything, then re-include the production run + the legacy refit set that
+# REPRODUCE.md / regen_fig1 default to. (Both whitelist lines per path are required:
+# git must re-include the directory before its contents.)
+results/*
+!results/paper_production_20260630_perz_sobolev_z2.6-4.2/
+!results/paper_production_20260630_perz_sobolev_z2.6-4.2/**
+!results/refit_phase2_production/
+!results/refit_phase2_production/**
+
+# Claude Code harness state — never ship
+.claude/
+
+# stray tutorial-render leaked to repo root
+/pareto_faithfulness_tutorial.png
+
+# jupyter scratch the results/ whitelist's /** would otherwise re-include
+results/**/.ipynb_checkpoints/

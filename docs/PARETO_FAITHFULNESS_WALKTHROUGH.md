@@ -2,7 +2,7 @@
 
 **Status:** color figure + per-parameter verdicts landed 2026-06-08 (single-z
 z=3.6). Spec:
-`docs/superpowers/specs/2026-06-08-pareto-faithfulness-diagnostic-design.md`.
+`docs/dev/superpowers/specs/2026-06-08-pareto-faithfulness-diagnostic-design.md`.
 
 ## What this figure is, and why the paper turns on it
 

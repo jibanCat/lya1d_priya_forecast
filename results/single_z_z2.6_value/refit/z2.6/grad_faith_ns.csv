@@ -1,3 +1,0 @@
-# param=ns z=2.6 tol=0.25 log_space=True source=results/single_z_z2.6_value/refit/z2.6/pareto_ns.csv
-Complexity,Loss,grad_err,value_mse,n_keep,gate_pass,x0_enters
-19,1.3979578,0.894153648882499,0.001047332650588693,48,False,True

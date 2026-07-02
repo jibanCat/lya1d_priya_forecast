@@ -11,9 +11,9 @@ into --out-dir (PNG + PDF):
   3. ns_budget_panel -- the paired budget-vs-Sobolev comparison, endpoints labelled.
   4. crossz_faithfulness -- redshift robustness of the taxonomy, z=2.6/3.6/4.2.
 
-Usage (defaults reproduce the committed single-z diagnostic figures):
+Usage (defaults read the committed paper-production run):
   PYTHONPATH=src python scripts/make_diagnostic_figs.py \
-    --out-dir results/single_z_stage_pareto_diag
+    --out-dir results/_repro_scratch/diagnostic
 
 Paper production run (results/paper_production_20260630_perz_sobolev_z2.6-4.2),
 layout value/refit/z<z>, sobolev/refit/z<z>, seed_band/z3.6_seed0_budget/refit/z3.6:
@@ -62,9 +62,10 @@ plt.rcParams.update({
 
 # Default input dirs reproduce the committed single-z diagnostic figures; each is
 # overridable on the CLI so the generators can be pointed at a production run.
-DEFAULT_VALUE = "results/single_z_stage6_log/refit/z3.6"
-DEFAULT_SOBOLEV = "results/single_z_stage9/refit/z3.6"
-DEFAULT_BUDGET = "results/decider_budget_z3.6/refit/z3.6"
+_PROD = "results/paper_production_20260630_perz_sobolev_z2.6-4.2"
+DEFAULT_VALUE = f"{_PROD}/value/refit/z3.6"
+DEFAULT_SOBOLEV = f"{_PROD}/sobolev/refit/z3.6"
+DEFAULT_BUDGET = f"{_PROD}/seed_band/z3.6_seed0_budget/refit/z3.6"
 
 
 def bestloss(d, p, col="grad_err"):
@@ -82,9 +83,9 @@ def parse_crossz(tokens, sobolev_dir):
     when empty, fall back to the committed default (z=3.6 reuses --sobolev-dir)."""
     if not tokens:
         return {
-            2.6: "results/single_z_z2.6_sobolev/refit/z2.6",
+            2.6: f"{_PROD}/sobolev/refit/z2.6",
             3.6: sobolev_dir,
-            4.2: "results/single_z_z4.2_sobolev/refit/z4.2",
+            4.2: f"{_PROD}/sobolev/refit/z4.2",
         }
     out = {}
     for tok in tokens:
@@ -95,7 +96,7 @@ def parse_crossz(tokens, sobolev_dir):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out-dir", default="results/single_z_stage_pareto_diag")
+    ap.add_argument("--out-dir", default="results/_repro_scratch/diagnostic")
     ap.add_argument("--value-dir", default=DEFAULT_VALUE,
                     help="dir holding value-loss pareto_<p>.csv + grad_faith_<p>.csv")
     ap.add_argument("--sobolev-dir", default=DEFAULT_SOBOLEV,

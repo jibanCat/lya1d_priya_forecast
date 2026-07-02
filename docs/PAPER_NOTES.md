@@ -22,7 +22,7 @@
 > representations. Phase 2 only loses on **Ap** (σ_PySR/σ_GP = 2.62×
 > vs 0.79×); this is a known limitation with a diagnosed cause
 > (smooth-only operators give shallower slope-at-fid than GP truth) —
-> see § D8.6 + `docs/AP_REMEDIATION_PLAN.md`.
+> see § D8.6 + `docs/dev/AP_REMEDIATION_PLAN.md`.
 >
 > **Why not wait for Phase 3**: it is unimplemented and unverified.
 > Budget the paper for Phase 2; treat Phase 3 (grad-matching loss term
@@ -86,20 +86,20 @@
 >    is rank-additive ("graceful degradation" if a pair has no signal)
 >    but cannot fix non-Gaussianity. Ap σ_PySR/σ_GP = 2.62× is a known
 >    limitation under option B; remediation strategies catalogued in
->    § D8.6 + `docs/AP_REMEDIATION_PLAN.md` (grad-matching loss term
+>    § D8.6 + `docs/dev/AP_REMEDIATION_PLAN.md` (grad-matching loss term
 >    or split-learning eq family — both ~half day to wire, neither
 >    yet implemented).
 > 6. **For the failures section**: D5.5 (multi-D PySR rank-deficiency),
 >    D8.6 (Ap remediation experiments incl. log-target smoke that
 >    overshot), § "Failure modes" in D8.5, "F1–F5" in
->    `LOCAL_PAPER_HANDOFF.md`. Pull from these — they are designed for
+>    `docs/dev/LOCAL_PAPER_HANDOFF.md`. Pull from these — they are designed for
 >    paper-writing.
 > 7. **Companion docs** (in `docs/`):
 >    - `PAIR_FIT_PLAN.md` — Phase 2 design + simdata MCMC pair
 >      selection (rank-additive ANOVA math).
->    - `AP_REMEDIATION_PLAN.md` — Phase 3 plan for the Ap gradient
+>    - `docs/dev/AP_REMEDIATION_PLAN.md` — Phase 3 plan for the Ap gradient
 >      mismatch.
->    - `LOCAL_PAPER_HANDOFF.md` — 4-section paper-content guide
+>    - `docs/dev/LOCAL_PAPER_HANDOFF.md` — 4-section paper-content guide
 >      (per-1D results / Phase 2 design / real-vs-simdat correlations
 >      / failure story).
 > 8. **Reproducibility paths**: every claim should cite a file under
@@ -1375,7 +1375,7 @@ PySR with a 5.5% or 6% gate; keeping at 5% is the conservative choice.
 - **Ap σ_PySR/σ_GP=2.62× is a known limitation** (D8.6). Option B's
   smooth-only operators give better off-fid Lipschitz behavior but a
   shallower slope-at-fid than the GP truth. Not yet remediated; plan
-  in `docs/AP_REMEDIATION_PLAN.md` (grad-matching loss term or
+  in `docs/dev/AP_REMEDIATION_PLAN.md` (grad-matching loss term or
   split-learning eq via `TemplateExpressionSpec`).
 - **IGM block (herei, heref, alphaq) σ-ratios 3–5× are partly intrinsic**:
   σ_GP/σ_MCMC at θ_target_simdat is 1.6–4.5× for these params (their

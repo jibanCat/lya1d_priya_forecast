@@ -11,9 +11,9 @@ maxsize=20 value-loss; 0.134 with Sobolev).
 
 Usage:
   PYTHON_JULIAPKG_PROJECT=$HOME/.julia_env JULIA_DEPOT_PATH=$HOME/.julia \
-  PYTHONPATH=src:/home/mfho/student_projects/lya_emulator_full \
+  PYTHONPATH=src:$LYA_EMULATOR \
   .venv/bin/python scripts/eval_grad_faithfulness.py \
-    --pareto results/decider_budget_z3.6/refit/z3.6/pareto_ns.csv \
+    --pareto results/paper_production_20260630_perz_sobolev_z2.6-4.2/seed_band/z3.6_seed0_budget/refit/z3.6/pareto_ns.csv \
     --param ns --z 3.6 --basedir data/kodiaq_gp --log-space
 """
 from __future__ import annotations

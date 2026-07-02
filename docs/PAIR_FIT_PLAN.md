@@ -315,7 +315,7 @@ Not for this paper. Reserved for follow-up paper or appendix.
 ## References
 
 - `docs/PAPER_NOTES.md` — Phase 1 design decisions D1–D6, multi-D post-mortem D5.5.
-- `LOCAL_PAPER_HANDOFF.md` — local paper-writing replay guide.
+- `docs/dev/LOCAL_PAPER_HANDOFF.md` — local paper-writing replay guide.
 - `results/simdat_ind15_truth.npz` — cached θ_target_simdat + MCMC σ + ρ.
 - PySR docs: https://astroautomata.com/PySR/
 - TemplateExpressionSpec: https://github.com/MilesCranmer/PySR/discussions/787
