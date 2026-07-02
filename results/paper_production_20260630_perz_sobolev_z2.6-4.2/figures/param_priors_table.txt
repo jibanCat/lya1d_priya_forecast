@@ -1,0 +1,14 @@
+PRIYA parameter fiducials + priors (GP training hypercube)
+
+      param        fid   prior_lo   prior_hi
+      dtau0     -0.009       -0.4       0.25
+       tau0       1.09       0.75       1.25
+         ns      0.983        0.8       1.05
+         Ap       1.46        1.2        2.6
+      herei          4        3.5        4.5
+      heref      2.765        2.2        3.2
+     alphaq       1.74        1.3          3
+        hub      0.688       0.65       0.75
+   omegamh2     0.1439       0.14      0.146
+   hireionz       7.24        6.5          8
+ bhfeedback       0.05       0.03       0.07

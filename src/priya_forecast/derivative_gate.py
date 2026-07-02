@@ -1,9 +1,16 @@
 """Finite-difference derivative-validation gate for PySR equations.
 
 Compares a candidate equation's central-difference dP/dtheta at fid against
-the GP's, using the SAME stencil the Fisher matrix consumes (fisher.py).
-Equations whose gradient is unfaithful (the "Fisher's-Mirage" pathology) are
-rejected before best_loss selection.
+the GP's, per k-bin, and flags equations whose *slope shape* is unfaithful
+(the "Fisher's-Mirage" pathology) before best_loss selection.
+
+This is a deliberately covariance-free, legible operating-point metric:
+``median_k |dP_eq/dP_GP - 1|`` over non-negligible k-bins, tolerance 0.25.
+It is NOT the covariance-weighted Fisher quantity ``sigma_eq/sigma_GP`` and
+uses a simpler 3-point stencil (h=1e-3) than ``fisher.py`` (step_frac=0.01).
+It is reported as a per-bin slope-shape error so readers apply their own
+tolerance; the multi-z forecast's marginalized sigma ratio is the
+confirmatory Fisher-level cross-check.
 """
 from __future__ import annotations
 
@@ -13,8 +20,14 @@ from priya_forecast.refit_1d_pysr import HF_RESOLUTION, Refit1DResult
 
 
 def gp_param_gradient(*, gp, fid: np.ndarray, k_grid: np.ndarray, z: float,
-                      param_idx: int, h: float = 1e-3) -> np.ndarray:
-    """Central-difference dP_GP/dtheta_param at fid, per k-bin."""
+                      param_idx: int, h: float = 1e-3,
+                      log_space: bool = False) -> np.ndarray:
+    """Central-difference d(P_GP)/dtheta at fid, per k-bin.
+
+    In log_space mode returns d(logP_GP)/dtheta — the Fisher-relevant quantity
+    that the anchored log-branch combine matches — so the candidate/target
+    ratio is dlogP_eq/dlogP_GP and the P_GP(fid) value-at-fid factor cancels.
+    """
     fid = np.asarray(fid, dtype=float)
     k_grid = np.asarray(k_grid, dtype=float)
     tp, tm = fid.copy(), fid.copy()
@@ -23,19 +36,29 @@ def gp_param_gradient(*, gp, fid: np.ndarray, k_grid: np.ndarray, z: float,
     tm[param_idx] -= step
     pp = np.asarray(gp.predict(tp, k_grid, z), dtype=float)
     pm = np.asarray(gp.predict(tm, k_grid, z), dtype=float)
+    if log_space:
+        pp, pm = np.log(pp), np.log(pm)
     return (pp - pm) / (2.0 * step)
 
 
 def equation_param_gradient(*, refit: Refit1DResult, fid_value: float,
                             k_grid: np.ndarray, z: float, h: float = 1e-3,
-                            resolution: float = HF_RESOLUTION) -> np.ndarray:
-    """Central-difference dP_eq/dtheta at fid via the refit's own predict()."""
+                            resolution: float = HF_RESOLUTION,
+                            log_space: bool = False) -> np.ndarray:
+    """Central-difference d(P_eq)/dtheta at fid via the refit's own predict().
+
+    In log_space mode uses ``predict_log`` so it returns d(logP_eq)/dtheta,
+    matching ``gp_param_gradient(log_space=True)`` (the value-at-fid factor
+    cancels in the ratio). Defaults to ``refit.log_space`` when not given.
+    """
     k_grid = np.asarray(k_grid, dtype=float)
     step = h * max(abs(float(fid_value)), 1.0)
-    pp = np.asarray(refit.predict(theta_phys=fid_value + step, k=k_grid,
-                                  resolution=resolution, z=z), dtype=float)
-    pm = np.asarray(refit.predict(theta_phys=fid_value - step, k=k_grid,
-                                  resolution=resolution, z=z), dtype=float)
+    use_log = log_space or getattr(refit, "log_space", False)
+    f = refit.predict_log if use_log else refit.predict
+    pp = np.asarray(f(theta_phys=fid_value + step, k=k_grid,
+                      resolution=resolution, z=z), dtype=float)
+    pm = np.asarray(f(theta_phys=fid_value - step, k=k_grid,
+                      resolution=resolution, z=z), dtype=float)
     return (pp - pm) / (2.0 * step)
 
 
@@ -57,3 +80,35 @@ def derivative_faithful(*, cand_grad: np.ndarray, target_grad: np.ndarray,
         return False
     rel = np.abs(cand[keep] / target[keep] - 1.0)
     return bool(np.median(rel) <= tol)
+
+
+def derivative_faithful_multiz(
+    *, refit, gp, fid: np.ndarray, fid_value: float, k_grid: np.ndarray,
+    z_grid, param_idx: int, tol: float = 0.25, floor_frac: float = 1e-3,
+    h: float = 1e-3, log_space: bool = False,
+) -> bool:
+    """True if the median over (k, z) of |∂eq/∂θ ÷ ∂P_GP/∂θ − 1| ≤ tol.
+
+    Computes, per z in z_grid, the equation's finite-diff θ-gradient and the
+    GP's, masks near-zero GP-gradient bins, and takes the median over all
+    kept (k, z) pairs.  Returns False if no usable (k, z) pairs exist.
+    """
+    fid = np.asarray(fid, dtype=float)
+    k_grid = np.asarray(k_grid, dtype=float)
+    rel: list[float] = []
+    for z in np.asarray(z_grid, dtype=float):
+        tgt = gp_param_gradient(gp=gp, fid=fid, k_grid=k_grid, z=float(z),
+                                param_idx=param_idx, h=h, log_space=log_space)
+        g = equation_param_gradient(refit=refit, fid_value=fid_value,
+                                    k_grid=k_grid, z=float(z), h=h,
+                                    log_space=log_space)
+        amax = float(np.max(np.abs(tgt)))
+        if amax == 0.0:
+            continue
+        keep = np.abs(tgt) >= floor_frac * amax
+        if not np.any(keep):
+            continue
+        rel.extend(list(np.abs(g[keep] / tgt[keep] - 1.0)))
+    if not rel:
+        return False
+    return bool(np.median(np.asarray(rel)) <= tol)

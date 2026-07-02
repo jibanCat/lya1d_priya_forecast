@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the paper below."
+title: "priya-forecast: symbolic distillation of the PRIYA Lyman-alpha P1D emulator"
+abstract: >-
+  Distills the PRIYA multi-fidelity Gaussian-process emulator of the Lyman-alpha 1D
+  flux power spectrum into per-parameter symbolic equations via PySR, and scores their
+  derivative faithfulness (the parameter slope a Fisher forecast depends on), with a
+  Sobolev derivative-matching loss to repair unfaithful slopes.
+authors:
+  - family-names: Ho
+    given-names: Ming-Feng
+  - family-names: Avestruz
+    given-names: Camille
+    orcid: "https://orcid.org/0000-0001-8868-0810"
+license: MIT
+repository-code: "https://github.com/jibanCat/lya1d_priya_forecast"
+type: software
+preferred-citation:
+  type: article
+  title: "Knowledge Distillation with PySR on the PRIYA suite"
+  authors:
+    - family-names: Ho
+      given-names: Ming-Feng
+    - family-names: Avestruz
+      given-names: Camille
+  year: 2026
+  notes: "arXiv identifier TBD"

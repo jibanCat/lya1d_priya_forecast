@@ -22,15 +22,38 @@ def kodiaq_k_grid(kmin: float, kmax: float, nk: int = 48) -> np.ndarray:
     return np.geomspace(kmin, kmax, nk)
 
 
+_MSE_LOSS = "loss(prediction, target) = (prediction - target)^2"
+
+
 def pysr_kwargs_for_cfg(cfg: PipelineConfig) -> dict:
     """Assemble the PySR kwargs dict from `cfg.pysr`.
 
-    `smart_kwargs` selects SMART (restricted operators + ANOVA loss) vs the
-    default operator set; the search-budget fields are taken from `cfg.pysr`.
+    Two independent knobs (decoupled on purpose):
+
+    - ``smart_kwargs`` selects the *operator set*: SMART (no-trig —
+      ``exp/log/square`` with the ``^`` blow-up guard) vs the DEFAULT set
+      (adds ``sqrt``/``inv``). Trig is dropped in both production paths
+      because oscillatory derivatives wreck the Fisher conditioning.
+    - ``use_anova_loss`` selects the *training loss*:
+        * ``False`` (default, production) → plain MSE elementwise loss. This
+          is the "value" baseline — the no-gradient counterpart of a Sobolev
+          fit, sharing the exact same operator set.
+        * ``True`` (ablation only) → the dimension-balanced ANOVA loss.
+
+    Sobolev, when enabled, overrides the loss downstream in
+    ``refit_1d_for_param`` regardless of ``use_anova_loss``.
     """
     base = dict(
         SMART_REFIT_PYSR_KWARGS if cfg.pysr.smart_kwargs else DEFAULT_PYSR_KWARGS
     )
+    # PySR forbids both `elementwise_loss` and `loss_function`; pick exactly one.
+    if cfg.pysr.use_anova_loss:
+        from priya_forecast.dim_balanced_loss import JULIA_LOSS_FUNCTION
+        base["loss_function"] = JULIA_LOSS_FUNCTION
+        base.pop("elementwise_loss", None)
+    else:
+        base.pop("loss_function", None)
+        base["elementwise_loss"] = _MSE_LOSS
     base["niterations"] = cfg.pysr.niterations
     base["maxsize"] = cfg.pysr.maxsize
     base["populations"] = cfg.pysr.populations
@@ -48,6 +71,7 @@ def refit_one_param_single_z(
     k_grid: np.ndarray,
     out_dir: str | Path,
     max_retries: int = 4,
+    save_artifacts: bool = False,
 ):
     """Refit one parameter at one z-bin; write `pareto_{param}.csv`.
 
@@ -78,6 +102,7 @@ def refit_one_param_single_z(
             log_space=(cfg.target_space == "log"),
             use_sobolev=cfg.pysr.use_sobolev,
             sobolev_lambda=cfg.pysr.sobolev_lambda,
+            save_artifacts=save_artifacts,
         )
         # PySR equations have 3 inputs (x0=θ_norm, x1=k_norm, x2=resolution).
         safe = _filter_fisher_safe(load_pareto_csv(pareto_csv), n_features=3)

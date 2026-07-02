@@ -1,0 +1,14 @@
+Multi-D additive-Taylor combine vs GP (z=3.6, n_sobol=256)
+relative error [%] per combo
+
+dim                 params   mean%    p90%     max%    max_k    gp_sliced   role
+ 2D               dtau0-Ap   0.734   1.695    2.843   0.0035            -      -
+ 2D           herei-alphaq   0.675   1.604    8.701   0.0010            -      -
+ 2D                  Ap-ns   0.877   1.955    4.828   0.0010            -  worst
+ 2D                tau0-ns   0.343   0.819    2.944   0.0010            -   best
+ 2D            herei-heref   0.386   0.957    4.467   0.0022            -      -
+ 2D                tau0-Ap   0.601   1.491    3.450   0.0035            -      -
+ 3D            dtau0-Ap-ns   0.863   1.927    4.881   0.0010            -      -
+ 3D     herei-heref-alphaq   0.800   1.899    9.789   0.0010            -      -
+ 3D             tau0-Ap-ns   0.789   1.860    4.954   0.0010            -   best
+ 3D         Ap-ns-omegamh2   0.922   2.057    5.498   0.0013            -  worst

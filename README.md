@@ -1,226 +1,153 @@
-# priya-forecast
+# priya-forecast — symbolic distillation of the PRIYA Lyα P1D emulator
 
-PRIYA Lyman-α P1D Fisher / MCMC forecast, with the forward model
-swappable between the GP emulator and PySR-derived analytic equations.
-Use this repo to **take your trained PySR equations and score them**:
-how close is `σ_PySR` to `σ_GP`, parameter by parameter?
+Distill the **PRIYA** multi-fidelity Gaussian-process (GP) emulator of the Lyman-α
+1D flux power spectrum (P1D) into compact, per-parameter symbolic equations (via
+**PySR**), then run a **derivative-faithfulness diagnostic** on them. The diagnostic
+asks the question a Fisher forecast actually depends on: does an equation that
+reproduces the GP's *values* also reproduce its *slopes* `∂P_F/∂θ`? An equation can
+be value-accurate to a percent yet get the slope wrong — a **"Fisher's Mirage."**
+We score all 11 PRIYA parameters as derivative-faithful or not, explain which resist
+and why, and show what a **Sobolev** derivative-matching loss does and does not fix.
 
-**Read first**: [`docs/ONBOARDING.md`](docs/ONBOARDING.md) — math-first
-walkthrough up to Phase 1.5 (Fisher, additive main-effect combine, the
-ANOVA loss, the at-fid normalization). Then this README for the
-student-facing reward loop.
+Companion code to the paper *Knowledge Distillation with PySR on the PRIYA suite*
+(see **[Citation](#citation)**).
+
+## Key results
+- At **z = 3.6**, the Sobolev objective yields a derivative-faithful equation for
+  **9 of 11** parameters — including the primordial amplitude and tilt — where the
+  ordinary value loss leaves the slope biased.
+- Only the Hubble parameter **h** and AGN feedback **ε_AGN** resist every method
+  (their P1D response is weak/degenerate).
+- The cure comes from the **training objective, not a bigger search**: value-loss
+  faithfulness is budget- and seed-fragile; the Sobolev loss is faithful at the
+  smallest budget.
+
+Full diagnostic + metric definitions: **[`docs/PARETO_FAITHFULNESS_WALKTHROUGH.md`](docs/PARETO_FAITHFULNESS_WALKTHROUGH.md)**.
+Where each result comes from in the code: **[`docs/CODE_REVIEW_MAP.md`](docs/CODE_REVIEW_MAP.md)**.
 
 ---
 
-## Quick start: score your own PySR CSVs at a chosen z bin
+## Installation
 
-You trained PySR per-parameter at some redshift `z` and ended up with
-one `hall_of_fame_<param>_z<z>.csv` Pareto front per parameter. Wire
-them into the forecast in three steps.
+Import name `priya_forecast`; requires **Python ≥ 3.11**. Pick the tier you need.
 
-### 1. Install + PYTHONPATH
-
-**Use an isolated project venv — do NOT install into a shared
-numpy-2.x base.** GPy needs `numpy < 2` (see below); a fresh
-`pip install` against a numpy-2.x environment will break at GPy import
-with `ValueError: numpy.dtype size changed`.
+### Tier 1 — figures only (emulator-free, ~2 min)
+Reproduces the paper's main tables + diagnostic figures from the committed sidecars.
+**No GP, PySR, or Julia.**
 
 ```bash
-# 1. Create an isolated venv from a Python 3.11 interpreter.
-#    On Greatlakes use the central mamba python:
-python3.11 -m venv .venv        # or: /sw/pkgs/arc/mamba/py3.11/bin/python -m venv .venv
-source .venv/bin/activate
-
-# 2a. EXACT reproducible install (recommended — pinned, known-good):
-pip install -r requirements.lock.txt
-pip install -e . --no-deps
-
-# 2b. …or a flexible install (pyproject caps numpy<2 / pandas<3 for you):
-pip install -e ".[forecast,pysr,gp,dev]"
-
-# 3. Upstream lyaemu (sbird/lya_emulator) supplies the GP — it is NOT on
-#    PyPI, so add it to PYTHONPATH. On Greatlakes:
-export PYTHONPATH=/home/mfho/student_projects/lya_emulator_full:$PWD/src
-# On a fresh machine: clone https://github.com/sbird/lya_emulator first.
-
-# 4. PySR needs a Julia backend. On Greatlakes the project Julia env is
-#    pre-provisioned; point PySR at it (also set in the SLURM scripts):
-export PYTHON_JULIAPKG_PROJECT=$HOME/.julia_env
-export JULIA_DEPOT_PATH=$HOME/.julia
+git clone <repo-url> lya1d_priya_forecast && cd lya1d_priya_forecast
+python3.11 -m venv .venv-figures && source .venv-figures/bin/activate
+pip install -r requirements-figures.txt      # 7 light deps: numpy scipy pandas matplotlib sympy pyyaml h5py
+export PYTHONPATH=src
 ```
+> Rendering the four LaTeX-labelled diagnostic figures also needs a TeX install
+> (`latex` + `dvipng` on `PATH`). The table reproductions and the seed-band/maxsize
+> figures need no TeX.
 
-> **Why `numpy < 2`?** GPy 1.13.2's compiled cython extensions are built
-> against numpy 1.x's dtype ABI; numpy 2.x changed it, so GPy crashes at
-> import under numpy 2. `pyproject.toml` caps `numpy<2` and `pandas<3`,
-> and `requirements.lock.txt` pins the full verified stack
-> (numpy 1.26.4, GPy 1.13.2, paramz 0.9.6, scipy 1.12.0, pandas 2.3.3, …).
-> The SLURM scripts in `slurm/` use `$REPO/.venv/bin/python`, so build the
-> venv once at the repo root before submitting jobs.
-
-### 2. Write a YAML pointing at your CSVs
-
-Copy [`configs/eqns/pysr_v1.yaml`](configs/eqns/pysr_v1.yaml) as a
-starting template and edit the per-parameter entries. The schema:
-
-```yaml
-name: my_pysr_run                   # any label you like
-model: pysr
-redshift: 3.6                       # MUST match your PySR training z
-combine: multiplicative             # multiplicative | additive | joint
-fiducial_p1d: data/priya_fiducial/p1d_z3.6.npz   # cached GP P_F at fid
-
-parameters:
-  ns:
-    pareto_csv: /path/to/hall_of_fame_ns_z3.6.csv
-    pick: best_loss                 # see "pick rules" below
-    fiducial: 0.97                  # physical fid value of this param
-    variables: [ns, k]              # input columns, in the order PySR saw them
-  Ap:
-    pareto_csv: /path/to/hall_of_fame_Ap_z3.6.csv
-    pick: complexity_le:15
-    fiducial: 1.46
-  # ... one entry per parameter you want in the forecast
-```
-
-**Fiducial values** must match `fiducial_vector()` in
-`src/priya_forecast/parameters.py` (e.g. `ns: 0.983`, `Ap: 1.46`,
-`hub: 0.6726`, `omegamh2: 0.1430`, etc.). Use `0.983` for `ns`, not
-`0.97` — the production fid is what the GP was trained at, and any
-mismatch poisons the additive combine. `configs/eqns/pysr_v1.yaml`
-already lists the correct values; copy from there.
-
-**Fiducial p1d cache**: `fiducial_p1d:` points at a `.npz` with arrays
-`(k, p1d)` cached at fid. The script **auto-creates** this file if
-missing — just give it a path under `data/priya_fiducial/` or
-`results/_cache/` and it'll fill in `gp.predict(fid, k, z)` on first
-run.
-
-**`pick:` rules** — which Pareto-front row to use:
-
-| Rule              | Picks |
-|---|---|
-| `best_loss`       | row with the lowest `Loss` (PySR's built-in best). |
-| `complexity_le:N` | among rows with `Complexity ≤ N`, the lowest `Loss`. Use this when you've decided on an interpretability budget. |
-| `accuracy_at:tol` | among rows with `Loss ≤ tol`, the smallest `Complexity`. Right answer for "smallest equation that's still accurate." |
-| `row:I`           | the I-th row by 0-indexed position (escape hatch). |
-
-**`combine:` rules** — how the per-parameter equations stitch into a
-multi-parameter prediction (the math is in `docs/ONBOARDING.md § 2`):
-
-- `multiplicative`: `P̂(θ, k) = P_fid(k) · ∏ᵢ [eq_i(θ_i, k) / eq_i(fid_i, k)]`
-- `additive`:       `P̂(θ, k) = P_fid(k) + Σᵢ [eq_i(θ_i, k) − eq_i(fid_i, k)]`
-- `joint`: a single equation in `(θ_1, ..., θ_n, k)`; set
-  `joint_expression: ...` and omit per-parameter `pareto_csv`.
-
-**Normalization**: not exposed in the YAML — `scripts/train_and_forecast.py`
-hard-codes `{"mode": "auto", "fix": {"r": 0.8}}`, which derives the
-per-(z,k) `(mean_k, std_k)` by sampling the GP at fixed-fiducial-rest
-and pins the resolution feature to `r = 0.8` (HF). This is the right
-default for the student loop. If you need a different mode (`identity`
-or load from `mean_flux_low.txt` files), edit `build_from_yaml()` in
-the script directly.
-
-### What this workflow can and cannot score
-
-This script is built for the **single-z recipe** PySR contract
-(`pysr_mf_given.py`). Three cases:
-
-| Your PySR was trained on...           | Works in this script? |
-|---|---|
-| `(θ_i, k)` — 2 features, single z     | ✅ Yes. Set `variables: [<param>, k]`. |
-| `(θ_i, k, r)` — 3 features (HF/LF resolution), single z | ✅ Yes. Set `variables: [<param>, k, r]`. The script pins `r = 0.8` at scoring time. |
-| `(θ_i, k, resolution, z_norm)` — 4 features, multi-z (production) | ❌ **No** — see below. |
-
-**Why multi-z 4-feature CSVs don't load**: `compile_equation`
-(`src/priya_forecast/models/pysr_model.py:265-272`) requires every
-non-`{param, k}` variable to be assigned a constant in `fix:`. The
-script's `fix:` is hard-coded to `{"r": 0.8}` and not exposed in the
-YAML schema, so a `z_norm` feature has no place to land. (Pinning
-`z_norm` to a constant would also defeat the multi-z property of the
-equation, so this isn't a small fix.) **To score the multi-z 4-feature
-fits described in `docs/ONBOARDING.md`**, use the production path:
-`scripts/refit_all_11_params.py` (training) →
-`scripts/multi_z_aggregate.py` (multi-z Fisher) →
-`scripts/holdout_multid.py` (validation), all of which understand the
-4-feature MultiZ schema natively.
-
-### 3. Run the forecast
+### Tier 2 — full package + GP emulator (prediction figures)
+Adds the multi-fidelity GP so the prediction figures and multi-D combine run.
+Julia/PySR are **not** needed (equations are already refit + pickled).
 
 ```bash
-python scripts/train_and_forecast.py \
-    --params ns Ap hub omegamh2 \
-    --equations configs/eqns/my_pysr_run.yaml \
-    --z 3.6 \
-    --output results/my_pysr_run_z3.6/
+python3.11 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.lock.txt         # exact pinned env (numpy 1.26.4, GPy 1.13.2, …)
+pip install -e ".[gp,forecast]"              # the priya_forecast package + GP/forecast extras
+```
+External prerequisites (Tier 2+):
+1. **Upstream emulator** — `git clone https://github.com/sbird/lya_emulator "$LYA_EMULATOR"`,
+   then `export PYTHONPATH=src:$LYA_EMULATOR` (the importable `lyaemu` package is at that root).
+2. **GP basedir** `data/kodiaq_gp/` (~43 MB, gitignored) — build via
+   `python scripts/prep_kodiaq_gp.py --source /path/to/kodiaq_2_2_4_6-48-48 --dest data/kodiaq_gp`
+   (the Ho et al. 2025 MF-GP training set; obtain from the PRIYA/KODIAQ authors).
+
+### Tier 3 — re-fit the PySR equations (Julia/PySR + SLURM)
+```bash
+pip install -e ".[gp,forecast,pysr,hpo]"
+export PYTHON_JULIAPKG_PROJECT=$HOME/.julia_env JULIA_DEPOT_PATH=$HOME/.julia   # Julia/PySR auto-installed on first run
+scripts/submit_paper_production.sh --dry-run                                    # then submit to SLURM
 ```
 
-`--params` is the subset you want in the forecast (subset of the 11).
-`--z` must match the YAML's `redshift:` and your PySR training z.
-The script loads eBOSS DR14 P1D data + covariance for that z (vendored
-in `src/priya_forecast/_vendored/data/`) and computes Fisher for three
-models:
+### Notes
+- **numpy < 2 is required:** GPy 1.13.2's Cython extensions are built against numpy
+  1.x's dtype ABI; numpy 2.x raises `numpy.dtype size changed`. The lockfile pins
+  compatible versions (`pyproject.toml` caps `numpy<2`, `pandas<3`).
+- Optional extras (`pyproject.toml`): `forecast` (emcee, getdist, matplotlib) ·
+  `gp` (GPy, emukit) · `pysr` · `hpo` (optuna) · `dev` (pytest, hypothesis, ruff).
+  Note `matplotlib` is only in `forecast` — the Tier-1 figure path uses
+  `requirements-figures.txt`, not a bare `pip install -e .`.
 
-1. **`GP_reference`** — the GP emulator itself (upper bound: best
-   anyone could do).
-2. **`perfect_1D_slices`** — the GP under multiplicative combine,
-   evaluated parameter-by-parameter (upper bound: best a 1D-product
-   PySR set could match exactly).
-3. **`<your YAML name>`** — your equations.
-
-### 4. Read the output
-
-In `results/my_pysr_run_z3.6/`:
-
-- **`scorecard.md`** — the headline. Shows per-parameter
-  `σ_student / σ_perfect_1D` (how close you are to the 1D-product
-  ceiling) and `σ_perfect_1D / σ_GP` (how much the 1D-factorization
-  assumption costs). Plus geomean rollups and an "off-fid MSE ratio"
-  that catches equations that match at fid but extrapolate badly.
-- **`summary.md`** — per-equation-set diagnostics (rel-err, complexity,
-  Pareto pick, etc.).
-- **PNGs in the same dir** — `forecast_corner.png`, `forecast_sigma.png`,
-  `eq_card_*.png`, `residual_*.png`. These land directly in the output
-  directory (no `figures/` subdir).
-
-Targets:
-- `σ_student / σ_perfect_1D < 1.5` (geomean) → 1D PySR is converged.
-- `off-fid MSE ratio < 2` → equations track the GP off-fid too.
-- If both met: 1D-factorization is the bottleneck — graduate to
-  multi-D PySR (`scripts/run_multid_pysr.py`).
+### Sanity check (emulator-free)
+```bash
+PYTHONPATH=src pytest -q -k "not slow"       # ~436 passed; emulator/PySR tests skip on a bare clone
+```
 
 ---
 
-## What else lives here
+## Quickstart — reproduce the diagnostic figures (emulator-free)
+Reads the committed Pareto fronts + grad-faithfulness sidecars and rebuilds the four
+diagnostic figures with **no GP/PySR/Julia**:
 
-- `scripts/train_and_forecast.py` — the student-facing reward loop above.
-  Single-z, eBOSS DR14 covariance.
-- `scripts/refit_all_11_params.py` + `scripts/refit_one_param.py` — the
-  **production** per-1D PySR refit pipeline (multi-z, KSData covariance).
-  This is what generates Phase 1.5 / Phase 2 results in `results/`.
-  Different beast from the student loop above; see `docs/PAPER_NOTES.md`
-  for the production design.
-- `scripts/holdout_multid.py` — multi-D Sobol hold-out validation.
-- `scripts/closure_at_simdat_target.py` — off-fid Fisher closure at
-  `θ_target_simdat` (σ_PySR vs σ_MCMC).
-- `src/priya_forecast/` — the library (Fisher, likelihood, models,
-  per-1D + pair refits, normalization, Pareto filters). See
-  `docs/ONBOARDING.md § 7` for a math-ordered reading map.
-- `tests/` — unit + property-based tests
-  (`PYTHONPATH=src pytest tests/ -q`).
-- `configs/eqns/pysr_v1.yaml` — template YAML to copy.
-- `docs/`:
-  - `ONBOARDING.md` — math-first walkthrough.
-  - `PAPER_NOTES.md` — production design log + canonical scorecard.
-  - `PAIR_FIT_PLAN.md` — Phase 2 pair cross-coupling design.
-  - `AP_REMEDIATION_PLAN.md` — Phase 3 plan for the Ap σ-ratio gap.
+```bash
+PYTHONPATH=src python scripts/make_diagnostic_figs.py --out-dir results/_repro_scratch/diagnostic
+```
+Produces `pareto_faithfulness`, `faithfulness_scorecard`, `ns_budget_panel`,
+`crossz_faithfulness` (PNG + PDF). Defaults read the committed production run
+`results/paper_production_20260630_perz_sobolev_z2.6-4.2/`.
+
+## Reproduce the whole paper
+**One notebook — [`notebooks/reproduce_paper.ipynb`](notebooks/reproduce_paper.ipynb)**
+regenerates **every figure and table**: Tier 1 (Tables 1/2/6/7 + the diagnostic
+figures) runs emulator-free; Tier 2 (the PySR-vs-GP prediction plots + Table 3) runs
+the GP-backed scripts if the emulator is available, else prints the command. Full
+step-by-step guide: **[`REPRODUCE.md`](REPRODUCE.md)**.
+
+## Use it as a library
+The diagnostic is `priya_forecast.pareto_diag` / `priya_forecast.paper_figures`
+(pure, emulator-free):
+
+```python
+from priya_forecast.pareto_diag import load_front, render_grid
+P = "results/paper_production_20260630_perz_sobolev_z2.6-4.2/sobolev/refit/z3.6"
+front = load_front(f"{P}/pareto_ns.csv", f"{P}/grad_faith_ns.csv")   # PySR front + grad-faith sidecar
+best = front.dropna(subset=["grad_err"]).sort_values("Loss").iloc[0] # value-optimal faithful eq
+print(best["Loss"], best["grad_err"], best["value_mse"])
+```
+Sidecar columns: `Complexity, Loss, grad_err, value_mse, n_keep, gate_pass, x0_enters`.
+`grad_err` = median-over-k slope error vs the GP in **log-P_F** (`median_k |∂logP_eq/∂θ ÷ ∂logP_GP/∂θ − 1|`,
+gate `0.25`); `value_mse` = log-P value error. See the walkthrough for the definitions.
 
 ---
 
-## Project status (2026-05-07)
+## Repository layout
+```
+src/priya_forecast/   Installed package: GP + PySR models, the derivative gate,
+                      Sobolev loss, grad-faith sidecar I/O, Pareto diagnostic,
+                      single_z/ + multi_z/ pipelines, the `priya-forecast` CLI.
+scripts/              Pipeline drivers: make_diagnostic_figs.py, eval_grad_faithfulness.py,
+                      regen_*.py, submit_paper_production.sh, refit/aggregate entry points.
+notebooks/            reproduce_paper.ipynb — the single all-figures-and-tables notebook.
+tests/                pytest suite (-k "not slow"); emulator-touching tests skip on a bare clone.
+docs/                 User docs: the diagnostic walkthrough, code-review map, onboarding,
+                      method/perf notes.  docs/dev/ holds internal design/handoff history.
+configs/              YAML run configs.  slurm/  cluster job scripts.
+data/                 (gitignored) GP basedir + inputs — staged via scripts/prep_kodiaq_gp.py.
+results/              The committed production run (paper_production_…) the figures replay.
+```
 
-Phase 1.5 (per-1D PySR + additive combine, smart kwargs for IGM
-thermal block) and Phase 2 (4-pair cross-coupling) are landed; PR #2
-(Phase 2) is open and mergeable. Headline: 4-pair PySR emulator hits
-**2.35% mean / 7.05% p99 / 12.11% max** rel-err on the 11-θ Sobol
-hold-out at z=3.6, KSData k-grid. See `docs/PAPER_NOTES.md` for the
-full scorecard.
+## Citation
+If you use this code, please cite the paper (companion LaTeX repo:
+[github.com/jibanCat/Knowledge-Distillation-using-PySR-with-PRIYA-suite](https://github.com/jibanCat/Knowledge-Distillation-using-PySR-with-PRIYA-suite)):
+
+```bibtex
+@article{Ho_PySR_PRIYA,
+  author  = {Ho, Ming-Feng and Avestruz, Camille},
+  title   = {Knowledge Distillation with PySR on the PRIYA suite},
+  year    = {2026},
+  note    = {arXiv: TBD}
+}
+```
+See [`CITATION.cff`](CITATION.cff) for the machine-readable citation.
+
+## License
+MIT — see [`LICENSE`](LICENSE).

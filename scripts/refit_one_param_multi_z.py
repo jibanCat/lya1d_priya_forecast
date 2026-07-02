@@ -27,6 +27,8 @@ def main() -> None:
     p.add_argument("--niterations", type=int, default=50)
     p.add_argument("--maxsize", type=int, default=20)
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--use-sobolev", action="store_true")
+    p.add_argument("--sobolev-lambda", type=float, default=1.0)
     args = p.parse_args()
 
     from priya_forecast.models.gp_model import GPModel
@@ -34,7 +36,9 @@ def main() -> None:
         mode="refit_and_forecast", z_min=args.z_min, z_max=args.z_max,
         output_dir=args.output_dir, gp=GPConfig(basedir=args.basedir),
         pysr=PySRConfig(niterations=args.niterations, maxsize=args.maxsize,
-                        seed=args.seed),
+                        seed=args.seed,
+                        use_sobolev=args.use_sobolev,
+                        sobolev_lambda=args.sobolev_lambda),
     )
     k_grid = kodiaq_k_grid(args.kmin, args.kmax, 48)
     refit_dir = Path(args.output_dir) / "refit" / f"z{args.z_min}-{args.z_max}"

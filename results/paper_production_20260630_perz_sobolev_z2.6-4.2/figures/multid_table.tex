@@ -1,0 +1,17 @@
+\begin{table}[!h]
+\caption{\label{tab:multid} Multi-parameter additive-Taylor combine vs GP at $z=3.6$ (256 Sobol points per combo). Mean / 90th-percentile / maximum relative error over (draw, $k$), and the $k$ of the worst bin. hub and bhfeedback are GP-sliced (no derivative-faithful equation).}
+\begin{ruledtabular}\centering
+\begin{tabular}{c|c|cccc}
+Dim & Parameters & mean (\%) & p90 (\%) & max (\%) & $k_{\max}$ [s/km] \\
+\hline
+2D & dtau0-Ap & 0.73 & 1.70 & 2.84 & 0.0035 \\
+2D & herei-alphaq & 0.68 & 1.60 & 8.70 & 0.0010 \\
+2D & Ap-ns & 0.88 & 1.96 & 4.83 & 0.0010 \\
+2D & tau0-ns & 0.34 & 0.82 & 2.94 & 0.0010 \\
+2D & herei-heref & 0.39 & 0.96 & 4.47 & 0.0022 \\
+2D & tau0-Ap & 0.60 & 1.49 & 3.45 & 0.0035 \\
+3D & dtau0-Ap-ns & 0.86 & 1.93 & 4.88 & 0.0010 \\
+3D & herei-heref-alphaq & 0.80 & 1.90 & 9.79 & 0.0010 \\
+3D & tau0-Ap-ns & 0.79 & 1.86 & 4.95 & 0.0010 \\
+3D & Ap-ns-omegamh2 & 0.92 & 2.06 & 5.50 & 0.0013 \\
+\end{tabular}\end{ruledtabular}\end{table}

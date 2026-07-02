@@ -843,6 +843,10 @@ def refit_1d_multiz_for_param(
     n_total: int = 225,
     pysr_kwargs: dict | None = None,
     seed: int = 42,
+    use_sobolev: bool = False,
+    sobolev_lambda: float = 1.0,
+    sobolev_h: float = 1e-4,
+    _allow_unvalidated_sobolev: bool = False,
 ) -> Refit1DResult:
     """Multi-z 1D PySR refit: one equation in `(θ_norm, k_norm, res, z_norm)`.
 
@@ -853,6 +857,25 @@ def refit_1d_multiz_for_param(
     """
     if param_name not in PARAM_NAMES:
         raise KeyError(f"Unknown PRIYA parameter {param_name!r}.")
+    if use_sobolev and (gp_lf is None or gp_hf is None):
+        raise ValueError(
+            "use_sobolev=True requires gp_lf and gp_hf for the multi-z refit."
+        )
+    # M2 guard (defense-in-depth): the multi-z training target is built in linear
+    # P_F by _build_training_matrix_multiz, but the Sobolev target gradient is
+    # d(logP)/dtheta (sobolev_loss._fidelity_grad_weights_multiz). That log/linear
+    # mismatch makes the derivative term incoherent and would silently corrupt the
+    # fit, so multi-z Sobolev is disabled. The single-z path (refit_1d_for_param,
+    # log_space=True) is the supported/validated route, and the driver
+    # refit_one_param_multi_z guards this too. _allow_unvalidated_sobolev=True
+    # bypasses the guard ONLY to exercise the loss/weights wiring in tests.
+    if use_sobolev and not _allow_unvalidated_sobolev:
+        raise NotImplementedError(
+            "Multi-z Sobolev refit is disabled: the multi-z training target is linear "
+            "P_F while the Sobolev target gradient is log-P, an inconsistent objective "
+            "that would silently corrupt the fit. Use the single-z Sobolev path "
+            "(refit_1d_for_param with log_space=True)."
+        )
     from pysr import PySRRegressor  # type: ignore[import-not-found]
 
     payload = _generate_1pvar_multiz_inline(
@@ -879,6 +902,14 @@ def refit_1d_multiz_for_param(
         z_min=z_min, z_max=z_max,
     )
 
+    sobolev_weights = None
+    if use_sobolev:
+        from priya_forecast.sobolev_loss import make_sobolev_loss, sobolev_target_weights_multiz
+        sobolev_weights = sobolev_target_weights_multiz(
+            payload=payload, param_idx=param_idx, gp_lf=gp_lf, gp_hf=gp_hf, norm=norm,
+            x_param_min=ranges["x_param_min"],
+            x_param_max=ranges["x_param_max"], h=sobolev_h)
+
     args = dict(DEFAULT_PYSR_KWARGS)
     args.update(pysr_kwargs or {})
     # PySR forbids specifying both `elementwise_loss` and `loss_function`.
@@ -887,10 +918,17 @@ def refit_1d_multiz_for_param(
     # must not also keep the default MSE — drop it so only one survives.
     if args.get("loss_function") is not None:
         args.pop("elementwise_loss", None)
+    if use_sobolev:
+        # Sobolev wins over any pysr_kwargs-supplied loss_function (placed after args.update).
+        args["loss_function"] = make_sobolev_loss(sobolev_lambda, sobolev_h)
+        args.pop("elementwise_loss", None)
     args["random_state"] = seed
     t0 = time.time()
     model = PySRRegressor(**args)
-    model.fit(X_act, Y_act.reshape(-1, 1))
+    if sobolev_weights is not None:
+        model.fit(X_act, Y_act.reshape(-1, 1), weights=sobolev_weights)
+    else:
+        model.fit(X_act, Y_act.reshape(-1, 1))
     elapsed = time.time() - t0
     pareto = model.equations_
     best_idx = int(pareto["loss"].idxmin())
@@ -978,6 +1016,7 @@ def refit_1d_for_param(
     use_sobolev: bool = False,
     sobolev_lambda: float = 1.0,
     sobolev_h: float = 1e-4,
+    save_artifacts: bool = False,
 ) -> Refit1DResult:
     """Train a 1D PySR equation for `param_name`.
 
@@ -1044,6 +1083,12 @@ def refit_1d_for_param(
             "use_sobolev=True requires gp_lf and gp_hf (the inline-GP refit path); "
             "the legacy data_dir path cannot compute Sobolev target gradients."
         )
+    if use_sobolev and not log_space:
+        raise ValueError(
+            "use_sobolev=True requires log_space=True: the Sobolev weights are "
+            "d(logP)/dtheta, so matching them against a linear-P target is a "
+            "self-contradictory objective. Pass log_space=True (target_space='log')."
+        )
     if use_sobolev:
         from priya_forecast.sobolev_loss import make_sobolev_loss, sobolev_target_weights
         sobolev_weights = sobolev_target_weights(
@@ -1105,8 +1150,22 @@ def refit_1d_for_param(
         pareto_csv_out.parent.mkdir(parents=True, exist_ok=True)
         # PySR's equations_ has lowercase columns; write them capitalized so
         # `load_pareto_csv` reads them without case coercion.
-        model.equations_.rename(
-            columns={"complexity": "Complexity", "loss": "Loss",
-                     "equation": "Equation"}
-        ).to_csv(pareto_csv_out, index=False)
+        from priya_forecast.provenance import git_stamp
+        with open(pareto_csv_out, "w") as _fh:
+            _fh.write(f"# git={git_stamp()} source=pysr_hall_of_fame\n")
+            model.equations_.rename(
+                columns={"complexity": "Complexity", "loss": "Loss",
+                         "equation": "Equation"}
+            ).to_csv(_fh, index=False)
+        if save_artifacts:
+            # Persist the canonical predict object + its training payload so the
+            # prediction-figure regenerators (regen_fig1/3/4) read straight from
+            # this run's dir — keeps the production dir self-contained.
+            import pickle as _pickle
+            base = pareto_csv_out.parent
+            for sub, obj in (("refits", result), ("payloads", payload)):
+                d = base / sub
+                d.mkdir(parents=True, exist_ok=True)
+                with open(d / f"{param_name}.pkl", "wb") as _fh:
+                    _pickle.dump(obj, _fh)
     return result
