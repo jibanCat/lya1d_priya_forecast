@@ -26,7 +26,7 @@ all-red.
 
 ## How to read the figure
 
-![Per-parameter Pareto-faithfulness](../results/single_z_stage_pareto_diag/pareto_faithfulness.png)
+![Per-parameter Pareto-faithfulness](../results/paper_production_20260630_perz_sobolev_z2.6-4.2/figures/pareto_faithfulness.png)
 
 - **One panel per parameter** (11 PRIYA parameters), single-z **z = 3.6**, on the
   real KODIAQ-SQUAD covariance.
@@ -81,12 +81,12 @@ all-red.
 value-loss ● vs Sobolev ■, sorted; gate dashed). Only hub & bhfeedback stay above
 the gate under Sobolev; ns makes the biggest jump.
 
-![Scorecard](../results/single_z_stage_pareto_diag/faithfulness_scorecard.png)
+![Scorecard](../results/paper_production_20260630_perz_sobolev_z2.6-4.2/figures/faithfulness_scorecard.png)
 
 **ns money panel** — the budget control on the honest value axis: budget (▲) reaches
 the lowest value_mse but never goes green; Sobolev (■) matches it and does.
 
-![ns budget panel](../results/single_z_stage_pareto_diag/ns_budget_panel.png)
+![ns budget panel](../results/paper_production_20260630_perz_sobolev_z2.6-4.2/figures/ns_budget_panel.png)
 
 ## The mechanism the figure makes visible
 
@@ -126,7 +126,7 @@ enters under value@20.
 The review's central objection was that "PySR can't" might really be "the search
 was starved" (the ladder ran maxsize=20; `docs/PYSR_HYPOTHESIS.md` says curvature
 needs maxsize≥30). We reran ns value-loss at **maxsize=35** and scored every
-candidate (`results/decider_budget_z3.6/.../grad_faith_ns.csv`):
+candidate (`results/paper_production_20260630_perz_sobolev_z2.6-4.2/seed_band/z3.6_seed0_budget/.../grad_faith_ns.csv`):
 
 - best-loss (complexity 35, loss 0.442): `grad_err = 0.319` — **fails**.
 - most faithful over the entire complexity 13→35 front: `0.319` — **fails**.
@@ -243,9 +243,9 @@ backed by a scored Pareto front in this figure.
 Fresh value + Sobolev refits at z=2.6 and z=4.2 (properly retrained, not the z=3.6
 equations re-used), each gate-evaluated. Runs:
 `results/single_z_z{2.6,4.2}_{value,sobolev}/refit/z{2.6,4.2}/`. Figure:
-`results/single_z_stage_pareto_diag/crossz_faithfulness.{png,pdf}`.
+`results/paper_production_20260630_perz_sobolev_z2.6-4.2/figures/crossz_faithfulness.{png,pdf}`.
 
-![Redshift robustness](../results/single_z_stage_pareto_diag/crossz_faithfulness.png)
+![Redshift robustness](../results/paper_production_20260630_perz_sobolev_z2.6-4.2/figures/crossz_faithfulness.png)
 
 Sobolev best-loss `grad_err` by redshift:
 
@@ -284,7 +284,7 @@ the redshifts where each parameter is informative (≲3.6 for the He II block).
   separate retrained check above). PySR is **stochastic**: the committed fronts are a
   **single seed** (production kwargs: maxsize 20, niter 50; budget control maxsize 35).
   The committed fronts use the **production-default seed (0)**; an across-seed band
-  (seeds 0–4, `results/seed_band/`) is in progress to put error bars on the taxonomy.
+  (seeds 0–4, `results/paper_production_20260630_perz_sobolev_z2.6-4.2/seed_band/`) is in progress to put error bars on the taxonomy.
   A borderline number (e.g. ns 0.193 vs the 0.25 gate) is one draw — treat near-gate
   verdicts as indicative, not seed-robust, until an across-seed spread is reported.
 - **"multi-z" is a branch-name artifact.** The headline is single-z; the multi-z
@@ -304,9 +304,9 @@ the redshifts where each parameter is informative (≲3.6 for the He II block).
 PySR is stochastic, so the single-seed taxonomy is one draw. We retrained the value
 and Sobolev fronts (and the ns budget@35 control) at **5 seeds** and scored the
 value-optimal equation of each. Aggregator: `scripts/aggregate_seed_band.py`
-(one GP load); runs under `results/seed_band/`; numbers in `seed_band_summary.json`.
+(one GP load); runs under `results/paper_production_20260630_perz_sobolev_z2.6-4.2/seed_band/`; numbers in `seed_band_summary.json`.
 
-![Across-seed band](../results/seed_band/seed_band.png)
+![Across-seed band](../results/paper_production_20260630_perz_sobolev_z2.6-4.2/figures/seed_band.png)
 
 best-loss `grad_err`, median [min, max] over 5 seeds:
 
