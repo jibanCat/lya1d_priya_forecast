@@ -9,8 +9,10 @@ be value-accurate to a percent yet get the slope wrong — a **"Fisher's Mirage.
 We score all 11 PRIYA parameters as derivative-faithful or not, explain which resist
 and why, and show what a **Sobolev** derivative-matching loss does and does not fix.
 
-Companion code to the paper *Knowledge Distillation with PySR on the PRIYA suite*
-(see **[Citation](#citation)**).
+> **Student research project** — led by **Aidan Behmer** (first author), with Ming-Feng Ho
+> and Camille Avestruz. The companion paper is **in preparation**; its **title and author
+> list are not yet finalized**. Please contact the authors before citing (see
+> **[Citation](#citation)**).
 
 ## Key results
 - At **z = 3.6**, the Sobolev objective yields a derivative-faithful equation for
@@ -136,15 +138,18 @@ results/              The committed production run (paper_production_…) the fi
 ```
 
 ## Citation
-If you use this code, please cite the paper (companion LaTeX repo:
-[github.com/jibanCat/Knowledge-Distillation-using-PySR-with-PRIYA-suite](https://github.com/jibanCat/Knowledge-Distillation-using-PySR-with-PRIYA-suite)):
+This is a **student-led research project** (first author **Aidan Behmer**); the companion
+paper is **in preparation** and its **title and author list are not final**. Please contact
+the authors before citing. Companion LaTeX repo:
+[github.com/jibanCat/Knowledge-Distillation-using-PySR-with-PRIYA-suite](https://github.com/jibanCat/Knowledge-Distillation-using-PySR-with-PRIYA-suite).
+Provisional entry:
 
 ```bibtex
-@article{Ho_PySR_PRIYA,
-  author  = {Ho, Ming-Feng and Avestruz, Camille},
-  title   = {Knowledge Distillation with PySR on the PRIYA suite},
+@article{Behmer_PRIYA_PySR,
+  author  = {Behmer, Aidan and Ho, Ming-Feng and Avestruz, Camille},
+  title   = {Symbolic distillation of the PRIYA Lyman-$\alpha$ P1D emulator (working title, not final)},
   year    = {2026},
-  note    = {arXiv: TBD}
+  note    = {Student project, in preparation; title and authors provisional; arXiv: TBD}
 }
 ```
 See [`CITATION.cff`](CITATION.cff) for the machine-readable citation.

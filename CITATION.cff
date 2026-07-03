@@ -1,12 +1,17 @@
 cff-version: 1.2.0
-message: "If you use this software, please cite the paper below."
-title: "priya-forecast: symbolic distillation of the PRIYA Lyman-alpha P1D emulator"
+message: >-
+  This is a student-led research project. The companion paper is in preparation;
+  its title and author list are NOT final. Please contact the authors before citing.
+title: "priya-forecast: symbolic distillation of the PRIYA Lyman-alpha P1D emulator (student project)"
 abstract: >-
-  Distills the PRIYA multi-fidelity Gaussian-process emulator of the Lyman-alpha 1D
-  flux power spectrum into per-parameter symbolic equations via PySR, and scores their
-  derivative faithfulness (the parameter slope a Fisher forecast depends on), with a
-  Sobolev derivative-matching loss to repair unfaithful slopes.
+  Student research project led by Aidan Behmer. Distills the PRIYA multi-fidelity
+  Gaussian-process emulator of the Lyman-alpha 1D flux power spectrum into per-parameter
+  symbolic equations via PySR, and scores their derivative faithfulness (the parameter
+  slope a Fisher forecast depends on), with a Sobolev derivative-matching loss to repair
+  unfaithful slopes.
 authors:
+  - family-names: Behmer
+    given-names: Aidan
   - family-names: Ho
     given-names: Ming-Feng
   - family-names: Avestruz
@@ -17,11 +22,16 @@ repository-code: "https://github.com/jibanCat/lya1d_priya_forecast"
 type: software
 preferred-citation:
   type: article
-  title: "Knowledge Distillation with PySR on the PRIYA suite"
+  # NOTE: working title only -- the paper title has NOT been decided.
+  title: "Symbolic distillation of the PRIYA Lyman-alpha P1D emulator (working title, not final)"
   authors:
+    - family-names: Behmer
+      given-names: Aidan
     - family-names: Ho
       given-names: Ming-Feng
     - family-names: Avestruz
       given-names: Camille
   year: 2026
-  notes: "arXiv identifier TBD"
+  notes: >-
+    Student project, paper in preparation. Author list and title are provisional;
+    arXiv identifier TBD. Confirm with the authors before citing.
