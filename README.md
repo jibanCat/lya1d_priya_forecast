@@ -9,10 +9,13 @@ be value-accurate to a percent yet get the slope wrong — a **"Fisher's Mirage.
 We score all 11 PRIYA parameters as derivative-faithful or not, explain which resist
 and why, and show what a **Sobolev** derivative-matching loss does and does not fix.
 
-> **Student research project** — led by **Aidan Behmer** (first author), with Ming-Feng Ho
-> and Camille Avestruz. The companion paper is **in preparation**; its **title and author
-> list are not yet finalized**. Please contact the authors before citing (see
-> **[Citation](#citation)**).
+> **Student research project — original credit belongs to Aidan Behmer.** The modeling idea
+> and the original implementation are Aidan's: see the original repo
+> **[`aidanbehmer/priya_pysr`](https://github.com/aidanbehmer/priya_pysr)**. *This* repository
+> is an **extension that re-runs Aidan's approach with more compute**, refactored by
+> **Ming-Feng Ho** for reproducibility. The companion paper is **in preparation**; its
+> **title and full author list are not yet decided**. Please contact the authors before
+> citing (see **[Citation](#citation)**).
 
 ## Key results
 - At **z = 3.6**, the Sobolev objective yields a derivative-faithful equation for
@@ -138,9 +141,11 @@ results/              The committed production run (paper_production_…) the fi
 ```
 
 ## Citation
-This is a **student-led research project** (first author **Aidan Behmer**); the companion
-paper is **in preparation** and its **title and author list are not final**. Please contact
-the authors before citing. Companion LaTeX repo:
+This is a **student-led research project**. The **original modeling idea and code are Aidan
+Behmer's** ([`aidanbehmer/priya_pysr`](https://github.com/aidanbehmer/priya_pysr)); this
+repository is an **extension / re-run at larger compute**, refactored by Ming-Feng Ho for
+reproducibility. The companion paper is **in preparation** and its **title and full author
+list are not yet decided** — please contact the authors before citing. Companion LaTeX repo:
 [github.com/jibanCat/Knowledge-Distillation-using-PySR-with-PRIYA-suite](https://github.com/jibanCat/Knowledge-Distillation-using-PySR-with-PRIYA-suite).
 Provisional entry:
 

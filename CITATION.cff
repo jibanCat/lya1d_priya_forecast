@@ -1,14 +1,19 @@
 cff-version: 1.2.0
 message: >-
-  This is a student-led research project. The companion paper is in preparation;
-  its title and author list are NOT final. Please contact the authors before citing.
-title: "priya-forecast: symbolic distillation of the PRIYA Lyman-alpha P1D emulator (student project)"
+  Student-led research project; original credit belongs to Aidan Behmer (the modeling idea
+  and original code are Aidan's: github.com/aidanbehmer/priya_pysr). This repository is an
+  extension / re-run at larger compute, refactored by Ming-Feng Ho for reproducibility. The
+  companion paper is in preparation and its title and FULL author list are NOT yet decided.
+  Please contact the authors before citing.
+title: "priya-forecast: reproducibility extension of Aidan Behmer's PRIYA Lyman-alpha PySR distillation (student project)"
 abstract: >-
-  Student research project led by Aidan Behmer. Distills the PRIYA multi-fidelity
-  Gaussian-process emulator of the Lyman-alpha 1D flux power spectrum into per-parameter
-  symbolic equations via PySR, and scores their derivative faithfulness (the parameter
-  slope a Fisher forecast depends on), with a Sobolev derivative-matching loss to repair
-  unfaithful slopes.
+  Student research project. The original modeling idea and implementation are Aidan Behmer's
+  (github.com/aidanbehmer/priya_pysr). This repository extends and re-runs that approach at
+  larger compute, refactored by Ming-Feng Ho for reproducibility: it distills the PRIYA
+  multi-fidelity Gaussian-process emulator of the Lyman-alpha 1D flux power spectrum into
+  per-parameter symbolic equations via PySR, scores their derivative faithfulness (the
+  parameter slope a Fisher forecast depends on), and adds a Sobolev derivative-matching loss
+  to repair unfaithful slopes.
 authors:
   - family-names: Behmer
     given-names: Aidan
@@ -20,6 +25,14 @@ authors:
 license: MIT
 repository-code: "https://github.com/jibanCat/lya1d_priya_forecast"
 type: software
+references:
+  - type: software
+    title: "priya_pysr: original PRIYA Lyman-alpha PySR distillation"
+    notes: "The original modeling idea and code, by Aidan Behmer. This repo extends/re-runs it."
+    repository-code: "https://github.com/aidanbehmer/priya_pysr"
+    authors:
+      - family-names: Behmer
+        given-names: Aidan
 preferred-citation:
   type: article
   # NOTE: working title only -- the paper title has NOT been decided.
@@ -33,5 +46,6 @@ preferred-citation:
       given-names: Camille
   year: 2026
   notes: >-
-    Student project, paper in preparation. Author list and title are provisional;
-    arXiv identifier TBD. Confirm with the authors before citing.
+    Student project, paper in preparation. Original credit: Aidan Behmer. Title and FULL
+    author list are provisional / not yet decided; arXiv identifier TBD. Confirm with the
+    authors before citing.
