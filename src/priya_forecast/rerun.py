@@ -43,15 +43,22 @@ class RerunConfig:
 
     @classmethod
     def quick(cls, **kw):
-        return cls(label="quick", zs=[3.6], niterations=30, populations=8, **kw)
+        # setdefault so callers may override any preset field (e.g. label=, params=)
+        # without a "multiple values for keyword" collision.
+        for k, v in dict(label="quick", zs=[3.6], niterations=30,
+                         populations=8).items():
+            kw.setdefault(k, v)
+        return cls(**kw)
 
     @classmethod
     def full(cls, **kw):
-        return cls(label="full", zs=[2.6, 3.6, 4.2],
-                   niterations=PRODUCTION_BUDGET["niterations"],
-                   populations=PRODUCTION_BUDGET["populations"],
-                   maxsize=PRODUCTION_BUDGET["maxsize"],
-                   sobolev_lambda=PRODUCTION_BUDGET["sobolev_lambda"], **kw)
+        for k, v in dict(label="full", zs=[2.6, 3.6, 4.2],
+                         niterations=PRODUCTION_BUDGET["niterations"],
+                         populations=PRODUCTION_BUDGET["populations"],
+                         maxsize=PRODUCTION_BUDGET["maxsize"],
+                         sobolev_lambda=PRODUCTION_BUDGET["sobolev_lambda"]).items():
+            kw.setdefault(k, v)
+        return cls(**kw)
 
     @property
     def run_dir(self) -> Path:

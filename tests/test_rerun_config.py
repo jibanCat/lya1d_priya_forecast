@@ -37,3 +37,13 @@ def test_validate_rejects_bad_arm():
     c.arms = ["value", "nonsense"]
     with pytest.raises(ValueError):
         c.validate()
+
+
+def test_presets_accept_field_overrides():
+    # regression: quick()/full() must let callers override preset fields
+    # without a "multiple values for keyword argument" TypeError.
+    c = RerunConfig.quick(label="verify", params=["ns"], niterations=12)
+    assert c.label == "verify" and c.params == ["ns"] and c.niterations == 12
+    assert c.zs == [3.6]                       # untouched preset default preserved
+    f = RerunConfig.full(label="myfull")
+    assert f.label == "myfull" and f.zs == [2.6, 3.6, 4.2]
