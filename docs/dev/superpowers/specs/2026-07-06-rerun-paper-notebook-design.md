@@ -107,9 +107,13 @@ thin.
   `python scripts/refit_one_param_single_z.py …` command equivalent to one grid cell,
   for copy-paste to a cluster. (Physics overrides, if set, are shown as a note that they
   require the Python-API path, since the CLI has no such flag.)
-- **Grad-faith scoring reuse:** call the same code path as
-  `scripts/eval_grad_faithfulness.py` / `make_grad_faith_sidecars.sh` (log-space,
-  gate 0.25) — factor a callable out of that script if it is not already importable.
+- **Grad-faith scoring reuse:** recon found no clean importable scorer (the logic is in
+  `eval_grad_faithfulness.py:main()`). `run_grid` therefore **subprocesses the existing
+  `scripts/eval_grad_faithfulness.py`** per `(param, z, arm)` — byte-identical to the paper
+  run, zero refactor of paper-critical code — with `--out <run>/<arm>/refit/z<z>/grad_faith_<p>.csv`
+  (exactly as `make_grad_faith_sidecars.sh` does), inheriting the notebook's env
+  (`PYTHONPATH=src:$LYA_EMULATOR`). Only the clean sidecar readers
+  (`grad_faith_io.read_grad_faith_sidecar`, `knee_row`) are imported.
 - **`compare_to_production(run_dir, production_dir=<committed run>) -> Report`** — reads
   the rerun's `grad_faith_<p>.csv` knee rows and the committed production sidecars (Tier-1,
   emulator-free), and returns a per-parameter table: rerun vs production `grad_err` and
@@ -121,18 +125,35 @@ thin.
   `arms`/`zs`/`params` subset). Returns human-readable warning strings for the notebook to
   print — again, warnings, not errors.
 
-### 2. Backward-compatible override hook (the only production-code touch)
+### 2. Physics-override hook — context manager (revised after recon)
 
-- `priya_forecast.parameters.with_overrides(fiducial=None, prior=None) -> list[Param]` —
-  returns a copy of `PARAMS_11D` with the named `.fid` / prior bounds replaced; unknown
-  keys raise. `PARAMS_11D` itself is untouched.
-- Thread an **optional** `params=` argument into `refit_one_param_single_z` (and any
-  helper it calls that reads `PARAMS_11D`), defaulting to `PARAMS_11D`. Every existing
-  caller (the CLI, all SLURM jobs, all tests) is unaffected because the default preserves
-  today's behavior. `rerun.run_grid` passes `with_overrides(...)` when overrides are set.
-- Recon (panel step 0) confirms the exact seam; if threading proves invasive, the
-  fallback is a documented, run-local monkeypatch inside `run_grid` — but the threaded
-  `params=` argument is the target.
+**Recon finding:** the fiducial/prior reads are *not* in `single_z/refit.py`; they live in
+`refit_1d_pysr.py` across ~10 sites in two core functions (`refit_1d_for_param`,
+`_generate_1pvar_inline`) that many other callers share. Threading a `params=` argument
+through all of them would be invasive surgery on paper-critical code. **But** those helpers
+(`get_param`, `fiducial_vector`) read the module global `parameters.PARAMS_11D` **at call
+time**, so a context manager that temporarily rebinds that global flows overrides through
+with **zero changes to `refit_1d_pysr.py`**. This is the spec's documented fallback,
+promoted to the primary mechanism because recon confirmed the threaded route is invasive.
+
+- `priya_forecast.parameters.with_overrides(fiducial=None, prior=None, base=PARAMS_11D) -> tuple[Param, ...]`
+  — pure helper. Returns a copy of `base` with the named params' `.fid` / `.prior` replaced
+  via `dataclasses.replace`; unknown names raise `KeyError`. `PARAMS_11D` is untouched.
+  Names/order are preserved (only values change), so `PARAM_NAMES`, the `.index()` lookups
+  and the 11-vector layout in `refit_1d_pysr.py` stay correct.
+- `priya_forecast.parameters.override_params(fiducial=None, prior=None)` — a
+  `@contextmanager` that sets `parameters.PARAMS_11D = with_overrides(...)` on entry and
+  restores the original in a `finally`. Because `get_param()` / `fiducial_vector()` read the
+  module global at call time, the temporarily-overridden fid/prior reach
+  `_generate_1pvar_inline` and `refit_1d_for_param` unchanged. No-op (`nullcontext`-like)
+  when both overrides are `None`.
+- `rerun.run_grid` wraps each refit in `override_params(cfg.fiducial_overrides,
+  cfg.prior_overrides)`. Safe for the sequential notebook: the override is only live during
+  in-process 1pvar data generation (before PySR's Julia workers consume the arrays), then
+  restored. No production caller is affected — the global is only ever swapped inside the
+  `with` block.
+- **Not touched:** `refit_1d_pysr.py`, the CLI, SLURM, existing tests. The only production
+  file modified is `parameters.py` (two additive functions).
 
 ### 3. `notebooks/_build_rerun_paper.py` → `notebooks/rerun_paper.ipynb`
 
@@ -190,14 +211,18 @@ the repo; the target shape:
 - **Package:** install the emulator Python package the pipeline imports (`lyaemu` / the
   `lya_emulator_full` repo). Document the precise `pip install …` / `git clone …` from
   the repo's own requirements, not a guess.
-- **`data/kodiaq_gp/` basedir (~43 MB, git-ignored):** two documented routes, in order —
-  1. **Build from source** (fully reproducible, no hosting): clone `lya_emulator_full`,
-     then `python scripts/prep_kodiaq_gp.py …` to produce `data/kodiaq_gp/`. This is the
-     ground-truth path and always works.
-  2. **Fetch a prebuilt archive** (fast path for collaborators): a single
-     `curl/​wget` of a hosted `kodiaq_gp.tar.gz` into `data/`. The **URL is a fill-in
-     placeholder** the user sets once they upload the archive (Zenodo / GitHub release /
-     shared drive — user's call). Clearly marked `# TODO(user): set archive URL`.
+- **`data/kodiaq_gp/` basedir (~43 MB, git-ignored):** two documented routes. **Recon
+  caveat:** `prep_kodiaq_gp.py --source` reads the *private* upstream PRIYA training set
+  (`/nfs/turbo/.../kodiaq_2_2_4_6-48-48`), so build-from-source only works for someone with
+  access to that data. **For an external collaborator the hosted archive is the primary
+  route.**
+  1. **Fetch a prebuilt archive** (primary for collaborators): a single `curl`/`wget` of a
+     hosted `kodiaq_gp.tar.gz` into `data/`. The **URL is a fill-in placeholder** the user
+     sets once they upload the archive (Zenodo / GitHub release / shared drive — user's
+     call). Clearly marked `# TODO(user): set archive URL`.
+  2. **Build from source** (only with access to the private PRIYA training set): clone
+     `lya_emulator` for the `lyaemu` package, then
+     `python scripts/prep_kodiaq_gp.py --source <PRIYA_SET> --dest data/kodiaq_gp`.
 - The provisioning cell **auto-detects** which route is already satisfied and only prints
   what is missing. It never downloads silently without the reader running the cell.
 - **Open item for the user:** where to host the prebuilt `kodiaq_gp` archive (see Open
