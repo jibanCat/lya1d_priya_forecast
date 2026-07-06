@@ -227,3 +227,57 @@ def _write_manifest(cfg, run_dir, n_done, stamp):
         "results/paper_production_20260630_perz_sobolev_z2.6-4.2/ for the paper run.",
     ]
     (run_dir / "RUN_MANIFEST.md").write_text("\n".join(lines))
+
+
+DEFAULT_PRODUCTION_DIR = Path("results/paper_production_20260630_perz_sobolev_z2.6-4.2")
+
+
+def _knee_metrics(run_dir, arm, z, param):
+    from priya_forecast.grad_faith_io import read_grad_faith_sidecar, knee_row
+    path = Path(run_dir) / arm / "refit" / f"z{z}" / f"grad_faith_{param}.csv"
+    if not path.exists():
+        return None
+    try:
+        row = knee_row(read_grad_faith_sidecar(path))
+        return float(row["grad_err"]), float(row["value_mse"])
+    except Exception:
+        return None
+
+
+def compare_to_production(run_dir, production_dir=DEFAULT_PRODUCTION_DIR, *,
+                          zs=None, arms=None, gate=0.25, params=None):
+    """Per-parameter deviation of a rerun vs the committed production sidecars.
+    Print-friendly DataFrame; never raises. flag: worse/better/similar/n_a."""
+    import numpy as np
+    import pandas as pd
+    zs = zs or [3.6]
+    arms = arms or ["value", "sobolev"]
+    params = params or list(ALL_PARAMS)
+    rows = []
+    for arm in arms:
+        for z in zs:
+            for p in params:
+                r = _knee_metrics(run_dir, arm, z, p)
+                q = _knee_metrics(production_dir, arm, z, p)
+                if r is None or q is None:
+                    rows.append(dict(param=p, z=z, arm=arm, grad_err_rerun=np.nan,
+                                     grad_err_prod=(q[0] if q else np.nan),
+                                     d_grad_err=np.nan, value_mse_rerun=np.nan,
+                                     value_mse_prod=(q[1] if q else np.nan),
+                                     verdict_rerun="n/a", verdict_prod=(
+                                         "faithful" if q and q[0] <= gate else
+                                         ("unfaithful" if q else "n/a")),
+                                     flipped=False, flag="n/a"))
+                    continue
+                ge_r, vm_r = r; ge_q, vm_q = q
+                d = ge_r - ge_q
+                vr = "faithful" if ge_r <= gate else "unfaithful"
+                vq = "faithful" if ge_q <= gate else "unfaithful"
+                flag = ("similar" if abs(d) < 0.05 else
+                        ("worse" if d > 0 else "better"))
+                rows.append(dict(param=p, z=z, arm=arm, grad_err_rerun=ge_r,
+                                 grad_err_prod=ge_q, d_grad_err=d,
+                                 value_mse_rerun=vm_r, value_mse_prod=vm_q,
+                                 verdict_rerun=vr, verdict_prod=vq,
+                                 flipped=(vr != vq), flag=flag))
+    return pd.DataFrame(rows)
