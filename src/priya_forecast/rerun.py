@@ -7,7 +7,6 @@ the production run). See notebooks/rerun_paper.ipynb.
 """
 from __future__ import annotations
 
-import dataclasses
 import os
 import subprocess
 import sys
@@ -128,15 +127,29 @@ def budget_warnings(cfg):
     return w
 
 
-def _real_gp_loader(basedir, z, k_grid):
-    import numpy as np
+def _real_gp_loader(basedir, k_grid):
     from priya_forecast.models.gp_model import GPModel
-    from priya_forecast.parameters import fiducial_vector
     gp_lf = GPModel(basedir=basedir, fidelity="lf", kf=k_grid)
     gp_hf = GPModel(basedir=basedir, fidelity="hf", kf=k_grid)
-    fid = np.asarray(fiducial_vector(), float)
-    gp_lf.predict(fid, k_grid, z); gp_hf.predict(fid, k_grid, z)   # warm/validate
     return gp_lf, gp_hf
+
+
+def _real_regen_fn(gp_lf, gp_hf, params, zs, k_grid, out_dir):
+    """Regenerate the LF/HF 1pvar sweep the scorer loads, into out_dir.
+    Called by run_grid INSIDE override_params, so the sweep matches this run's
+    fiducial/prior. Reuses the production regenerate_param + write_1pvar_hdf5."""
+    import numpy as np
+    from priya_forecast.single_z.training_data import regenerate_param, write_1pvar_hdf5
+    z_grid = np.asarray(zs, dtype=float)
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    for pname in params:
+        gen = regenerate_param(gp_lf=gp_lf, gp_hf=gp_hf, param_name=pname,
+                               z_grid=z_grid, k_grid=k_grid)
+        for fidelity in ("lf", "hf"):
+            write_1pvar_hdf5(
+                Path(out_dir) / f"{fidelity}_{pname}_npoints50.hdf5",
+                params=gen[f"params_{fidelity}"], kfkms=gen[f"kfkms_{fidelity}"],
+                flux_vectors=gen[f"flux_{fidelity}"], zout=gen["zout"])
 
 
 def _pipeline_cfg(cfg, arm, z, out_root_for_arm):
@@ -161,18 +174,25 @@ def _real_refit_fn(*, param_name, z, cfg, gp_lf, gp_hf, k_grid, out_dir):
         k_grid=k_grid, out_dir=out_dir, save_artifacts=False)
 
 
-def _real_score_fn(pareto_csv, param, z, out_csv, basedir):
+def _real_score_fn(pareto_csv, param, z, out_csv, basedir, data_1pvar,
+                   fid_ov=None, prior_ov=None):
+    import json
     env = dict(os.environ)
     lya = env.get("LYA_EMULATOR", "/home/mfho/student_projects/lya_emulator_full")
     env["PYTHONPATH"] = f"src:{lya}" + (":" + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+    if fid_ov:
+        env["PRIYA_FIDUCIAL_OVERRIDES"] = json.dumps(fid_ov)
+    if prior_ov:
+        env["PRIYA_PRIOR_OVERRIDES"] = json.dumps(prior_ov)
     subprocess.run(
         [sys.executable, "scripts/eval_grad_faithfulness.py",
          "--pareto", str(pareto_csv), "--param", param, "--z", str(z),
-         "--basedir", basedir, "--log-space", "--out", str(out_csv)],
+         "--basedir", basedir, "--data-1pvar", str(data_1pvar),
+         "--log-space", "--out", str(out_csv)],
         check=True, env=env)
 
 
-def run_grid(cfg, *, gp_loader=None, refit_fn=None, score_fn=None,
+def run_grid(cfg, *, gp_loader=None, regen_fn=None, refit_fn=None, score_fn=None,
              progress=print, stamp=""):
     """Run the grid (arm x z x param) into cfg.run_dir; return the run dir.
     Injectable callables default to the real GP-backed implementations; tests
@@ -181,16 +201,23 @@ def run_grid(cfg, *, gp_loader=None, refit_fn=None, score_fn=None,
     cfg.validate()
     run_dir = cfg.run_dir                          # raises if inside production
     gp_loader = gp_loader or _real_gp_loader
+    regen_fn = regen_fn or _real_regen_fn
     refit_fn = refit_fn or _real_refit_fn
     score_fn = score_fn or _real_score_fn
     run_dir.mkdir(parents=True, exist_ok=True)
     k_grid = kodiaq_k_grid(cfg.kmin, cfg.kmax, 48)
+    data_1pvar = run_dir / "_1pvar"
+
+    progress("loading GP emulator ...")
+    gp_lf, gp_hf = gp_loader(cfg.basedir, k_grid)
+
+    progress("regenerating run-local 1pvar sweep ...")
+    with override_params(cfg.fiducial_overrides, cfg.prior_overrides):
+        regen_fn(gp_lf, gp_hf, cfg.params, cfg.zs, k_grid, data_1pvar)
 
     n_done = 0
-    for z in cfg.zs:
-        progress(f"[z={z}] loading GP emulator ...")
-        gp_lf, gp_hf = gp_loader(cfg.basedir, z, k_grid)
-        for arm in cfg.arms:
+    for arm in cfg.arms:
+        for z in cfg.zs:
             for param in cfg.params:
                 out_dir = run_dir / arm / "refit" / f"z{z}"
                 out_dir.mkdir(parents=True, exist_ok=True)
@@ -203,8 +230,10 @@ def run_grid(cfg, *, gp_loader=None, refit_fn=None, score_fn=None,
                                  out_dir=out_dir)
                     pareto = out_dir / f"pareto_{param}.csv"
                     if pareto.exists():
-                        score_fn(pareto, param, z, out_dir / f"grad_faith_{param}.csv",
-                                 cfg.basedir)
+                        score_fn(pareto, param, z,
+                                 out_dir / f"grad_faith_{param}.csv",
+                                 cfg.basedir, data_1pvar,
+                                 cfg.fiducial_overrides, cfg.prior_overrides)
                     n_done += 1
                 except Exception as e:                # one bad param must not kill the grid
                     progress(f"  !! {arm} {param} z={z} FAILED: {e} (continuing)")
