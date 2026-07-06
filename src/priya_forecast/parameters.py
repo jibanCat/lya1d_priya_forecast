@@ -13,6 +13,8 @@ Units: P_F dimensionless, k in s/km, redshift dimensionless.
 
 from __future__ import annotations
 
+import dataclasses
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 
@@ -134,3 +136,43 @@ def validate_priors(params: tuple[Param, ...] = PARAMS_11D) -> None:
             raise ValueError(
                 f"Param {p.name!r}: fid={p.fid} not strictly inside prior ({lo}, {hi})."
             )
+
+
+def with_overrides(fiducial=None, prior=None, base=None):
+    """Return a copy of `base` (default PARAMS_11D) with named params' fid/prior
+    replaced. Names and order are preserved; unknown names raise KeyError.
+    PARAMS_11D itself is never mutated."""
+    base = PARAMS_11D if base is None else base
+    fiducial = fiducial or {}
+    prior = prior or {}
+    known = {p.name for p in base}
+    unknown = (set(fiducial) | set(prior)) - known
+    if unknown:
+        raise KeyError(f"unknown parameter name(s): {sorted(unknown)}")
+    out = []
+    for p in base:
+        changes = {}
+        if p.name in fiducial:
+            changes["fid"] = float(fiducial[p.name])
+        if p.name in prior:
+            lo, hi = prior[p.name]
+            changes["prior"] = (float(lo), float(hi))
+        out.append(dataclasses.replace(p, **changes) if changes else p)
+    return tuple(out)
+
+
+@contextmanager
+def override_params(fiducial=None, prior=None):
+    """Temporarily rebind the module-global PARAMS_11D so that get_param() /
+    fiducial_vector() (read at call time) return overridden fid/prior. Restores
+    the original on exit. No-op when no overrides are given."""
+    global PARAMS_11D
+    if not fiducial and not prior:
+        yield
+        return
+    original = PARAMS_11D
+    PARAMS_11D = with_overrides(fiducial=fiducial, prior=prior, base=original)
+    try:
+        yield
+    finally:
+        PARAMS_11D = original
