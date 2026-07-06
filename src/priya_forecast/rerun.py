@@ -7,9 +7,6 @@ the production run). See notebooks/rerun_paper.ipynb.
 """
 from __future__ import annotations
 
-import os
-import subprocess
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -182,23 +179,20 @@ def _real_refit_fn(*, param_name, z, cfg, gp_lf, gp_hf, k_grid, out_dir):
         k_grid=k_grid, out_dir=out_dir, save_artifacts=False)
 
 
-def _real_score_fn(pareto_csv, param, z, out_csv, basedir, data_1pvar,
-                   fid_ov=None, prior_ov=None, kmin=0.001, kmax=0.04):
-    import json
-    env = dict(os.environ)
-    lya = env.get("LYA_EMULATOR", "/home/mfho/student_projects/lya_emulator_full")
-    env["PYTHONPATH"] = f"src:{lya}" + (":" + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
-    if fid_ov:
-        env["PRIYA_FIDUCIAL_OVERRIDES"] = json.dumps(fid_ov)
-    if prior_ov:
-        env["PRIYA_PRIOR_OVERRIDES"] = json.dumps(prior_ov)
-    subprocess.run(
-        [sys.executable, "scripts/eval_grad_faithfulness.py",
-         "--pareto", str(pareto_csv), "--param", param, "--z", str(z),
-         "--basedir", basedir, "--data-1pvar", str(data_1pvar),
-         "--kmin", str(kmin), "--kmax", str(kmax),
-         "--log-space", "--out", str(out_csv)],
-        check=True, env=env)
+def _real_score_inprocess(pareto_csv, param, z, out_csv, gp_hf, data_1pvar,
+                          kmin=0.001, kmax=0.04):
+    """Score in-process, REUSING the already-loaded GP (no per-file reload).
+    Uses the same `score_pareto` core the CLI (eval_grad_faithfulness.py) uses,
+    so a rerun scores exactly as the paper did. Must be called inside the same
+    `override_params` context as the refit so the fiducial/prior match. Writes
+    the grad-faith sidecar."""
+    from priya_forecast.grad_faith_score import score_pareto
+    from priya_forecast.grad_faith_io import write_grad_faith_sidecar
+    rows = score_pareto(pareto_csv=str(pareto_csv), param=param, z=z,
+                        data_1pvar=str(data_1pvar), kmin=kmin, kmax=kmax,
+                        gp_hf=gp_hf)
+    write_grad_faith_sidecar(str(out_csv), rows, param=param, z=z, tol=0.25,
+                             log_space=True, source_pareto=str(pareto_csv))
 
 
 def run_grid(cfg, *, gp_loader=None, regen_fn=None, refit_fn=None, score_fn=None,
@@ -212,7 +206,7 @@ def run_grid(cfg, *, gp_loader=None, regen_fn=None, refit_fn=None, score_fn=None
     gp_loader = gp_loader or _real_gp_loader
     regen_fn = regen_fn or _real_regen_fn
     refit_fn = refit_fn or _real_refit_fn
-    score_fn = score_fn or _real_score_fn
+    score_fn = score_fn or _real_score_inprocess
     run_dir.mkdir(parents=True, exist_ok=True)
     k_grid = kodiaq_k_grid(cfg.kmin, cfg.kmax, 48)
     data_1pvar = run_dir / "_1pvar"
@@ -233,17 +227,17 @@ def run_grid(cfg, *, gp_loader=None, regen_fn=None, refit_fn=None, score_fn=None
                 progress(f"  fit {arm} {param} z={z} ...")
                 try:
                     pcfg = _pipeline_cfg(cfg, arm, z, run_dir / arm)
+                    # refit AND in-process scoring share one override context so
+                    # both use the same (possibly overridden) fiducial/prior.
                     with override_params(cfg.fiducial_overrides, cfg.prior_overrides):
                         refit_fn(param_name=param, z=z, cfg=pcfg,
                                  gp_lf=gp_lf, gp_hf=gp_hf, k_grid=k_grid,
                                  out_dir=out_dir)
-                    pareto = out_dir / f"pareto_{param}.csv"
-                    if pareto.exists():
-                        score_fn(pareto, param, z,
-                                 out_dir / f"grad_faith_{param}.csv",
-                                 cfg.basedir, data_1pvar,
-                                 cfg.fiducial_overrides, cfg.prior_overrides,
-                                 cfg.kmin, cfg.kmax)
+                        pareto = out_dir / f"pareto_{param}.csv"
+                        if pareto.exists():
+                            score_fn(pareto, param, z,
+                                     out_dir / f"grad_faith_{param}.csv",
+                                     gp_hf, data_1pvar, cfg.kmin, cfg.kmax)
                     n_done += 1
                 except Exception as e:                # one bad param must not kill the grid
                     progress(f"  !! {arm} {param} z={z} FAILED: {e} (continuing)")
