@@ -8,6 +8,7 @@ def test_cli_command_sobolev_arm_has_flags():
     assert "--target-space log" in cmd and "--use-sobolev" in cmd
     assert "--sobolev-lambda 5" in cmd
     assert "--niterations 200" in cmd and "--populations 48" in cmd
+    assert "--kmin 0.001" in cmd and "--kmax 0.04" in cmd
 
 
 def test_cli_command_value_arm_no_sobolev():

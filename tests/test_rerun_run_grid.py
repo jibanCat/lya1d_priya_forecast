@@ -25,7 +25,7 @@ def _make_refit_fn(record, fail_param=None):
 
 
 def _fake_score_fn(pareto_csv, param, z, out_csv, basedir, data_1pvar,
-                   fid_ov=None, prior_ov=None):
+                   fid_ov=None, prior_ov=None, kmin=0.001, kmax=0.04):
     pd.DataFrame({"Complexity": [5], "Loss": [0.1], "grad_err": [0.2],
                   "value_mse": [1e-4], "n_keep": [40], "gate_pass": [True],
                   "x0_enters": [True]}).to_csv(out_csv, index=False)
@@ -108,3 +108,4 @@ def test_score_fn_passes_override_env(monkeypatch, tmp_path):
     assert '"ns": 0.9' in captured["env"]["PRIYA_FIDUCIAL_OVERRIDES"]
     assert "PRIYA_PRIOR_OVERRIDES" not in captured["env"]
     assert "--data-1pvar" in captured["cmd"]
+    assert "--kmin" in captured["cmd"]

@@ -88,6 +88,7 @@ def cli_command_for(cfg, param, z, arm):
         f"--niterations {cfg.niterations}",
         f"--populations {cfg.populations}",
         f"--seed {cfg.seed}",
+        f"--kmin {cfg.kmin}", f"--kmax {cfg.kmax}",
     ]
     if arm == "sobolev":
         parts += ["--use-sobolev", f"--sobolev-lambda {cfg.sobolev_lambda:g}"]
@@ -175,7 +176,7 @@ def _real_refit_fn(*, param_name, z, cfg, gp_lf, gp_hf, k_grid, out_dir):
 
 
 def _real_score_fn(pareto_csv, param, z, out_csv, basedir, data_1pvar,
-                   fid_ov=None, prior_ov=None):
+                   fid_ov=None, prior_ov=None, kmin=0.001, kmax=0.04):
     import json
     env = dict(os.environ)
     lya = env.get("LYA_EMULATOR", "/home/mfho/student_projects/lya_emulator_full")
@@ -188,6 +189,7 @@ def _real_score_fn(pareto_csv, param, z, out_csv, basedir, data_1pvar,
         [sys.executable, "scripts/eval_grad_faithfulness.py",
          "--pareto", str(pareto_csv), "--param", param, "--z", str(z),
          "--basedir", basedir, "--data-1pvar", str(data_1pvar),
+         "--kmin", str(kmin), "--kmax", str(kmax),
          "--log-space", "--out", str(out_csv)],
         check=True, env=env)
 
@@ -233,7 +235,8 @@ def run_grid(cfg, *, gp_loader=None, regen_fn=None, refit_fn=None, score_fn=None
                         score_fn(pareto, param, z,
                                  out_dir / f"grad_faith_{param}.csv",
                                  cfg.basedir, data_1pvar,
-                                 cfg.fiducial_overrides, cfg.prior_overrides)
+                                 cfg.fiducial_overrides, cfg.prior_overrides,
+                                 cfg.kmin, cfg.kmax)
                     n_done += 1
                 except Exception as e:                # one bad param must not kill the grid
                     progress(f"  !! {arm} {param} z={z} FAILED: {e} (continuing)")
@@ -276,7 +279,7 @@ def _knee_metrics(run_dir, arm, z, param):
 def compare_to_production(run_dir, production_dir=DEFAULT_PRODUCTION_DIR, *,
                           zs=None, arms=None, gate=0.25, params=None):
     """Per-parameter deviation of a rerun vs the committed production sidecars.
-    Print-friendly DataFrame; never raises. flag: worse/better/similar/n_a."""
+    Print-friendly DataFrame; never raises. flag: worse/better/similar/n/a."""
     import numpy as np
     import pandas as pd
     zs = zs or [3.6]
