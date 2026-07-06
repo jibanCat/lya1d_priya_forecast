@@ -57,6 +57,19 @@ it re-derives the CSVs from scratch so a collaborator can test their own hypothe
 | Location | New branch `rerun-notebook` off `paper-production`; merge by PR after review. |
 | Build | `~4`-agent panel + adversarial verify (see Implementation). |
 
+### Refinements (2026-07-06 review — folded in)
+
+1. **Never contaminate production.** All rerun output goes under a dedicated
+   `results/tutorial_reruns/` root, isolated from `results/paper_production_*` and
+   `results/refit_phase2_production`. `run_grid` hard-refuses (raises) if the resolved
+   output path lands inside any production dir. This root is already git-ignored by the
+   `results/` whitelist, so tutorial runs can never be committed over tracked artifacts.
+2. **Concrete emulator provisioning.** The notebook must spell out exactly how a
+   collaborator obtains the GP emulator, not hand-wave to "Tier 2." See §5.
+3. **Validation guards (warn, never fail).** After a rerun, print a per-parameter
+   deviation report vs the committed production sidecars, plus an under-budget
+   disclaimer. See §1 (`compare_to_production`) and §6.
+
 ## Architecture
 
 Four new artifacts; the production pipeline is reused unchanged except for one
@@ -72,7 +85,12 @@ thin.
   `maxsize`, `niterations`, `populations`, `sobolev_lambda`, `binary_operators`,
   `unary_operators`, `seed`, `kmin`, `kmax`,
   `fiducial_overrides: dict[str, float] | None`, `prior_overrides: dict[str, tuple[float,float]] | None`,
-  `label: str`, `out_root: Path`.
+  `label: str`, `out_root: Path = Path("results/tutorial_reruns")`.
+  - **Isolation:** the effective run dir is `out_root/rerun_<label>/`. `run_grid` **raises**
+    if the resolved run dir falls inside `results/paper_production_*` or
+    `results/refit_phase2_production`, so tutorial output can never overwrite a production
+    run. `results/tutorial_reruns/` is git-ignored by the existing `results/` whitelist, so
+    nothing here is committed.
   - `RerunConfig.quick()` → 11 params, `zs=[3.6]`, both arms, `niterations≈30`,
     `populations≈8`, `maxsize=20`. Target wall time a few→~20 min on a laptop.
   - `RerunConfig.full()` → 11 params, `zs=[2.6, 3.6, 4.2]`, both arms, production budget
@@ -92,6 +110,16 @@ thin.
 - **Grad-faith scoring reuse:** call the same code path as
   `scripts/eval_grad_faithfulness.py` / `make_grad_faith_sidecars.sh` (log-space,
   gate 0.25) — factor a callable out of that script if it is not already importable.
+- **`compare_to_production(run_dir, production_dir=<committed run>) -> Report`** — reads
+  the rerun's `grad_faith_<p>.csv` knee rows and the committed production sidecars (Tier-1,
+  emulator-free), and returns a per-parameter table: rerun vs production `grad_err` and
+  `value_mse`, the signed delta, whether the faithfulness verdict flipped, and a
+  worse/better/similar flag. **Print-only; never raises.** Only params/z present in both
+  runs are compared (the rest are listed as "not in production baseline").
+- **`budget_warnings(cfg) -> list[str]`** — flags any knob below the production budget
+  (`niterations<200`, `populations<48`, `maxsize<20`, `sobolev_lambda≠5`,
+  `arms`/`zs`/`params` subset). Returns human-readable warning strings for the notebook to
+  print — again, warnings, not errors.
 
 ### 2. Backward-compatible override hook (the only production-code touch)
 
@@ -113,34 +141,81 @@ gitignored, `.ipynb` committed). Notebook flow:
 
 1. **Title + tier banner** — "you need the GP emulator (Tier 3)"; one-paragraph contrast
    with `reproduce_paper.ipynb`.
-2. **Setup / emulator detect** — locate repo, try to import the GP; if absent, print the
-   `REPRODUCE.md` Tier-2/3 setup command and stop gracefully (never error).
+2. **Get the GP emulator** — a dedicated, copy-pasteable provisioning cell (see §5): try
+   to import the emulator; if absent, print the exact clone/install + `kodiaq_gp` fetch
+   commands and stop gracefully (never error).
 3. **The config cell** — a single `RerunConfig`; `QUICK = True` by default, flip to
    `FULL`; all knobs visible with inline comments; the physics-override dicts empty by
-   default with an example commented out.
+   default with an example commented out. Output goes to `results/tutorial_reruns/` — a
+   markdown note states this is isolated from the production run.
 4. **What the pipeline does** — plain-language walkthrough of one per-`(param, z)` fit →
    grad-faith gate → additive combine, worded to match the paper's Methods (Sec.
    normalization / algorithm / combine). Short; links the reader to the paper sections.
-5. **Run (inline)** — `run_dir = run_grid(cfg)`; live progress; for each cell also print
+5. **Budget check (before running)** — print `budget_warnings(cfg)` + the standing
+   disclaimer (§6): quick/tweaked runs are illustrative, ran on far less compute than the
+   paper, and must not replace the production run without passing a trust budget.
+6. **Run (inline)** — `run_dir = run_grid(cfg)`; live progress; for each cell also print
    `cli_command_for(...)` so the reader sees the CLI equivalent.
-6. **Full / cluster** — documented block: the `submit_paper_production.sh` invocation and
+7. **Full / cluster** — documented block: the `submit_paper_production.sh` invocation and
    the per-arm CLI for the seed-band + sensitivity arms (not run inline).
-7. **Regenerate the paper outputs from *your* run** — set the figure/table path to
+8. **Compare to production** — print `compare_to_production(run_dir)`: the per-parameter
+   deviation table (rerun vs committed production `grad_err`/`value_mse`, signed delta,
+   verdict flips, worse/better/similar). Framed as "how far did I move," not pass/fail.
+9. **Regenerate the paper outputs from *your* run** — set the figure/table path to
    `run_dir` and call the `reproduce_paper` Tier-1 figure/table functions; render the
-   taxonomy table + the pareto/scorecard/ns-budget figures from the collaborator's CSVs.
-8. **Knobs to try (hypotheses)** — 3–4 concrete, self-contained experiments with the one
-   line to change and what to watch: raise `sobolev_lambda`; drop an operator (e.g. `exp`);
-   shift a fiducial value; widen a prior. Each notes the expected direction of the effect.
+   taxonomy table + the pareto/scorecard/ns-budget figures from the collaborator's CSVs
+   into `run_dir` (never into the production `figures/` dir).
+10. **Knobs to try (hypotheses)** — 3–4 concrete, self-contained experiments with the one
+    line to change and what to watch: raise `sobolev_lambda`; drop an operator (e.g. `exp`);
+    shift a fiducial value; widen a prior. Each notes the expected direction of the effect.
 
 ### 4. Tests + docs
 
 - `tests/test_rerun.py` — GP mocked (a stub `gp_lf`/`gp_hf` with a known analytic response)
   so CI stays emulator-free: `RerunConfig.quick()/full()` shape; `run_grid` writes the
-  expected layout + manifest; `with_overrides` replaces fid/prior and rejects unknown keys;
+  expected layout + manifest; **`run_grid` raises when `out_root` resolves inside a
+  production dir**; `with_overrides` replaces fid/prior and rejects unknown keys;
   `refit_one_param_single_z(params=…)` respects the override; `cli_command_for` round-trips
-  the knobs. Aim: no new heavy deps in CI.
+  the knobs; **`budget_warnings` flags a sub-production config and is silent on a full one**;
+  **`compare_to_production` computes correct signed deltas and verdict-flip flags against a
+  small fixture**. Aim: no new heavy deps in CI.
 - `REPRODUCE.md` + `README.md` — a short Tier-3 pointer: "to re-run and tweak, see
   `notebooks/rerun_paper.ipynb`."
+
+### 5. Emulator provisioning (the "how do I get the GP" story)
+
+The notebook must make Tier-3 turnkey. Recon (panel step 0) pins the exact commands from
+the repo; the target shape:
+
+- **Package:** install the emulator Python package the pipeline imports (`lyaemu` / the
+  `lya_emulator_full` repo). Document the precise `pip install …` / `git clone …` from
+  the repo's own requirements, not a guess.
+- **`data/kodiaq_gp/` basedir (~43 MB, git-ignored):** two documented routes, in order —
+  1. **Build from source** (fully reproducible, no hosting): clone `lya_emulator_full`,
+     then `python scripts/prep_kodiaq_gp.py …` to produce `data/kodiaq_gp/`. This is the
+     ground-truth path and always works.
+  2. **Fetch a prebuilt archive** (fast path for collaborators): a single
+     `curl/​wget` of a hosted `kodiaq_gp.tar.gz` into `data/`. The **URL is a fill-in
+     placeholder** the user sets once they upload the archive (Zenodo / GitHub release /
+     shared drive — user's call). Clearly marked `# TODO(user): set archive URL`.
+- The provisioning cell **auto-detects** which route is already satisfied and only prints
+  what is missing. It never downloads silently without the reader running the cell.
+- **Open item for the user:** where to host the prebuilt `kodiaq_gp` archive (see Open
+  questions). Not blocking — route 1 makes the notebook complete without any hosting.
+
+### 6. Validation guards & disclaimer (warn, never fail)
+
+- **Standing disclaimer** (rendered prominently before and after the run): the production
+  run used a far larger search budget (`niter=200`, `populations=48`, 5-seed band); a quick
+  or tweaked run here is **illustrative**, shows the *mechanism*, and **must not replace the
+  production numbers**. A run should clear a stated **trust budget** (e.g. production
+  `niter`/`populations`, ≥1 seed per arm) before its numbers are quoted.
+- **`budget_warnings(cfg)`** prints which knobs are below production (§1). Purely
+  informational — the run still proceeds.
+- **`compare_to_production(run_dir)`** prints the per-parameter deviation table (§1) so the
+  reader sees, quantitatively, how far their run moved from the paper — worse, better, or
+  within noise — without any assertion or gate. "Better" (lower `grad_err`) is reported as
+  neutrally as "worse"; the point is transparency, not a leaderboard.
 
 ## Data flow
 
@@ -150,18 +225,23 @@ RerunConfig (quick|full + knobs + overrides)
    ├─ with_overrides(fid, prior)?  ─► modified PARAMS list
    ▼
 run_grid ──loop (arm,z,param)──► refit_one_param_single_z(params=…) ──► pareto_<p>.csv
-   │                                     │
+   │  (out_root inside a production dir? ─► RAISE)   │
    │                                     └─ grad-faith scoring ──► grad_faith_<p>.csv
    ▼
-results/rerun_<label>/<arm>/refit/z<z>/…  (+ RUN_MANIFEST.md)   [production layout]
+results/tutorial_reruns/rerun_<label>/<arm>/refit/z<z>/…  (+ RUN_MANIFEST.md)  [production layout, git-ignored]
+   ├─► compare_to_production(run_dir) ──► per-param deviation table (warn-only)
    ▼
-reproduce_paper figure/table functions (path → run_dir) ──► taxonomy table + diagnostic figs
+reproduce_paper figure/table functions (path → run_dir) ──► taxonomy table + diagnostic figs (into run_dir)
 ```
 
 ## Error handling
 
-- **No emulator:** detect at setup; print the exact Tier-2/3 command; the run cells
-  short-circuit with a clear message. The notebook always completes.
+- **No emulator:** detect at setup; print the exact provisioning commands (§5); the run
+  cells short-circuit with a clear message. The notebook always completes.
+- **Output would hit production:** `run_grid` raises if `out_root/rerun_<label>` resolves
+  inside `results/paper_production_*` or `results/refit_phase2_production`. This is a hard
+  error (protecting the paper artifacts is worth failing loudly) — the only raise in the
+  run path besides config validation.
 - **`use_sobolev` without `target_space="log"`:** already guarded in the refit; `RerunConfig`
   enforces the same invariant at construction so a bad config fails fast in-notebook.
 - **Unknown override key:** `with_overrides` raises with the offending name.
@@ -192,5 +272,9 @@ panel executes it:
 
 ## Open questions
 
-None blocking. Recon settles the `params=` seam; if it is unexpectedly invasive, fall back
-to the documented monkeypatch (noted in §2).
+- **Where to host the prebuilt `kodiaq_gp` archive** (fast-path route 2, §5) — Zenodo /
+  GitHub release asset / shared drive. **User's call**; not blocking, because the
+  build-from-source route (route 1) makes the notebook complete without any hosting. The
+  notebook ships a clearly-marked `# TODO(user): set archive URL` placeholder.
+- Recon settles the `params=` seam; if it is unexpectedly invasive, fall back to the
+  documented monkeypatch (noted in §2).
