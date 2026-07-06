@@ -19,9 +19,13 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
+import json
 import numpy as np
 
-from priya_forecast.parameters import get_param, PARAM_NAMES, PARAMS_11D
+from priya_forecast.parameters import (
+    get_param, PARAM_NAMES, fiducial_vector, override_params,
+)
 from priya_forecast.single_z import forecast as fc
 from priya_forecast.single_z.training_data import load_1pvar
 from priya_forecast.models.pysr_model import load_pareto_csv, pick_equation
@@ -68,10 +72,17 @@ def main():
                    help="write a grad-faith sidecar CSV to this path")
     args = p.parse_args()
 
+    fid_ov = json.loads(os.environ.get("PRIYA_FIDUCIAL_OVERRIDES", "null"))
+    prior_ov = json.loads(os.environ.get("PRIYA_PRIOR_OVERRIDES", "null"))
+    with override_params(fid_ov, prior_ov):
+        _score(args)
+
+
+def _score(args):
     from priya_forecast.models.gp_model import GPModel
 
     k_grid = _refit.kodiaq_k_grid(args.kmin, args.kmax, 48)
-    fid = np.array([pp.fid for pp in PARAMS_11D], dtype=float)
+    fid = np.asarray(fiducial_vector(), dtype=float)
     pidx = PARAM_NAMES.index(args.param)
     meta = get_param(args.param)
 
