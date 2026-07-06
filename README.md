@@ -107,6 +107,9 @@ figures) runs emulator-free; Tier 2 (the PySR-vs-GP prediction plots + Table 3) 
 the GP-backed scripts if the emulator is available, else prints the command. Full
 step-by-step guide: **[`REPRODUCE.md`](REPRODUCE.md)**.
 
+To re-run the PySR pipeline and test your own hypotheses, see
+**[`notebooks/rerun_paper.ipynb`](notebooks/rerun_paper.ipynb)** (Tier 3; needs the GP emulator).
+
 ## Use it as a library
 The diagnostic is `priya_forecast.pareto_diag` / `priya_forecast.paper_figures`
 (pure, emulator-free):

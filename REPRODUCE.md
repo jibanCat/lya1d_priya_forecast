@@ -315,6 +315,33 @@ Tier 2 to *regenerate* them.
 
 ---
 
+## Step 3a — Tier 3 (optional): re-run and tweak the PySR pipeline (`rerun_paper.ipynb`)
+
+`notebooks/rerun_paper.ipynb` is a collaborator-facing tutorial notebook that re-runs the symbolic regression 
+pipeline end-to-end into an isolated output directory (`results/tutorial_reruns/`), letting you test your own 
+hypotheses on the equations and diagnostic. It does **not** retrain the PySR models from scratch (Tier 3 proper, 
+below); it re-executes the existing pipeline on your machine.
+
+**Requirements**: Tier 2 environment (full venv + GPy + lyaemu + `data/kodiaq_gp`). The notebook does **not** 
+need Julia/PySR — the equations are already refit and pickled in the production run.
+
+**Provisioning the GP emulator:**
+- **Primary (recommended):** A hosted `kodiaq_gp.tar.gz` archive containing the stripped GP basedir. Unpack it 
+  and point `data/kodiaq_gp/` to it. This is the preferred route for collaborators because building from source 
+  requires `prep_kodiaq_gp.py --source`, which reads the private PRIYA training set.
+  ```
+  # TODO(user): set <ARCHIVE_URL> and uncomment:
+  # curl <ARCHIVE_URL>/kodiaq_gp.tar.gz | tar -xz -C data/
+  ```
+- **Build from source** (requires the private PRIYA training set): Follow Step 2c in the full REPRODUCE.md 
+  (`scripts/prep_kodiaq_gp.py --source /path/to/kodiaq_2_2_4_6-48-48`). Only use this if you have the 
+  KODIAQ-SQUAD training directory.
+
+Run the notebook in Jupyter (or headlessly via `jupyter nbconvert --execute`). Output lands in 
+`results/tutorial_reruns/`, which is git-ignored for isolation.
+
+---
+
 ## Step 3 — Tier 3 (optional): re-train the PySR fits (needs Julia/PySR + SLURM)
 
 The whole production run (per-z Sobolev + value baseline + 5-seed band + ns budget

@@ -238,6 +238,7 @@ notebooks/_build_*.py
 
 results/_repro_scratch/
 results/_tutorial_scratch/
+results/tutorial_reruns/
 
 # --- Public release: under results/ ship ONLY the committed runs the paper/notebook read.
 # Ignore everything, then re-include the production run + the legacy refit set that
