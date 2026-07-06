@@ -72,3 +72,54 @@ class RerunConfig:
         unknown = set(self.params) - set(ALL_PARAMS)
         if unknown:
             raise ValueError(f"unknown param(s): {sorted(unknown)}")
+
+
+def cli_command_for(cfg, param, z, arm):
+    """The exact refit_one_param_single_z.py command equivalent to one grid cell."""
+    parts = [
+        "python scripts/refit_one_param_single_z.py",
+        f"--param {param}", f"--z {z}",
+        f"--basedir {cfg.basedir}",
+        f"--output-dir {cfg.run_dir}/{arm}",
+        "--target-space log",
+        f"--maxsize {cfg.maxsize}",
+        f"--niterations {cfg.niterations}",
+        f"--populations {cfg.populations}",
+        f"--seed {cfg.seed}",
+    ]
+    if arm == "sobolev":
+        parts += ["--use-sobolev", f"--sobolev-lambda {cfg.sobolev_lambda:g}"]
+    cmd = " \\\n    ".join(parts)
+    if cfg.fiducial_overrides or cfg.prior_overrides:
+        cmd += ("\n# NOTE: fiducial/prior overrides are set in this run; the CLI has "
+                "no such flag. Use the notebook's run_grid() (Python API) for those.")
+    return cmd
+
+
+def budget_warnings(cfg):
+    """Human-readable warnings when the config is below the production budget.
+    Warnings only — never raises. Empty list means the run meets production budget."""
+    w = []
+    pb = PRODUCTION_BUDGET
+    if cfg.niterations < pb["niterations"]:
+        w.append(f"niterations={cfg.niterations} < production {pb['niterations']} "
+                 "(fewer generations -> less-converged equations).")
+    if cfg.populations < pb["populations"]:
+        w.append(f"populations={cfg.populations} < production {pb['populations']}.")
+    if cfg.maxsize < pb["maxsize"]:
+        w.append(f"maxsize={cfg.maxsize} < production {pb['maxsize']}.")
+    if "sobolev" in cfg.arms and cfg.sobolev_lambda != pb["sobolev_lambda"]:
+        w.append(f"sobolev_lambda={cfg.sobolev_lambda} != production {pb['sobolev_lambda']}.")
+    if set(cfg.params) != set(ALL_PARAMS):
+        w.append(f"param subset ({len(cfg.params)}/11) -- not the full taxonomy.")
+    if set(cfg.zs) != {2.6, 3.6, 4.2}:
+        w.append(f"redshift subset {cfg.zs} -- production spans 2.6/3.6/4.2.")
+    if cfg.fiducial_overrides or cfg.prior_overrides:
+        w.append("fiducial/prior overrides are active -- results are for YOUR "
+                 "hypothesis, not the paper's fiducial setup.")
+    if w:
+        w.append("These runs are ILLUSTRATIVE. The production numbers used a far larger "
+                 "search budget (niter=200, populations=48, 5-seed band). Do not replace "
+                 "the production results with a quick/tweaked run without meeting the "
+                 "production budget on >=1 seed per arm.")
+    return w
