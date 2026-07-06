@@ -317,27 +317,33 @@ Tier 2 to *regenerate* them.
 
 ## Step 3a — Tier 3 (optional): re-run and tweak the PySR pipeline (`rerun_paper.ipynb`)
 
-`notebooks/rerun_paper.ipynb` is a collaborator-facing tutorial notebook that re-runs the symbolic regression 
-pipeline end-to-end into an isolated output directory (`results/tutorial_reruns/`), letting you test your own 
-hypotheses on the equations and diagnostic. It does **not** retrain the PySR models from scratch (Tier 3 proper, 
-below); it re-executes the existing pipeline on your machine.
+`notebooks/rerun_paper.ipynb` is a collaborator-facing tutorial notebook that re-runs the **full** symbolic
+regression pipeline end-to-end — one PySR fit per (parameter, arm, redshift), the run-local 1pvar regeneration,
+and the derivative-faithfulness scoring — into an isolated output directory (`results/tutorial_reruns/`). It
+lets you tweak the search budget, operators, Sobolev weight, or your own fiducial/prior and see where the fits
+move, then regenerate the paper's taxonomy table and figures from *your* run. It writes to a fresh directory
+and never touches the committed production run.
 
-**Requirements**: Tier 2 environment (full venv + GPy + lyaemu + `data/kodiaq_gp`). The notebook does **not** 
-need Julia/PySR — the equations are already refit and pickled in the production run.
+**Requirements**: the Tier-2/3 environment — the full venv, `GPy` + `emukit` (with `numpy < 2` for the GPy
+ABI), the `lyaemu` package, a GP basedir, and Julia/PySR (the notebook retrains the equations from scratch, so
+PySR runs).
 
-**Provisioning the GP emulator:**
-- **Primary (recommended):** A hosted `kodiaq_gp.tar.gz` archive containing the stripped GP basedir. Unpack it 
-  and point `data/kodiaq_gp/` to it. This is the preferred route for collaborators because building from source 
-  requires `prep_kodiaq_gp.py --source`, which reads the private PRIYA training set.
-  ```
-  # TODO(user): set <ARCHIVE_URL> and uncomment:
-  # curl <ARCHIVE_URL>/kodiaq_gp.tar.gz | tar -xz -C data/
-  ```
-- **Build from source** (requires the private PRIYA training set): Follow Step 2c in the full REPRODUCE.md 
-  (`scripts/prep_kodiaq_gp.py --source /path/to/kodiaq_2_2_4_6-48-48`). Only use this if you have the 
-  KODIAQ-SQUAD training directory.
+**Provisioning the GP emulator (one public repo has both parts).** The package and the trained GP data both
+live in [`github.com/jibanCat/InferenceLyaData`](https://github.com/jibanCat/InferenceLyaData):
 
-Run the notebook in Jupyter (or headlessly via `jupyter nbconvert --execute`). Output lands in 
+```bash
+git clone https://github.com/jibanCat/InferenceLyaData ../InferenceLyaData
+pip install GPy emukit                             # numpy must stay < 2
+export LYA_EMULATOR=$PWD/../InferenceLyaData        # its lyaemu/ dir is the package
+export GP_BASEDIR=$LYA_EMULATOR/Emulator_Files_KS   # the KODIAQ-SQUAD GP basedir
+# optional: strip the 104 MB basedir down to ~20 MB
+# python scripts/prep_kodiaq_gp.py --source $GP_BASEDIR --dest data/kodiaq_gp && export GP_BASEDIR=data/kodiaq_gp
+```
+
+The notebook's first cell reads `LYA_EMULATOR` and `GP_BASEDIR` and reports what is missing; if either is
+absent it prints these commands and skips the run rather than erroring.
+
+Run the notebook in Jupyter (or headlessly via `jupyter nbconvert --execute`). Output lands in
 `results/tutorial_reruns/`, which is git-ignored for isolation.
 
 ---
