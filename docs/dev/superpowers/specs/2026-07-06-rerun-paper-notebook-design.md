@@ -152,8 +152,26 @@ promoted to the primary mechanism because recon confirmed the threaded route is 
   in-process 1pvar data generation (before PySR's Julia workers consume the arrays), then
   restored. No production caller is affected — the global is only ever swapped inside the
   `with` block.
-- **Not touched:** `refit_1d_pysr.py`, the CLI, SLURM, existing tests. The only production
-  file modified is `parameters.py` (two additive functions).
+- **Not touched:** `refit_1d_pysr.py`, the CLI, SLURM, existing tests.
+
+**Post-implementation correction (2026-07-06, from adversarial review + recon):** the
+subprocess scorer `eval_grad_faithfulness.py` (a) re-imports the *original* `PARAMS_11D`
+so the parent's in-memory override was invisible to it, and (b) reads a git-ignored 1pvar
+sweep cache (`data/single_z_1pvar`) that is **not shipped** to collaborators and is at the
+original fiducial/prior. Both are fixed together:
+- **`run_grid` regenerates the 1pvar sweep run-local, under `override_params`**, into
+  `<run_dir>/_1pvar/` via the existing `single_z.training_data.regenerate_param` +
+  `write_1pvar_hdf5` (which call `_generate_1pvar_inline` → `fiducial_vector()`/`get_param`
+  at call time, so they honor the override). This also removes the hidden dependency on the
+  unshipped cache and never touches `data/single_z_1pvar`.
+- **`eval_grad_faithfulness.py` gains an env-gated override** (`PRIYA_FIDUCIAL_OVERRIDES` /
+  `PRIYA_PRIOR_OVERRIDES`, JSON): its `fid` becomes a call-time `fiducial_vector()` read and
+  the scoring body runs inside `override_params(...)`. With no env vars set the context is a
+  no-op and the paper output is byte-identical. `run_grid`'s `score_fn` passes the override
+  via env + points `--data-1pvar` at the run-local dir.
+- **Second production-code touch (accepted by the user):** `eval_grad_faithfulness.py`
+  (additive, env-gated, paper-preserving), plus the run-local regen wiring in `rerun.py`.
+  `parameters.py` remains the other touched file.
 
 ### 3. `notebooks/_build_rerun_paper.py` → `notebooks/rerun_paper.ipynb`
 
