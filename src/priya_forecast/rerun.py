@@ -8,10 +8,13 @@ the production run). See notebooks/rerun_paper.ipynb.
 from __future__ import annotations
 
 import dataclasses
+import os
+import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from priya_forecast.parameters import PARAM_NAMES
+from priya_forecast.parameters import PARAM_NAMES, override_params
 
 ALL_PARAMS = tuple(PARAM_NAMES)
 PRODUCTION_BUDGET = {"niterations": 200, "populations": 48, "maxsize": 20,
@@ -123,3 +126,104 @@ def budget_warnings(cfg):
                  "the production results with a quick/tweaked run without meeting the "
                  "production budget on >=1 seed per arm.")
     return w
+
+
+def _real_gp_loader(basedir, z, k_grid):
+    import numpy as np
+    from priya_forecast.models.gp_model import GPModel
+    from priya_forecast.parameters import fiducial_vector
+    gp_lf = GPModel(basedir=basedir, fidelity="lf", kf=k_grid)
+    gp_hf = GPModel(basedir=basedir, fidelity="hf", kf=k_grid)
+    fid = np.asarray(fiducial_vector(), float)
+    gp_lf.predict(fid, k_grid, z); gp_hf.predict(fid, k_grid, z)   # warm/validate
+    return gp_lf, gp_hf
+
+
+def _pipeline_cfg(cfg, arm, z, out_root_for_arm):
+    from priya_forecast.single_z.config import PipelineConfig, GPConfig, PySRConfig
+    use_sob = (arm == "sobolev")
+    return PipelineConfig(
+        mode="refit_and_forecast", redshift=z, output_dir=str(out_root_for_arm),
+        gp=GPConfig(basedir=cfg.basedir),
+        pysr=PySRConfig(niterations=cfg.niterations, maxsize=cfg.maxsize,
+                        populations=cfg.populations, seed=cfg.seed,
+                        smart_kwargs=cfg.smart_kwargs,
+                        use_sobolev=use_sob, sobolev_lambda=cfg.sobolev_lambda,
+                        use_anova_loss=False),
+        target_space="log",                       # both arms train on log(P)
+    )
+
+
+def _real_refit_fn(*, param_name, z, cfg, gp_lf, gp_hf, k_grid, out_dir):
+    from priya_forecast.single_z import refit as _refit
+    return _refit.refit_one_param_single_z(
+        param_name=param_name, z=z, cfg=cfg, gp_lf=gp_lf, gp_hf=gp_hf,
+        k_grid=k_grid, out_dir=out_dir, save_artifacts=False)
+
+
+def _real_score_fn(pareto_csv, param, z, out_csv, basedir):
+    env = dict(os.environ)
+    lya = env.get("LYA_EMULATOR", "/home/mfho/student_projects/lya_emulator_full")
+    env["PYTHONPATH"] = f"src:{lya}" + (":" + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+    subprocess.run(
+        [sys.executable, "scripts/eval_grad_faithfulness.py",
+         "--pareto", str(pareto_csv), "--param", param, "--z", str(z),
+         "--basedir", basedir, "--log-space", "--out", str(out_csv)],
+        check=True, env=env)
+
+
+def run_grid(cfg, *, gp_loader=None, refit_fn=None, score_fn=None,
+             progress=print, stamp=""):
+    """Run the grid (arm x z x param) into cfg.run_dir; return the run dir.
+    Injectable callables default to the real GP-backed implementations; tests
+    pass fakes so no emulator is needed in CI."""
+    from priya_forecast.single_z.refit import kodiaq_k_grid
+    cfg.validate()
+    run_dir = cfg.run_dir                          # raises if inside production
+    gp_loader = gp_loader or _real_gp_loader
+    refit_fn = refit_fn or _real_refit_fn
+    score_fn = score_fn or _real_score_fn
+    run_dir.mkdir(parents=True, exist_ok=True)
+    k_grid = kodiaq_k_grid(cfg.kmin, cfg.kmax, 48)
+
+    n_done = 0
+    for z in cfg.zs:
+        progress(f"[z={z}] loading GP emulator ...")
+        gp_lf, gp_hf = gp_loader(cfg.basedir, z, k_grid)
+        for arm in cfg.arms:
+            for param in cfg.params:
+                out_dir = run_dir / arm / "refit" / f"z{z}"
+                out_dir.mkdir(parents=True, exist_ok=True)
+                progress(f"  fit {arm} {param} z={z} ...")
+                try:
+                    pcfg = _pipeline_cfg(cfg, arm, z, run_dir / arm)
+                    with override_params(cfg.fiducial_overrides, cfg.prior_overrides):
+                        refit_fn(param_name=param, z=z, cfg=pcfg,
+                                 gp_lf=gp_lf, gp_hf=gp_hf, k_grid=k_grid,
+                                 out_dir=out_dir)
+                    pareto = out_dir / f"pareto_{param}.csv"
+                    if pareto.exists():
+                        score_fn(pareto, param, z, out_dir / f"grad_faith_{param}.csv",
+                                 cfg.basedir)
+                    n_done += 1
+                except Exception as e:                # one bad param must not kill the grid
+                    progress(f"  !! {arm} {param} z={z} FAILED: {e} (continuing)")
+    _write_manifest(cfg, run_dir, n_done, stamp)
+    progress(f"done: {n_done} fits -> {run_dir}")
+    return run_dir
+
+
+def _write_manifest(cfg, run_dir, n_done, stamp):
+    lines = [
+        f"# RERUN MANIFEST — {cfg.label}", "",
+        f"- fits completed: {n_done}",
+        f"- params: {cfg.params}", f"- zs: {cfg.zs}", f"- arms: {cfg.arms}",
+        f"- budget: niter={cfg.niterations} pop={cfg.populations} maxsize={cfg.maxsize}",
+        f"- sobolev_lambda: {cfg.sobolev_lambda}", f"- seed: {cfg.seed}",
+        f"- fiducial_overrides: {cfg.fiducial_overrides}",
+        f"- prior_overrides: {cfg.prior_overrides}",
+        f"- stamp: {stamp}", "",
+        "Illustrative tutorial run — NOT the production result. See "
+        "results/paper_production_20260630_perz_sobolev_z2.6-4.2/ for the paper run.",
+    ]
+    (run_dir / "RUN_MANIFEST.md").write_text("\n".join(lines))
