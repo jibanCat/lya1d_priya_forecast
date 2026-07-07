@@ -288,8 +288,11 @@ def _make_figure(out_base: Path, rows: list[dict], summaries: dict,
         picks[(dim, "best")] = sub_sorted[0]
         picks[(dim, "worst")] = sub_sorted[-1]
 
+    # figure* at full text width (~7.1in): a 16in native downscaled ~0.44 gave
+    # ~9pt on-page labels; a 12.5in native lands on-page labels ~13pt / ticks
+    # ~10pt while keeping the same 2-panel aspect.
     fig, (axL, axR) = plt.subplots(
-        1, 2, figsize=(16, 7), gridspec_kw={"width_ratios": [1.15, 1.0]},
+        1, 2, figsize=(12.5, 5.6), gridspec_kw={"width_ratios": [1.15, 1.0]},
     )
 
     # --- Left: rel-err(%) vs k for best & worst per dim ---
@@ -314,7 +317,9 @@ def _make_figure(out_base: Path, rows: list[dict], summaries: dict,
     axL.axhline(1.0, ls=":", color="0.4", lw=1.0)
     axL.text(k_grid[0], 1.05, r"1\%", color="0.4", fontsize=15, va="bottom")
     axL.grid(alpha=0.3, which="both")
-    axL.legend(loc="upper left", frameon=False)
+    # Smaller than the rcParams legend size so the four best/worst entries fit
+    # inside the (now narrower) left panel without overrunning the curves.
+    axL.legend(loc="upper left", frameon=False, fontsize=13)
 
     # --- Right: horizontal summary bars (mean), with p90 + max markers ---
     rows_sorted = sorted(rows, key=lambda r: (r["dim"], r["mean_pct"]))
