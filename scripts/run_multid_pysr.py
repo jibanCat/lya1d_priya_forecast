@@ -28,6 +28,7 @@ turn-around you want.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -84,6 +85,77 @@ def _build_training(*, gp, varying_names, n, k_grid, z, seed=0):
             rows_X.append(row)
             rows_y.append(flux[i, ki])
     return np.asarray(rows_X), np.asarray(rows_y)
+
+
+def _spectrum(F, widths):
+    """Eigen-spectrum + condition number + numerical rank of a Fisher block.
+
+    `FisherResult.F` is `F_phys = Y^T Y` with `Y_i = L^-1 dP_F/dtheta_i` — i.e.
+    the Gram matrix of the whitened parameter Jacobian ``J = dP_F/dtheta``. Its
+    eigen-spectrum therefore mirrors the singular spectrum of J: a rank-deficient
+    Jacobian (parameters folding into one shared sub-expression, §5.1) shows up
+    as eigenvalues collapsing toward zero. Reported in two bases:
+
+    - ``physical``: F as-is (per-parameter internal units).
+    - ``whitened``: ``F_hat_ij = F_ij * w_i * w_j`` with ``w = prior width`` — the
+      dimensionless form the forecast itself inverts, so genuine direction
+      collapse is separated from trivial per-parameter unit-scale spread.
+
+    Numerical rank at tolerance ``tol`` counts eigenvalues ``> tol * lambda_max``.
+    """
+    F = np.asarray(F, dtype=float)
+    W = np.outer(widths, widths)
+    out = {}
+    for label, M in (("physical", F), ("whitened", F * W)):
+        eig = np.sort(np.linalg.eigvalsh(0.5 * (M + M.T)))[::-1]
+        lam_max = float(eig[0]) if eig.size else 0.0
+        lam_min = float(eig[-1]) if eig.size else 0.0
+        cond = (lam_max / lam_min) if lam_min > 0 else float("inf")
+        ranks = {
+            f"{tol:.0e}": (int(np.sum(eig > tol * lam_max)) if lam_max > 0 else 0)
+            for tol in (1e-6, 1e-8, 1e-10)
+        }
+        out[label] = {
+            "eigenvalues": eig.tolist(),
+            "lambda_max": lam_max,
+            "lambda_min": lam_min,
+            "condition_number": cond,
+            "numerical_rank": ranks,
+        }
+    return out
+
+
+def _write_joint_rank_json(*, path, params, fr_student, fr_gp,
+                           equation, loss, complexity, z):
+    """Dump the §5.1 rank diagnostic (equation + loss + Fisher/Jacobian rank
+    spectrum for the joint PySR fit and the GP reference) to `path` as JSON."""
+    widths = np.array([p.width() for p in params], dtype=float)
+    n = len(params)
+    sig = lambda fr: [None if not np.isfinite(s) else float(s) for s in fr.sigma]
+    diag = {
+        "params": [p.name for p in params],
+        "n_params": n,
+        "z": float(z),
+        "joint_equation": str(equation),
+        "joint_loss": float(loss),
+        "joint_complexity": int(complexity),
+        "joint_pysr": {**_spectrum(fr_student.F, widths), "sigma": sig(fr_student)},
+        "gp_reference": {**_spectrum(fr_gp.F, widths), "sigma": sig(fr_gp)},
+    }
+    rk8 = diag["joint_pysr"]["whitened"]["numerical_rank"]["1e-08"]
+    diag["joint_pysr"]["rank_deficient_vs_nparams"] = bool(rk8 < n)
+
+    def _san(o):  # JSON-safe: non-finite floats (e.g. inf cond) -> null
+        if isinstance(o, float):
+            return o if np.isfinite(o) else None
+        if isinstance(o, dict):
+            return {k: _san(v) for k, v in o.items()}
+        if isinstance(o, list):
+            return [_san(v) for v in o]
+        return o
+
+    Path(path).write_text(json.dumps(_san(diag), indent=2) + "\n")
+    return diag
 
 
 def main():
@@ -196,6 +268,35 @@ def main():
     fr_gp = fisher_for(model=gp, fid=fid, k=k_eboss, z=z, params=forecast_params)
     fr_perfect = fisher_for(model=pysr_perfect, fid=fid, k=k_eboss, z=z, params=forecast_params)
     fr_student = fisher_for(model=pysr_model, fid=fid, k=k_eboss, z=z, params=forecast_params)
+
+    # --- §5.1 rank diagnostic: joint-PySR Jacobian/Fisher rank vs the GP. ---
+    # `FisherResult.F = Y^T Y` (Y = whitened dP_F/dtheta), so its eigen-spectrum
+    # is the parameter-Jacobian singular spectrum. Dump spectrum + condition
+    # number + numerical rank (tol 1e-6/1e-8/1e-10) for the joint fit and the GP.
+    rank_diag = _write_joint_rank_json(
+        path=out / "joint_rank_diagnostic.json",
+        params=forecast_params, fr_student=fr_student, fr_gp=fr_gp,
+        equation=best_eq["equation"], loss=best_eq["loss"],
+        complexity=best_eq["complexity"], z=z,
+    )
+    jp = rank_diag["joint_pysr"]["whitened"]
+    gpw = rank_diag["gp_reference"]["whitened"]
+    print("\n=== joint-fit rank diagnostic (whitened Fisher/Jacobian) ===")
+    print(f"  n_params            : {rank_diag['n_params']}")
+    print(f"  joint loss          : {rank_diag['joint_loss']:.3g}  "
+          f"(complexity {rank_diag['joint_complexity']})")
+    print(f"  joint-PySR numerical rank (tol 1e-6/1e-8/1e-10): "
+          f"{jp['numerical_rank']['1e-06']}/{jp['numerical_rank']['1e-08']}/"
+          f"{jp['numerical_rank']['1e-10']}  of {rank_diag['n_params']}")
+    print(f"  joint-PySR condition number : {jp['condition_number']:.3e}")
+    print(f"  GP-ref    numerical rank (tol 1e-6/1e-8/1e-10): "
+          f"{gpw['numerical_rank']['1e-06']}/{gpw['numerical_rank']['1e-08']}/"
+          f"{gpw['numerical_rank']['1e-10']}  of {rank_diag['n_params']}")
+    print(f"  GP-ref    condition number : {gpw['condition_number']:.3e}")
+    print(f"  rank-deficient vs n_params : "
+          f"{rank_diag['joint_pysr']['rank_deficient_vs_nparams']}")
+    print(f"  written -> {out / 'joint_rank_diagnostic.json'}")
+
     md = (out / "summary.md").read_text()
     full = _scorecard(
         summary_md=md, fr_perfect=fr_perfect, fr_gp=fr_gp,
