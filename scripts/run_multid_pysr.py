@@ -30,10 +30,35 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
 import numpy as np
+
+# Why the maxsize sweep has no Sobolev arm. The Sobolev derivative-matching loss
+# (priya_forecast.sobolev_loss.make_sobolev_loss) is well-defined ONLY for a
+# single-input (per-parameter 1D) fit: inside the Julia loss it perturbs exactly
+# one feature row (`X[1, :] .+= h`) and matches that one finite-difference
+# gradient against the ONE per-point target carried by PySR's `dataset.weights`
+# channel. A joint 6-input equation would need to match dP_F/dtheta_i for all six
+# params x0..x5 at once -> six independent target-gradient channels and six
+# perturbation directions. PySR exposes a single per-point `weights` vector only,
+# so the six targets cannot be delivered and the loss hardcodes perturbing just
+# the first feature. Generalizing would require packing 6 target-gradient arrays
+# into extra X columns and rewriting the loss to perturb each of the 6
+# theta-feature rows against those columns -- a redesign absent from the current
+# machinery. Joint-Sobolev is therefore NOT well-defined here; MSE only.
+SOBOLEV_ARM_NOTE = {
+    "feasible": False,
+    "reason": (
+        "Sobolev loss perturbs one feature row (X[1,:]+=h) and matches the single "
+        "`dataset.weights` channel = one param's target gradient. A joint 6-input eq "
+        "needs dP/dtheta_i for all 6 params (6 gradient channels + 6 perturb dirs); "
+        "PySR has only one weights vector, so joint-Sobolev is not well-defined with "
+        "the current machinery. This sweep uses MSE only."
+    ),
+}
 
 os.environ.setdefault("PYTHON_JULIAPKG_PROJECT", str(Path.home() / ".julia_env"))
 os.environ.setdefault("JULIA_DEPOT_PATH", str(Path.home() / ".julia"))
@@ -87,6 +112,111 @@ def _build_training(*, gp, varying_names, n, k_grid, z, seed=0):
     return np.asarray(rows_X), np.asarray(rows_y)
 
 
+def _to_physical_expr(expr_str, param_names, k_min, k_max):
+    """Rewrite a PySR ``x0..xN`` equation into physical-units form: each ``x_i``
+    -> the normalized parameter ``(param_i - lo_i)/(hi_i - lo_i)`` and the final
+    ``x_N`` -> normalized k ``(k - k_min)/(k_max - k_min)``. Substituted
+    high-index-first so ``x10`` is never mangled into ``x1``."""
+    pieces = []
+    for i, name in enumerate(param_names):
+        lo, hi = get_param(name).prior
+        pieces.append((f"x{i}", f"(({name}) - ({lo}))/({hi - lo})"))
+    pieces.append((f"x{len(param_names)}", f"((k) - ({k_min}))/({k_max - k_min})"))
+    pieces.sort(key=lambda p: -int(p[0][1:]))
+    out = str(expr_str)
+    for old, new in pieces:
+        out = out.replace(old, f"({new})")
+    return out
+
+
+def _inputs_present(expr_str, param_names):
+    """Which of the len(param_names) parameter inputs (x0..x_{n-1}) actually
+    appear in `expr_str` (the last feature x_n is k, ignored here). Returns
+    (n_present, absent_names)."""
+    used = {int(m) for m in re.findall(r"x(\d+)", str(expr_str))}
+    present = [i for i in range(len(param_names)) if i in used]
+    absent = [param_names[i] for i in range(len(param_names)) if i not in used]
+    return len(present), absent
+
+
+def _front_rank_scan(*, pareto, param_names, k_grid, k_min, k_max, fid, z,
+                     forecast_params, fisher_for, min_complexity=10):
+    """Reconstruct EVERY Pareto-front equation with complexity >= min_complexity,
+    build its joint PySRModel, compute the whitened Fisher at fid, and return the
+    MAX whitened numerical rank (tol 1e-8) reached by ANY front equation plus the
+    complexity at which it is reached. The idxmin (loss-min) rank alone can hide a
+    higher-rank equation sitting elsewhere on the front — this is the
+    discriminator between structural collapse and a loss-surface accident."""
+    widths = np.array([p.width() for p in forecast_params], dtype=float)
+    W = np.outer(widths, widths)
+    rows = []
+    best_rank, best_rank_cx = -1, None
+    for _, r in pareto.iterrows():
+        cx = int(r["complexity"])
+        if cx < min_complexity:
+            continue
+        try:
+            phys = _to_physical_expr(str(r["equation"]), param_names, k_min, k_max)
+            cfg = EqnConfig(name=f"front_c{cx}", redshift=z, model="pysr",
+                            combine="joint", joint_expression=phys, parameters={})
+            m = PySRModel(eqn_cfg=cfg, k_grid=k_grid,
+                          normalization_block={"mode": "identity"})
+            fr = fisher_for(model=m, fid=fid, k=k_grid, z=z, params=forecast_params)
+            Fw = fr.F * W
+            eig = np.sort(np.linalg.eigvalsh(0.5 * (Fw + Fw.T)))[::-1]
+            lam_max = float(eig[0]) if eig.size else 0.0
+            rank = int(np.sum(eig > 1e-8 * lam_max)) if lam_max > 0 else 0
+            rows.append({"complexity": cx, "loss": float(r["loss"]), "rank_1e8": rank})
+            if rank > best_rank:
+                best_rank, best_rank_cx = rank, cx
+        except Exception as e:  # a front eq may fail to compile / give a NaN Fisher
+            rows.append({"complexity": cx, "loss": float(r["loss"]),
+                         "rank_1e8": None, "error": str(e)[:160]})
+    return {
+        "front_max_rank_1e8": (best_rank if best_rank >= 0 else None),
+        "front_max_rank_complexity": best_rank_cx,
+        "min_complexity_scanned": int(min_complexity),
+        "n_front_scanned": int(sum(1 for x in rows if x.get("rank_1e8") is not None)),
+        "per_row": rows,
+    }
+
+
+def _offfid_thetas(*, forecast_params, fid, n, seed=0, frac=0.3):
+    """n random theta vectors: forecast params jittered uniformly by +/-frac*width
+    about fid (clamped strictly inside their priors so the GP stays in range);
+    all other params fixed at fid."""
+    rng = np.random.default_rng(seed)
+    idxs = [PARAM_NAMES.index(p.name) for p in forecast_params]
+    out = []
+    for _ in range(n):
+        theta = np.array(fid, dtype=float).copy()
+        for p, gi in zip(forecast_params, idxs):
+            lo, hi = p.prior
+            w = hi - lo
+            val = fid[gi] + rng.uniform(-frac, frac) * w
+            theta[gi] = min(max(val, lo + 1e-6 * w), hi - 1e-6 * w)
+        out.append(theta)
+    return out
+
+
+def _accuracy_mses(*, gp, student_model, perfect_model, k, z, thetas, sigma_eboss):
+    """Mean residual MSE in eBOSS-sigma^2 units vs the GP truth over `thetas`, for
+    the student joint eq and the perfect-1D reference."""
+    s_mses, p_mses = [], []
+    for theta in thetas:
+        try:
+            p_truth = gp.predict(theta, k, z)
+            p_stu = student_model.predict(theta, k, z)
+            p_prf = perfect_model.predict(theta, k, z)
+            s_mses.append(float(np.mean(((p_stu - p_truth) / sigma_eboss) ** 2)))
+            p_mses.append(float(np.mean(((p_prf - p_truth) / sigma_eboss) ** 2)))
+        except Exception:
+            continue
+    _m = lambda v: (float(np.mean(v)) if v else float("nan"))
+    return {"student_vs_gp": _m(s_mses), "perfect1d_vs_gp": _m(p_mses),
+            "n_points": len(s_mses)}
+
+
 def _spectrum(F, widths):
     """Eigen-spectrum + condition number + numerical rank of a Fisher block.
 
@@ -126,9 +256,23 @@ def _spectrum(F, widths):
 
 
 def _write_joint_rank_json(*, path, params, fr_student, fr_gp,
-                           equation, loss, complexity, z):
-    """Dump the §5.1 rank diagnostic (equation + loss + Fisher/Jacobian rank
-    spectrum for the joint PySR fit and the GP reference) to `path` as JSON."""
+                           equation, loss, complexity, z,
+                           maxsize=None, front_scan=None, n_inputs_present=None,
+                           absent_inputs=None, accuracy_insample=None,
+                           accuracy_offfid=None, sobolev_arm=None):
+    """Dump the §5.1 rank diagnostic to `path` as JSON.
+
+    Base fields (loss-min / idxmin equation): equation, loss, complexity, the
+    whitened+physical Fisher/Jacobian eigen-spectrum, condition number, and
+    numerical rank (tol 1e-6/1e-8/1e-10) for the joint fit and the GP reference.
+
+    Maxsize-sweep upgrade (all optional; populated by the sweep runner):
+    - front_scan: MAX whitened rank over the WHOLE Pareto front (the discriminator).
+    - n_inputs_present / absent_inputs: how many of the params the loss-min eq uses.
+    - pinned_at_cap: best_loss_complexity == maxsize (front still budget-saturated).
+    - accuracy_insample / accuracy_offfid: student-vs-GP & perfect1D-vs-GP residual MSE.
+    - sobolev_arm: feasibility note for the (not-run) joint-Sobolev arm.
+    A flat `preregistered` block mirrors the fields the pass/fail criteria read."""
     widths = np.array([p.width() for p in params], dtype=float)
     n = len(params)
     sig = lambda fr: [None if not np.isfinite(s) else float(s) for s in fr.sigma]
@@ -136,6 +280,7 @@ def _write_joint_rank_json(*, path, params, fr_student, fr_gp,
         "params": [p.name for p in params],
         "n_params": n,
         "z": float(z),
+        "maxsize": (int(maxsize) if maxsize is not None else None),
         "joint_equation": str(equation),
         "joint_loss": float(loss),
         "joint_complexity": int(complexity),
@@ -144,6 +289,38 @@ def _write_joint_rank_json(*, path, params, fr_student, fr_gp,
     }
     rk8 = diag["joint_pysr"]["whitened"]["numerical_rank"]["1e-08"]
     diag["joint_pysr"]["rank_deficient_vs_nparams"] = bool(rk8 < n)
+    if front_scan is not None:
+        diag["front_scan"] = front_scan
+    if n_inputs_present is not None:
+        diag["n_inputs_present"] = int(n_inputs_present)
+        diag["absent_inputs"] = list(absent_inputs or [])
+    if accuracy_insample is not None:
+        diag["accuracy_insample"] = accuracy_insample
+    if accuracy_offfid is not None:
+        diag["accuracy_offfid"] = accuracy_offfid
+    if sobolev_arm is not None:
+        diag["sobolev_arm"] = sobolev_arm
+
+    # Flat pre-registered block: every field the STRUCTURAL/BUDGET/INCONCLUSIVE
+    # decision reads, so the cross-maxsize analysis is mechanical.
+    pinned = (bool(int(complexity) == int(maxsize)) if maxsize is not None else None)
+    diag["preregistered"] = {
+        "maxsize": (int(maxsize) if maxsize is not None else None),
+        "n_params": n,
+        "best_loss_complexity": int(complexity),
+        "pinned_at_cap": pinned,
+        "n_inputs_present": (int(n_inputs_present) if n_inputs_present is not None else None),
+        "absent_inputs": list(absent_inputs or []),
+        "idxmin_rank_whitened_1e8": rk8,
+        "front_max_rank_1e8": (front_scan or {}).get("front_max_rank_1e8"),
+        "front_max_rank_complexity": (front_scan or {}).get("front_max_rank_complexity"),
+        "joint_condition_number_whitened": diag["joint_pysr"]["whitened"]["condition_number"],
+        "gp_condition_number_whitened": diag["gp_reference"]["whitened"]["condition_number"],
+        "offfid_student_vs_gp": (accuracy_offfid or {}).get("student_vs_gp"),
+        "offfid_perfect1d_vs_gp": (accuracy_offfid or {}).get("perfect1d_vs_gp"),
+        "insample_student_vs_gp": (accuracy_insample or {}).get("student_vs_gp"),
+        "insample_perfect1d_vs_gp": (accuracy_insample or {}).get("perfect1d_vs_gp"),
+    }
 
     def _san(o):  # JSON-safe: non-finite floats (e.g. inf cond) -> null
         if isinstance(o, float):
@@ -217,19 +394,8 @@ def main():
     # PySR returns equation strings using x0, x1, ..., xN where N = len(params)
     # (last one is k_norm). We rewrite to physical-units form.
     expr_str = str(best_eq["equation"])
-    # Substitute x_i → ((param_i) - lo_i)/(hi_i - lo_i)
-    # and last x_N → ((k) - k_min)/(k_max - k_min).
     k_min, k_max = float(k_eboss.min()), float(k_eboss.max())
-    pieces = []
-    for i, name in enumerate(args.params):
-        lo, hi = get_param(name).prior
-        pieces.append((f"x{i}", f"(({name}) - ({lo}))/({hi - lo})"))
-    pieces.append((f"x{len(args.params)}", f"((k) - ({k_min}))/({k_max - k_min})"))
-    # Substitute right-to-left to avoid x10 → x1 0 issues.
-    pieces.sort(key=lambda p: -int(p[0][1:]))
-    physical_expr = expr_str
-    for old, new in pieces:
-        physical_expr = physical_expr.replace(old, f"({new})")
+    physical_expr = _to_physical_expr(expr_str, args.params, k_min, k_max)
 
     print(f"\nExpression (physical-units form):\n  {physical_expr}\n")
 
@@ -273,26 +439,58 @@ def main():
     # `FisherResult.F = Y^T Y` (Y = whitened dP_F/dtheta), so its eigen-spectrum
     # is the parameter-Jacobian singular spectrum. Dump spectrum + condition
     # number + numerical rank (tol 1e-6/1e-8/1e-10) for the joint fit and the GP.
+    #
+    # Maxsize-sweep upgrade: (1) MAX whitened rank over the WHOLE Pareto front,
+    # (2) which of the params the loss-min eq uses + pinned-at-cap, (3) in-sample
+    # and off-fid residual MSE vs the GP (student & perfect-1D), so the
+    # STRUCTURAL-vs-BUDGET-ARTIFACT question is answered mechanically.
+    print("\nScanning Pareto front for max Fisher rank (complexity >= 10)...")
+    front_scan = _front_rank_scan(
+        pareto=pareto, param_names=args.params, k_grid=k_eboss,
+        k_min=k_min, k_max=k_max, fid=fid, z=z,
+        forecast_params=forecast_params, fisher_for=fisher_for, min_complexity=10,
+    )
+    n_present, absent = _inputs_present(best_eq["equation"], args.params)
+    sigma_eboss = np.sqrt(np.diag(cov))
+    insample_thetas = _sobol_design(varying_names=args.params, n=args.n_train, seed=args.seed)
+    offfid_thetas = _offfid_thetas(forecast_params=forecast_params, fid=fid,
+                                   n=32, seed=0, frac=0.3)
+    acc_in = _accuracy_mses(gp=gp, student_model=pysr_model, perfect_model=pysr_perfect,
+                            k=k_eboss, z=z, thetas=list(insample_thetas), sigma_eboss=sigma_eboss)
+    acc_off = _accuracy_mses(gp=gp, student_model=pysr_model, perfect_model=pysr_perfect,
+                             k=k_eboss, z=z, thetas=offfid_thetas, sigma_eboss=sigma_eboss)
+
     rank_diag = _write_joint_rank_json(
         path=out / "joint_rank_diagnostic.json",
         params=forecast_params, fr_student=fr_student, fr_gp=fr_gp,
         equation=best_eq["equation"], loss=best_eq["loss"],
-        complexity=best_eq["complexity"], z=z,
+        complexity=best_eq["complexity"], z=z, maxsize=args.maxsize,
+        front_scan=front_scan, n_inputs_present=n_present, absent_inputs=absent,
+        accuracy_insample=acc_in, accuracy_offfid=acc_off,
+        sobolev_arm=SOBOLEV_ARM_NOTE,
     )
     jp = rank_diag["joint_pysr"]["whitened"]
     gpw = rank_diag["gp_reference"]["whitened"]
+    pre = rank_diag["preregistered"]
     print("\n=== joint-fit rank diagnostic (whitened Fisher/Jacobian) ===")
-    print(f"  n_params            : {rank_diag['n_params']}")
+    print(f"  n_params            : {rank_diag['n_params']}   maxsize={args.maxsize}")
     print(f"  joint loss          : {rank_diag['joint_loss']:.3g}  "
-          f"(complexity {rank_diag['joint_complexity']})")
-    print(f"  joint-PySR numerical rank (tol 1e-6/1e-8/1e-10): "
+          f"(complexity {rank_diag['joint_complexity']}, "
+          f"pinned_at_cap={pre['pinned_at_cap']})")
+    print(f"  n_inputs_present    : {pre['n_inputs_present']}/{rank_diag['n_params']}  "
+          f"(absent: {pre['absent_inputs']})")
+    print(f"  joint-PySR idxmin rank (1e-6/1e-8/1e-10): "
           f"{jp['numerical_rank']['1e-06']}/{jp['numerical_rank']['1e-08']}/"
           f"{jp['numerical_rank']['1e-10']}  of {rank_diag['n_params']}")
-    print(f"  joint-PySR condition number : {jp['condition_number']:.3e}")
-    print(f"  GP-ref    numerical rank (tol 1e-6/1e-8/1e-10): "
-          f"{gpw['numerical_rank']['1e-06']}/{gpw['numerical_rank']['1e-08']}/"
-          f"{gpw['numerical_rank']['1e-10']}  of {rank_diag['n_params']}")
-    print(f"  GP-ref    condition number : {gpw['condition_number']:.3e}")
+    print(f"  FRONT max rank (1e-8): {pre['front_max_rank_1e8']} of {rank_diag['n_params']}  "
+          f"(at complexity {pre['front_max_rank_complexity']}, "
+          f"{front_scan['n_front_scanned']} front eqs scanned)")
+    print(f"  joint-PySR condition number : {jp['condition_number']:.3e}   "
+          f"GP condition number : {gpw['condition_number']:.3e}")
+    print(f"  off-fid MSE  student/GP={pre['offfid_student_vs_gp']:.3g}  "
+          f"perfect1D/GP={pre['offfid_perfect1d_vs_gp']:.3g}")
+    print(f"  in-sample MSE student/GP={pre['insample_student_vs_gp']:.3g}  "
+          f"perfect1D/GP={pre['insample_perfect1d_vs_gp']:.3g}")
     print(f"  rank-deficient vs n_params : "
           f"{rank_diag['joint_pysr']['rank_deficient_vs_nparams']}")
     print(f"  written -> {out / 'joint_rank_diagnostic.json'}")
