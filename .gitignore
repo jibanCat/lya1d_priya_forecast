@@ -250,6 +250,17 @@ results/*
 !results/refit_phase2_production/
 !results/refit_phase2_production/**
 
+# The §5.1 sweep: ship the summary and the 20 per-seed diagnostics that back it
+# (137 KB total), so scripts/aggregate_joint_sweep.py runs from a fresh clone.
+# NOT the ~53 MB of corner/residual/eq-card PNGs beside them. `results/*` only
+# matches direct children, so once the dir is re-included its contents must be
+# re-ignored explicitly before whitelisting the files we actually want.
+!results/joint_multid_sweep/
+results/joint_multid_sweep/**
+!results/joint_multid_sweep/SWEEP_SUMMARY.md
+!results/joint_multid_sweep/*/
+!results/joint_multid_sweep/*/joint_rank_diagnostic.json
+
 # Claude Code harness state — never ship
 .claude/
 
