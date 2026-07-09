@@ -382,19 +382,43 @@ paper's LaTeX repo.
 
 ### Figures
 
+The paper's build loads **six** figures. Everything else below was dropped by the author
+and is commented out in the `.tex` — the generators still work, but nothing in the PDF uses
+them. The committed copies under `$PROD/figures/` are byte-identical to the paper's `figs/`.
+
+**Active in the built PDF:**
+
 | paper figure | file | tier | command |
 |--------------|------|:----:|---------|
 | Pareto faithfulness (`fig:pareto_faith`) | `pareto_faithfulness.pdf` | 1 | `make_diagnostic_figs.py` (§1e) |
-| Faithfulness scorecard (`fig:faith_scorecard`) | `faithfulness_scorecard.pdf` | 1 | `make_diagnostic_figs.py` (§1e) |
 | ns budget panel (`fig:ns_budget`) | `ns_budget_panel.pdf` | 1 | `make_diagnostic_figs.py` (§1e) |
-| Cross-z faithfulness (`fig:crossz`) | `crossz_faithfulness.pdf` | 1 | `make_diagnostic_figs.py` (§1e) |
-| Maxsize sensitivity | `maxsize_sensitivity.pdf` | 1 | `regen_maxsize_sensitivity.py --prod $PROD --z 3.6` (§1e) |
-| Across-seed band (`fig:seed_band`) | `seed_band.pdf` | 1 | plot `seed_band_summary.json` (§1e / notebook §1.3) |
-| tau0 & Ap prediction (`fig:tau0_ap_pred`) | `pysr_pred_tau0_Ap.pdf` | 2 | `$FIGREPO/scripts/regen_fig1.py` (§2d) |
+| Resolution correction (`fig:rescorr_plot`) | `resolution_correction.pdf` | 1 | `scripts/regen_rescorr.py --out-dir <dir>` (no GP; needs TeX) |
+| Across-seed band (`fig:seed_band`) | `seed_band.pdf` | 1 | `paper_figures.plot_seed_band` — see caveat below |
+| tau0 & Ap prediction (`fig:tau0_ap_pred`) | `pysr_pred_tau0_Ap.pdf` | 2\* | `$FIGREPO/scripts/regen_fig1.py --refit-dir $PROD/sobolev/refit/z3.6` (§2d) |
 | Multi-D best/worst (`fig:multid_bestworst`) | `multid_bestworst.pdf` | 2 | `scripts/regen_multid.py` (§2d) |
-| dtau0 P1D prediction (`fig:dtau0_p1d_pred`) | `pysr_graphs_3.6_dtau0.pdf` | 2 | `$FIGREPO/scripts/regen_fig3.py` (§2d) |
-| 2D de-norm scatter (`fig:denorm_dtau0-ap`) | `2d-denorm-Sobol_dtau0-Ap.pdf` | 2 | `$FIGREPO/scripts/regen_fig4.py` (§2d) |
-| holdout_validation_{cosmo,astro} | — | — | **dropped by the author** (commented out in the `.tex`); superseded by `multid_bestworst` |
+
+**Dropped by the author** (commented out in the `.tex`; not in the built PDF):
+`faithfulness_scorecard.pdf`, `crossz_faithfulness.pdf` (both `make_diagnostic_figs.py`),
+`maxsize_sensitivity.pdf` (`regen_maxsize_sensitivity.py`), `pysr_graphs_3.6_dtau0.pdf`
+(`$FIGREPO/scripts/regen_fig3.py`), `2d-denorm-Sobol_dtau0-Ap.pdf` (`$FIGREPO/scripts/regen_fig4.py`),
+`holdout_validation_{cosmo,astro}` (superseded by `multid_bestworst`).
+
+Three caveats worth knowing before you trust a regenerated figure:
+
+- **`pysr_pred_tau0_Ap` (tier 2\*)** needs no GP — `regen_fig1.py` reads committed pickles and runs
+  in ~3 s — but the generator lives in the **paper** repo, not here, and `--refit-dir` is mandatory.
+  Its default (`results/refit_phase2_production`) silently produces a *different* figure from an older
+  refit set. With the refit-dir above, the output is pixel-identical to the published PDF.
+- **`multid_bestworst`** requires the GP (`GPModel`, ~20 min load) and re-draws its Sobol sample, so a
+  rerun agrees with the published figure only to ~4 significant figures, never byte- or pixel-exactly.
+  The best/worst parameter combinations are stable.
+- **`seed_band`** plots exactly the committed `seed_band/seed_band_summary.json`, but the published PDF
+  was hand-tuned in an interactive session (title, legend text, canvas size) on top of
+  `paper_figures.plot_seed_band`. `plot_seed_band` reproduces the *data and labels*; it does not
+  reproduce the shipped canvas pixel-for-pixel.
+
+Figures are compared by content, not bytes: matplotlib stamps a `CreationDate`, so rasterize first —
+`gs -q -dNOPAUSE -dBATCH -sDEVICE=png16m -r150 -sOutputFile=out.png in.pdf` — then compare the PNGs.
 
 ### Tables
 
