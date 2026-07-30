@@ -238,6 +238,7 @@ notebooks/_build_*.py
 
 results/_repro_scratch/
 results/_tutorial_scratch/
+results/tutorial_reruns/
 
 # --- Public release: under results/ ship ONLY the committed runs the paper/notebook read.
 # Ignore everything, then re-include the production run + the legacy refit set that
@@ -249,6 +250,24 @@ results/*
 !results/refit_phase2_production/
 !results/refit_phase2_production/**
 
+# The §5.1 sweep: ship the summary and the 20 per-seed diagnostics that back it
+# (137 KB total), so scripts/aggregate_joint_sweep.py runs from a fresh clone.
+# NOT the ~53 MB of corner/residual/eq-card PNGs beside them. `results/*` only
+# matches direct children, so once the dir is re-included its contents must be
+# re-ignored explicitly before whitelisting the files we actually want.
+!results/joint_multid_sweep/
+results/joint_multid_sweep/**
+!results/joint_multid_sweep/SWEEP_SUMMARY.md
+!results/joint_multid_sweep/*/
+!results/joint_multid_sweep/*/joint_rank_diagnostic.json
+
+# The h basis test result (1 KB). Two RENDERED numbers in the paper (the corr ~ -0.25
+# and the ~6%-of-variance figures) are stamped to this file, so it must ship or a
+# referee cannot check them. It was dropped by the public-release results/ pruning;
+# recovered from 4850f54.
+!results/h_basis_test/
+!results/h_basis_test/h_basis.json
+
 # Claude Code harness state — never ship
 .claude/
 
@@ -257,3 +276,10 @@ results/*
 
 # jupyter scratch the results/ whitelist's /** would otherwise re-include
 results/**/.ipynb_checkpoints/
+
+# Session handoff / note scratch — never committed (MFH's call): these carry
+# point-in-time claims that read as fact long after they stop being true.
+# The tracked *historical* handoffs live under docs/dev/, which these globs
+# do not match, so nothing versioned is hidden.
+docs/HANDOFF_*.md
+docs/NOTE_*.md

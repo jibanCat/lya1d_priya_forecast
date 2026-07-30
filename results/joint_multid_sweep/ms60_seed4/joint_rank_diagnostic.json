@@ -1,0 +1,350 @@
+{
+  "params": [
+    "ns",
+    "Ap",
+    "herei",
+    "heref",
+    "alphaq",
+    "hireionz"
+  ],
+  "n_params": 6,
+  "z": 3.6,
+  "maxsize": 60,
+  "joint_equation": "(((((((x0 + 4.3315854) - ((square(x2) + x6) * 1.5927868)) - square(x1)) + (x1 * 0.48754552)) * (x2 + x0)) - -13.013987) + (((x2 * ((x3 + (0.4360465 - x4)) * 2.0792332)) + (18.79221 - x5)) * exp(((x1 * 0.3182616) + (0.85045946 - x6)) - x6))) + exp(((x6 * -9.3259) - x0) + (3.1168635 - square(x0)))",
+  "joint_loss": 0.35204354,
+  "joint_complexity": 60,
+  "joint_pysr": {
+    "physical": {
+      "eigenvalues": [
+        2273.937163596765,
+        119.66419930974207,
+        0.1507925931686093,
+        5.981836228656716e-05,
+        2.4913167980812428e-15,
+        -3.1451364122846054e-16
+      ],
+      "lambda_max": 2273.937163596765,
+      "lambda_min": -3.1451364122846054e-16,
+      "condition_number": null,
+      "numerical_rank": {
+        "1e-06": 3,
+        "1e-08": 4,
+        "1e-10": 4
+      }
+    },
+    "whitened": {
+      "eigenvalues": [
+        334.1667058168017,
+        86.27242684280641,
+        0.17179478715777824,
+        0.00010105989881484296,
+        4.021554041485039e-15,
+        -1.9629299111672425e-16
+      ],
+      "lambda_max": 334.1667058168017,
+      "lambda_min": -1.9629299111672425e-16,
+      "condition_number": null,
+      "numerical_rank": {
+        "1e-06": 3,
+        "1e-08": 4,
+        "1e-10": 4
+      }
+    },
+    "sigma": [
+      0.09130476592557144,
+      41.55867176378035,
+      5.207759142964767,
+      55.444698809113156,
+      94.25598798128978,
+      79.99780708616188
+    ],
+    "rank_deficient_vs_nparams": true
+  },
+  "gp_reference": {
+    "physical": {
+      "eigenvalues": [
+        2295.816361426129,
+        186.4308991328192,
+        1.235871478843695,
+        0.2834608294040408,
+        0.07752773885017769,
+        0.02825345317995658
+      ],
+      "lambda_max": 2295.816361426129,
+      "lambda_min": 0.02825345317995658,
+      "condition_number": 81257.90312438039,
+      "numerical_rank": {
+        "1e-06": 6,
+        "1e-08": 6,
+        "1e-10": 6
+      }
+    },
+    "whitened": {
+      "eigenvalues": [
+        469.35845113192227,
+        103.01017082366535,
+        1.7488944364899826,
+        0.4053148907352286,
+        0.11600549963180729,
+        0.06580320137293891
+      ],
+      "lambda_max": 469.35845113192227,
+      "lambda_min": 0.06580320137293891,
+      "condition_number": 7132.7601292806185,
+      "numerical_rank": {
+        "1e-06": 6,
+        "1e-08": 6,
+        "1e-10": 6
+      }
+    },
+    "sigma": [
+      0.07552060750231099,
+      0.7544330617295089,
+      2.3686275782906288,
+      2.5101749073839854,
+      5.763191115879233,
+      2.6333748472086302
+    ]
+  },
+  "front_scan": {
+    "front_max_rank_1e8": 4,
+    "front_max_rank_complexity": 23,
+    "min_complexity_scanned": 10,
+    "n_front_scanned": 40,
+    "per_row": [
+      {
+        "complexity": 11,
+        "loss": 3.3361144,
+        "rank_1e8": 2
+      },
+      {
+        "complexity": 12,
+        "loss": 3.2267935,
+        "rank_1e8": 2
+      },
+      {
+        "complexity": 13,
+        "loss": 3.0963871,
+        "rank_1e8": 3
+      },
+      {
+        "complexity": 14,
+        "loss": 2.9331143,
+        "rank_1e8": 2
+      },
+      {
+        "complexity": 15,
+        "loss": 2.8855474,
+        "rank_1e8": 3
+      },
+      {
+        "complexity": 16,
+        "loss": 2.6942756,
+        "rank_1e8": 3
+      },
+      {
+        "complexity": 18,
+        "loss": 2.5295088,
+        "rank_1e8": 3
+      },
+      {
+        "complexity": 20,
+        "loss": 2.4118097,
+        "rank_1e8": 3
+      },
+      {
+        "complexity": 21,
+        "loss": 2.3958092,
+        "rank_1e8": 3
+      },
+      {
+        "complexity": 22,
+        "loss": 2.3316443,
+        "rank_1e8": 3
+      },
+      {
+        "complexity": 23,
+        "loss": 2.2483,
+        "rank_1e8": 4
+      },
+      {
+        "complexity": 25,
+        "loss": 2.004153,
+        "rank_1e8": 2
+      },
+      {
+        "complexity": 26,
+        "loss": 1.5733021,
+        "rank_1e8": 3
+      },
+      {
+        "complexity": 28,
+        "loss": 1.4207656,
+        "rank_1e8": 3
+      },
+      {
+        "complexity": 29,
+        "loss": 1.2061617,
+        "rank_1e8": 2
+      },
+      {
+        "complexity": 31,
+        "loss": 1.0543603,
+        "rank_1e8": 3
+      },
+      {
+        "complexity": 32,
+        "loss": 1.0531784,
+        "rank_1e8": 3
+      },
+      {
+        "complexity": 33,
+        "loss": 0.9105169,
+        "rank_1e8": 3
+      },
+      {
+        "complexity": 34,
+        "loss": 0.901382,
+        "rank_1e8": 3
+      },
+      {
+        "complexity": 35,
+        "loss": 0.80605793,
+        "rank_1e8": 3
+      },
+      {
+        "complexity": 36,
+        "loss": 0.7968663,
+        "rank_1e8": 3
+      },
+      {
+        "complexity": 37,
+        "loss": 0.76930183,
+        "rank_1e8": 3
+      },
+      {
+        "complexity": 38,
+        "loss": 0.73952085,
+        "rank_1e8": 3
+      },
+      {
+        "complexity": 39,
+        "loss": 0.7200382,
+        "rank_1e8": 3
+      },
+      {
+        "complexity": 40,
+        "loss": 0.6491793,
+        "rank_1e8": 3
+      },
+      {
+        "complexity": 41,
+        "loss": 0.6318053,
+        "rank_1e8": 3
+      },
+      {
+        "complexity": 42,
+        "loss": 0.62950957,
+        "rank_1e8": 4
+      },
+      {
+        "complexity": 44,
+        "loss": 0.58327913,
+        "rank_1e8": 4
+      },
+      {
+        "complexity": 45,
+        "loss": 0.5656416,
+        "rank_1e8": 4
+      },
+      {
+        "complexity": 46,
+        "loss": 0.5417557,
+        "rank_1e8": 4
+      },
+      {
+        "complexity": 47,
+        "loss": 0.5223634,
+        "rank_1e8": 4
+      },
+      {
+        "complexity": 49,
+        "loss": 0.5168829,
+        "rank_1e8": 4
+      },
+      {
+        "complexity": 50,
+        "loss": 0.48065546,
+        "rank_1e8": 4
+      },
+      {
+        "complexity": 51,
+        "loss": 0.4614418,
+        "rank_1e8": 4
+      },
+      {
+        "complexity": 52,
+        "loss": 0.42903823,
+        "rank_1e8": 4
+      },
+      {
+        "complexity": 53,
+        "loss": 0.4151989,
+        "rank_1e8": 4
+      },
+      {
+        "complexity": 54,
+        "loss": 0.40469655,
+        "rank_1e8": 3
+      },
+      {
+        "complexity": 55,
+        "loss": 0.39424455,
+        "rank_1e8": 3
+      },
+      {
+        "complexity": 56,
+        "loss": 0.3536297,
+        "rank_1e8": 4
+      },
+      {
+        "complexity": 60,
+        "loss": 0.35204354,
+        "rank_1e8": 4
+      }
+    ]
+  },
+  "n_inputs_present": 6,
+  "absent_inputs": [],
+  "accuracy_insample": {
+    "student_vs_gp": 0.06908271412733559,
+    "perfect1d_vs_gp": 0.0779258410397001,
+    "n_points": 512
+  },
+  "accuracy_offfid": {
+    "student_vs_gp": 0.06049534912559464,
+    "perfect1d_vs_gp": 0.007933269501491928,
+    "n_points": 32
+  },
+  "sobolev_arm": {
+    "feasible": false,
+    "reason": "Sobolev loss perturbs one feature row (X[1,:]+=h) and matches the single `dataset.weights` channel = one param's target gradient. A joint 6-input eq needs dP/dtheta_i for all 6 params (6 gradient channels + 6 perturb dirs); PySR has only one weights vector, so joint-Sobolev is not well-defined with the current machinery. This sweep uses MSE only."
+  },
+  "preregistered": {
+    "maxsize": 60,
+    "n_params": 6,
+    "best_loss_complexity": 60,
+    "pinned_at_cap": true,
+    "n_inputs_present": 6,
+    "absent_inputs": [],
+    "idxmin_rank_whitened_1e8": 4,
+    "front_max_rank_1e8": 4,
+    "front_max_rank_complexity": 23,
+    "joint_condition_number_whitened": null,
+    "gp_condition_number_whitened": 7132.7601292806185,
+    "offfid_student_vs_gp": 0.06049534912559464,
+    "offfid_perfect1d_vs_gp": 0.007933269501491928,
+    "insample_student_vs_gp": 0.06908271412733559,
+    "insample_perfect1d_vs_gp": 0.0779258410397001
+  }
+}

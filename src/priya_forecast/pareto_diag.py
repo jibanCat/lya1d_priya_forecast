@@ -50,7 +50,7 @@ def load_front(pareto_csv, sidecar_csv=None) -> pd.DataFrame:
 
 def render_grid(fronts_by_param, out_path, *, gate_tol=GATE_TOL,
                 param_order=None, ncol=4, y_col="value_mse", y_label=None,
-                annotate=None):
+                annotate=None, pretty=None):
     """Render one panel per parameter; colour = grad_err (slope error vs the GP).
 
     fronts_by_param: {param: [ {front: DataFrame, label: str, marker: str}, ... ]}
@@ -64,8 +64,19 @@ def render_grid(fronts_by_param, out_path, *, gate_tol=GATE_TOL,
     """
     params = list(param_order) if param_order else list(fronts_by_param)
     annotate = annotate or {}
+    # LaTeX panel titles: reuse the shared PRETTY name->math map (same one the
+    # seed_band figure uses) instead of raw code-names. Lazy import to avoid any
+    # import cycle with paper_figures.
+    if pretty is None:
+        try:
+            from priya_forecast.paper_figures import PRETTY as pretty
+        except Exception:
+            pretty = {}
     nrow = int(np.ceil(len(params) / ncol))
-    fig, axes = plt.subplots(nrow, ncol, figsize=(4 * ncol, 3 * nrow),
+    # This grid goes into a double-column figure* (~7in wide -> ~0.5x downscale),
+    # so keep the native panels compact (13x7.3 for the 4x3 layout) and the fonts
+    # large so tick/legend/title text lands ~8-10pt on the printed page.
+    fig, axes = plt.subplots(nrow, ncol, figsize=(3.25 * ncol, 2.43 * nrow),
                              squeeze=False, layout="constrained")
     # Hard two-tone so colour and the pass/fail ring always agree: green at or
     # below the gate (faithful), red above it (the Mirage). The old diverging map
@@ -106,35 +117,67 @@ def render_grid(fronts_by_param, out_path, *, gate_tol=GATE_TOL,
                 ax.scatter(cx[~seen], cy[~seen], color="0.78", marker=marker,
                            s=44, zorder=2, label=None if used_label else label)
         ax.set_yscale("log")
-        ax.set_title(p)
-        ax.set_xlabel("complexity")
+        ax.set_title(pretty.get(p, p), fontsize=20)
+        ax.set_xlabel("complexity", fontsize=18)
         # One shared y-label (fig.supylabel below) instead of repeating the long
         # label on every panel, where it collided with the next column's ticks.
-        ax.tick_params(axis="both", labelsize=15)
-        ax.tick_params(axis="y", which="minor", labelsize=12)
+        # Enlarged tick/legend text so it stays legible after the figure* downscale.
+        ax.tick_params(axis="both", labelsize=18)
+        ax.tick_params(axis="y", which="minor", labelsize=14)
         ax.grid(True, which="both", alpha=0.2)
-        if any(s.get("label") for s in fronts_by_param.get(p, [])):
-            ax.legend(fontsize=14, loc="best")
+        # No per-panel legend: at the enlarged font the repeated legend box
+        # overlapped points in every panel. The series markers are identical
+        # across panels, so a single shared legend (built below, placed in the
+        # empty grid slot) carries the key without crowding any panel.
         if p in annotate:
             a = annotate[p]
             ax.annotate(a["text"], xy=a["xy"], xytext=a["xytext"], fontsize=15,
                         color="#6e0b0b", fontweight="bold",
                         arrowprops=dict(arrowstyle="->", color="#6e0b0b", lw=1.4))
 
-    for j in range(len(params), nrow * ncol):
-        axes[j // ncol][j % ncol].axis("off")
+    # One shared legend for the whole grid (markers = which search produced the
+    # candidate; colour still encodes grad_err via the colorbar). Neutral grey
+    # marker faces so shape, not colour, reads as the series. Placed in the first
+    # empty grid slot when one exists, else on the first panel.
+    from matplotlib.lines import Line2D
+    seen_labels: dict = {}
+    for p in params:
+        for series in fronts_by_param.get(p, []):
+            lab = series.get("label")
+            if lab and lab not in seen_labels:
+                seen_labels[lab] = series.get("marker", "o")
+    legend_handles = [
+        Line2D([0], [0], marker=mk, color="none", markerfacecolor="0.6",
+               markeredgecolor="k", markersize=13, linestyle="none", label=lab)
+        for lab, mk in seen_labels.items()
+    ]
+    empty = [(j // ncol, j % ncol) for j in range(len(params), nrow * ncol)]
+    if legend_handles and empty:
+        r, c = empty[0]
+        lax = axes[r][c]
+        lax.axis("off")
+        lax.legend(handles=legend_handles, loc="center", fontsize=19,
+                   frameon=True, labelspacing=0.8, handletextpad=0.5,
+                   borderpad=0.9, title="candidate search", title_fontsize=19)
+        empty = empty[1:]
+    elif legend_handles:
+        axes[0][0].legend(handles=legend_handles, loc="best", fontsize=16)
+    for (r, c) in empty:
+        axes[r][c].axis("off")
 
     fig.supylabel(y_label or y_col, fontsize=22)
 
     if last_sc is not None:
         cbar = fig.colorbar(last_sc, ax=axes.ravel().tolist(),
-                            fraction=0.025, pad=0.01, ticks=[gate_tol])
+                            fraction=0.028, pad=0.012, ticks=[gate_tol])
+        # Enlarged to match the axis-label scale (the label/tick text was
+        # undersized relative to the panel axes at print size).
         cbar.set_label(r"derivative faithfulness vs GP ($\mathrm{grad\_err}$)"
                        "\n"
                        r"green = faithful ($\leq 0.25$)   red = Mirage ($> 0.25$)"
                        "\n"
-                       r"bold ring = clears the gate", fontsize=16)
-        cbar.ax.tick_params(labelsize=15)
+                       r"bold ring = clears the gate", fontsize=21)
+        cbar.ax.tick_params(labelsize=19)
 
     fig.savefig(out_path, dpi=150)
     plt.close(fig)

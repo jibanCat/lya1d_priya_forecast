@@ -1,12 +1,13 @@
 # RUN MANIFEST — prod-20260630-perz-sobolev
 
 - **git:** `fc914fc` @ `stage10-multiz-sobolev` (+uncommitted at submit time)
-- **released:** the produced artifacts are committed in `main`; the code is released at tag
-  `v1.0-paper` (`a84e36d`), and the committed grad-faith sidecars record the scoring code as
-  `git=7aa26af`. (The seed-band Tier-1 sidecars were committed just after the tag, still in `main`.)
-  Because the
-  run carried uncommitted working-tree changes, the figures/CSVs are **not** byte-regenerable from a
-  single clean checkout — reproduce from the committed artifacts (Tier 1, no GP) or re-run the
+- **released:** the code anchor for the manuscript is tag `v1.2-paper` (see the tag message for the
+  commit); the earlier `v1.0-paper` (`a84e36d`) is the superseded pre-Sec.5.1 release and must not be
+  cited. The artifacts live on the `paper-production` line, NOT on `main` (PR #7 is still open), so a
+  reader must check out the tag rather than clone the default branch. The committed grad-faith
+  sidecars record the scoring code as `git=7aa26af`, an ancestor of the anchor.
+  Because the run carried uncommitted working-tree changes, the figures/CSVs are **not**
+  byte-regenerable from a single clean checkout — reproduce from the committed artifacts (Tier 1, no GP) or re-run the
   pipeline (Tier 3). See `REPRODUCE.md`.
 - **submitted:** 2026-06-30 13:48:14 EDT
 - **account:** yueyingn0 (expires 2026-07-01)

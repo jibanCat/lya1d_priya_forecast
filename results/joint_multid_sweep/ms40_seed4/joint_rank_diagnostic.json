@@ -1,0 +1,255 @@
+{
+  "params": [
+    "ns",
+    "Ap",
+    "herei",
+    "heref",
+    "alphaq",
+    "hireionz"
+  ],
+  "n_params": 6,
+  "z": 3.6,
+  "maxsize": 40,
+  "joint_equation": "(exp((x6 * -2.1137066) + (((x1 - ((0.4581389 - (x6 * 2.7330203)) * log((x6 + x0) + 0.14877214))) * 0.2496781) + 4.002919)) + ((x2 * (((x3 - x4) * 2.7225156) + 2.7675903)) + 12.12648)) - x5",
+  "joint_loss": 0.8333953,
+  "joint_complexity": 37,
+  "joint_pysr": {
+    "physical": {
+      "eigenvalues": [
+        1255.7813937723652,
+        105.9892981734402,
+        2.593001060276617,
+        3.4485343578271517e-15,
+        8.110094772407641e-16,
+        -1.2719649333098544e-15
+      ],
+      "lambda_max": 1255.7813937723652,
+      "lambda_min": -1.2719649333098544e-15,
+      "condition_number": null,
+      "numerical_rank": {
+        "1e-06": 3,
+        "1e-08": 3,
+        "1e-10": 3
+      }
+    },
+    "whitened": {
+      "eigenvalues": [
+        272.07192241431466,
+        67.46397168487225,
+        2.559266078618658,
+        4.250058299050443e-15,
+        5.599818724455441e-16,
+        -5.535044787002835e-15
+      ],
+      "lambda_max": 272.07192241431466,
+      "lambda_min": -5.535044787002835e-15,
+      "condition_number": null,
+      "numerical_rank": {
+        "1e-06": 3,
+        "1e-08": 3,
+        "1e-10": 3
+      }
+    },
+    "sigma": [
+      0.07965454325630321,
+      0.3316292007813735,
+      0.4296660612986282,
+      0.16241605296146355,
+      0.2761072900346064,
+      0.1789698317558029
+    ],
+    "rank_deficient_vs_nparams": true
+  },
+  "gp_reference": {
+    "physical": {
+      "eigenvalues": [
+        2295.816361426129,
+        186.4308991328192,
+        1.235871478843695,
+        0.2834608294040408,
+        0.07752773885017769,
+        0.02825345317995658
+      ],
+      "lambda_max": 2295.816361426129,
+      "lambda_min": 0.02825345317995658,
+      "condition_number": 81257.90312438039,
+      "numerical_rank": {
+        "1e-06": 6,
+        "1e-08": 6,
+        "1e-10": 6
+      }
+    },
+    "whitened": {
+      "eigenvalues": [
+        469.35845113192227,
+        103.01017082366535,
+        1.7488944364899826,
+        0.4053148907352286,
+        0.11600549963180729,
+        0.06580320137293891
+      ],
+      "lambda_max": 469.35845113192227,
+      "lambda_min": 0.06580320137293891,
+      "condition_number": 7132.7601292806185,
+      "numerical_rank": {
+        "1e-06": 6,
+        "1e-08": 6,
+        "1e-10": 6
+      }
+    },
+    "sigma": [
+      0.07552060750231099,
+      0.7544330617295089,
+      2.3686275782906288,
+      2.5101749073839854,
+      5.763191115879233,
+      2.6333748472086302
+    ]
+  },
+  "front_scan": {
+    "front_max_rank_1e8": 3,
+    "front_max_rank_complexity": 20,
+    "min_complexity_scanned": 10,
+    "n_front_scanned": 21,
+    "per_row": [
+      {
+        "complexity": 11,
+        "loss": 3.3915243,
+        "rank_1e8": 1
+      },
+      {
+        "complexity": 12,
+        "loss": 3.2267952,
+        "rank_1e8": 2
+      },
+      {
+        "complexity": 13,
+        "loss": 3.132258,
+        "rank_1e8": 2
+      },
+      {
+        "complexity": 14,
+        "loss": 2.9776342,
+        "rank_1e8": 2
+      },
+      {
+        "complexity": 15,
+        "loss": 2.8433468,
+        "rank_1e8": 2
+      },
+      {
+        "complexity": 16,
+        "loss": 2.8179364,
+        "rank_1e8": 2
+      },
+      {
+        "complexity": 17,
+        "loss": 2.6697881,
+        "rank_1e8": 2
+      },
+      {
+        "complexity": 18,
+        "loss": 2.3129041,
+        "rank_1e8": 2
+      },
+      {
+        "complexity": 20,
+        "loss": 1.9402453,
+        "rank_1e8": 3
+      },
+      {
+        "complexity": 21,
+        "loss": 1.7119414,
+        "rank_1e8": 3
+      },
+      {
+        "complexity": 22,
+        "loss": 1.6892349,
+        "rank_1e8": 3
+      },
+      {
+        "complexity": 23,
+        "loss": 1.563678,
+        "rank_1e8": 3
+      },
+      {
+        "complexity": 24,
+        "loss": 1.5378525,
+        "rank_1e8": 3
+      },
+      {
+        "complexity": 25,
+        "loss": 1.4207106,
+        "rank_1e8": 3
+      },
+      {
+        "complexity": 26,
+        "loss": 1.3939991,
+        "rank_1e8": 3
+      },
+      {
+        "complexity": 27,
+        "loss": 1.3190247,
+        "rank_1e8": 3
+      },
+      {
+        "complexity": 29,
+        "loss": 1.2279485,
+        "rank_1e8": 3
+      },
+      {
+        "complexity": 31,
+        "loss": 1.2022402,
+        "rank_1e8": 3
+      },
+      {
+        "complexity": 33,
+        "loss": 1.0567963,
+        "rank_1e8": 3
+      },
+      {
+        "complexity": 35,
+        "loss": 0.95224285,
+        "rank_1e8": 3
+      },
+      {
+        "complexity": 37,
+        "loss": 0.8333953,
+        "rank_1e8": 3
+      }
+    ]
+  },
+  "n_inputs_present": 6,
+  "absent_inputs": [],
+  "accuracy_insample": {
+    "student_vs_gp": 0.16846393294179296,
+    "perfect1d_vs_gp": 0.0779258410397001,
+    "n_points": 512
+  },
+  "accuracy_offfid": {
+    "student_vs_gp": 0.1277544399719534,
+    "perfect1d_vs_gp": 0.007933269501491928,
+    "n_points": 32
+  },
+  "sobolev_arm": {
+    "feasible": false,
+    "reason": "Sobolev loss perturbs one feature row (X[1,:]+=h) and matches the single `dataset.weights` channel = one param's target gradient. A joint 6-input eq needs dP/dtheta_i for all 6 params (6 gradient channels + 6 perturb dirs); PySR has only one weights vector, so joint-Sobolev is not well-defined with the current machinery. This sweep uses MSE only."
+  },
+  "preregistered": {
+    "maxsize": 40,
+    "n_params": 6,
+    "best_loss_complexity": 37,
+    "pinned_at_cap": false,
+    "n_inputs_present": 6,
+    "absent_inputs": [],
+    "idxmin_rank_whitened_1e8": 3,
+    "front_max_rank_1e8": 3,
+    "front_max_rank_complexity": 20,
+    "joint_condition_number_whitened": null,
+    "gp_condition_number_whitened": 7132.7601292806185,
+    "offfid_student_vs_gp": 0.1277544399719534,
+    "offfid_perfect1d_vs_gp": 0.007933269501491928,
+    "insample_student_vs_gp": 0.16846393294179296,
+    "insample_perfect1d_vs_gp": 0.0779258410397001
+  }
+}
