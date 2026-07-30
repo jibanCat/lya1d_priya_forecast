@@ -416,10 +416,13 @@ Three caveats worth knowing before you trust a regenerated figure:
 - **`multid_bestworst`** requires the GP (`GPModel`, ~20 min load) and re-draws its Sobol sample, so a
   rerun agrees with the published figure only to ~4 significant figures, never byte- or pixel-exactly.
   The best/worst parameter combinations are stable.
-- **`seed_band`** plots exactly the committed `seed_band/seed_band_summary.json`, but the published PDF
-  was hand-tuned in an interactive session (title, legend text, canvas size) on top of
-  `paper_figures.plot_seed_band`. `plot_seed_band` reproduces the *data and labels*; it does not
-  reproduce the shipped canvas pixel-for-pixel.
+- **`seed_band`** plots exactly the committed `seed_band/seed_band_summary.json`. **Fixed 2026-07-30:**
+  the published PDF used to be hand-tuned in an interactive session (title, legend text, canvas), and
+  that hand-tuned legend read "best-loss" on points that are Pareto-knee selected — contradicting the
+  figure's own y-axis, its caption and the aggregator. The title and legend now live in
+  `paper_figures.SEED_BAND_TITLE` / `SEED_BAND_LABELS`, so `plot_seed_band(run)` regenerates the
+  shipped figure (aspect matched to 0.1%; not byte-identical, since matplotlib stamps a
+  `CreationDate`).
 
 Figures are compared by content, not bytes: matplotlib stamps a `CreationDate`, so rasterize first —
 `gs -q -dNOPAUSE -dBATCH -sDEVICE=png16m -r150 -sOutputFile=out.png in.pdf` — then compare the PNGs.

@@ -1,10 +1,19 @@
 #!/usr/bin/env python
-"""Aggregate the across-seed band: best-loss grad_err median/min/max per parameter,
+"""Aggregate the across-seed band: Pareto-KNEE grad_err median/min/max per parameter,
 flag any taxonomy box that flips across seeds. Needs the emulator.
 
 Efficient: loads the GP once and computes each parameter's GP target gradient once
-(the GP is seed-independent), then scores the value-optimal (lowest-Loss Fisher-safe)
-equation of every (seed, mode) front. Reproduces the production gate metric.
+(the GP is seed-independent), then scores the Pareto-knee equation of every
+(seed, mode) front -- the lowest-COMPLEXITY Fisher-safe candidate within 10% of the
+front's minimum loss, i.e. the paper's selection rule. Reproduces the production gate
+metric.
+
+NB the selection is the KNEE, not best-loss. This module said "best-loss" from an
+earlier revision until 2026-07-30; the label leaked into the shipped seed_band.pdf
+legend, which contradicted its own y-axis. Verified: the committed
+seed_band_summary.json medians equal knee_row to 6 decimals (n_S value 0.518931,
+A_P Sobolev 0.157556), while the best-loss medians differ materially (0.599444,
+0.193071).
 
 Usage:
   PYTHON_JULIAPKG_PROJECT=$HOME/.julia_env JULIA_DEPOT_PATH=$HOME/.julia \
@@ -43,8 +52,9 @@ def median_rel_error(cand, target, floor=1e-3):
     return float(np.median(np.abs(cand[keep] / target[keep] - 1.0)))
 
 
-def best_loss_grad_err(csv, param, meta, kg, target):
-    """grad_err of the value-optimal (lowest-Loss Fisher-safe) equation, or nan."""
+def knee_grad_err(csv, param, meta, kg, target):
+    """grad_err of the Pareto-knee (lowest-complexity Fisher-safe within 10% of
+    the min loss) equation, or nan. See grad_faith_io.knee_row."""
     if not Path(csv).exists():
         return np.nan
     df = load_pareto_csv(csv)
@@ -93,7 +103,7 @@ def main():
         for S in SEEDS:
             for mode in ("value", "sobolev"):
                 csv = band / f"z3.6_seed{S}_{mode}" / f"refit/z{Z}" / f"pareto_{p}.csv"
-                rec[mode].append(best_loss_grad_err(csv, p, meta, kg, target))
+                rec[mode].append(knee_grad_err(csv, p, meta, kg, target))
         raw[p] = rec
 
     # ns budget@35
@@ -102,7 +112,7 @@ def main():
     kg = np.asarray(d["kfkms_lf_z"][0], float)
     target = gp_param_gradient(gp=gp, fid=fid, k_grid=kg, z=Z,
                                param_idx=PARAM_NAMES.index("ns"), log_space=True)
-    budget = [best_loss_grad_err(band / f"z3.6_seed{S}_budget" / f"refit/z{Z}/pareto_ns.csv",
+    budget = [knee_grad_err(band / f"z3.6_seed{S}_budget" / f"refit/z{Z}/pareto_ns.csv",
                                  "ns", meta, kg, target) for S in SEEDS]
 
     def stat(a):
@@ -126,7 +136,7 @@ def main():
               f"{sm:>7.3f}[{slo:.3f},{shi:.3f}] {sn} | {flips}")
     bm, blo, bhi, bn = stat(budget)
     verdict = "all FAIL" if blo > GATE else ("MIXED" if bhi > GATE else "all pass")
-    print(f"\nns budget@35 best-loss grad_err across {bn} seeds: "
+    print(f"\nns budget@35 knee grad_err across {bn} seeds: "
           f"med {bm:.3f} [{blo:.3f},{bhi:.3f}] vs gate {GATE} -> {verdict}")
     summary["ns_budget35"] = {"median": bm, "min": blo, "max": bhi, "n": bn, "verdict": verdict}
     Path(args.out).write_text(json.dumps(summary, indent=2))

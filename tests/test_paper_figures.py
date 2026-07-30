@@ -119,6 +119,30 @@ def test_ns_budget_arm_has_real_points_on_the_committed_run():
     assert out["grad_err"].notna().sum() == 22  # every sidecar row lands
 
 
+def test_seed_band_labels_say_knee_not_best_loss():
+    """Regression: the shipped Fig. 5 legend read "best-loss" while its y-axis, its
+    caption and the aggregator all say Pareto-knee. The band IS knee-selected --
+    seed_band_summary.json's medians equal knee_row to 6 decimals."""
+    assert all("knee" in s for s in pf.SEED_BAND_LABELS)
+    assert not any("best-loss" in s or "best_loss" in s for s in pf.SEED_BAND_LABELS)
+
+
+@needs_data
+def test_seed_band_plots_exactly_the_committed_json():
+    import matplotlib
+    matplotlib.use("Agg")
+    run = pf.load_run()
+    P = run.seed_band["params"]
+    params = [p for p in pf.PARAM_NAMES if p in P]
+    with pf.paper_style(usetex=False):
+        ax = pf.plot_seed_band(run).axes[0]
+    legend = [t.get_text() for t in ax.get_legend().get_texts()]
+    assert all("knee" in s for s in legend), legend
+    for container, key in zip(ax.containers, ("value", "sobolev")):
+        expected = np.clip([P[p][key][0] for p in params], 0, 1.2)
+        assert np.allclose(container[0].get_ydata(), expected, atol=1e-12)
+
+
 @needs_data
 def test_pareto_grid_writes_file(tmp_path):
     import matplotlib

@@ -298,9 +298,26 @@ def plot_maxsize_sensitivity(run: PaperRun, *, highlight=("ns", "omegamh2"),
     return fig
 
 
+# The paper's Fig. 5 (`fig:seed_band`) labels. The points are KNEE-selected, so the
+# legend must say so: the shipped PDF was hand-tuned in an interactive session and its
+# legend read "best-loss", contradicting the figure's own y-axis and caption. Verified
+# knee, not best-loss: seed_band_summary.json's medians equal knee_row to 6 decimals.
+SEED_BAND_TITLE = (r"Across-seed band ($z=3.6$, seeds 0--4): "
+                   r"derivative faithfulness is seed-dependent near the gate")
+SEED_BAND_LABELS = ("value@20 (knee, 5 seeds)", "Sobolev@20 (knee, 5 seeds)")
+
+
 def plot_seed_band(run: PaperRun, *, params=None, gate: float = GATE,
-                   pretty: dict | None = None, figsize=(12, 5)):
-    """Across-seed median grad_err with [min,max] whiskers, value vs Sobolev. Returns Figure."""
+                   # (10, 4.65) reproduces the shipped PDF's aspect to 0.1% (2.122 vs
+                   # 2.120), so the float occupies the same height in the build.
+                   pretty: dict | None = None, figsize=(10, 4.65),
+                   title: str | None = SEED_BAND_TITLE,
+                   labels: tuple[str, str] = SEED_BAND_LABELS):
+    """Across-seed median knee grad_err with [min,max] whiskers, value vs Sobolev.
+
+    Defaults reproduce the paper's Fig. 5 (`fig:seed_band`) including its title and
+    legend; pass ``title=None`` / ``labels=("value", "Sobolev")`` for a bare version.
+    Returns Figure."""
     import matplotlib.pyplot as plt
     if run.seed_band is None:
         raise ValueError("run.seed_band is None (seed_band_summary.json not found).")
@@ -309,19 +326,24 @@ def plot_seed_band(run: PaperRun, *, params=None, gate: float = GATE,
     params = params or [p for p in PARAM_NAMES if p in P]
     x = np.arange(len(params))
     fig, ax = plt.subplots(figsize=figsize, layout="constrained")
-    for off, key, c, mk in ((-0.15, "value", C_VALUE, "o"), (0.15, "sobolev", C_SOBOLEV, "s")):
+    for off, key, c, mk, lab in ((-0.15, "value", C_VALUE, "o", labels[0]),
+                                 (0.15, "sobolev", C_SOBOLEV, "s", labels[1])):
         med = np.array([P[p][key][0] for p in params], float)
         lo = np.array([P[p][key][1] for p in params], float)
         hi = np.array([P[p][key][2] for p in params], float)
         ax.errorbar(x + off, np.clip(med, 0, 1.2),
                     yerr=[np.clip(med, 0, 1.2) - np.clip(lo, 0, 1.2),
                           np.clip(hi, 0, 1.2) - np.clip(med, 0, 1.2)],
-                    fmt=mk, color=c, ms=8, capsize=3, lw=1.2, label=key)
+                    fmt=mk, color=c, ms=8, capsize=3, lw=1.2, label=lab)
     ax.axhline(gate, color="k", ls="--", lw=1.2)
     ax.text(0, gate + 0.02, f"gate {gate}")
     ax.set_xticks(x)
     ax.set_xticklabels([pretty.get(p, p) for p in params], rotation=45, ha="right")
     ax.set_ylabel(r"knee $\mathrm{grad\_err}$ (median, [min,max])")
+    if title:
+        # paper_style's axes.titlesize (20) overruns this canvas; the shipped figure's
+        # title sits at roughly the tick-label size.
+        ax.set_title(title, fontsize=plt.rcParams["xtick.labelsize"])
     ax.legend(loc="upper left")
     return fig
 
