@@ -1,24 +1,38 @@
 # Figures + table fragments (paper artifacts)
 
-**code git** `7aa26af` · **run-id** `prod-20260630-perz-sobolev` · 2026-06-30.
+**run-id** `prod-20260630-perz-sobolev` (2026-06-30) · **figures/tables as committed at code git**
+`8b64f2d` (tag `v1.1-paper`), unchanged at the current manuscript anchor tag `v1.2-paper`, which
+adds only documentation fixes and one `paper_figures` bug fix that regenerates no shipped file.
+NB the run predates the figure state: `f804916` regenerated
+`taxonomy_table.tex` + `per_param_equations.tex` at the Pareto knee and `49f67e7` resynced six PDFs
+and added `resolution_correction.pdf`. Do not stamp these files to `7aa26af`.
 Each row: file → what it shows → paper `\label` → regen command → data source.
 Env for the GP-backed (tier-2) commands: see `../../../REPRODUCE.md`. `$PROD` = this run dir.
 The reusable API is `priya_forecast.paper_figures` (path/format-decoupled); the tutorial
 is `notebooks/reproduce_paper.ipynb`.
 
 ## Figures
+Label column checked against `oja_template.aux` (2026-07-29): the build has exactly **seven**
+active figures. Anything marked *not in the build* sits inside a `\begin{comment}` block or is
+`%`-prefixed, so it resolves no `\ref` and carries no figure number.
+
 | file | shows | label | regen | source |
 |---|---|---|---|---|
-| `pareto_faithfulness.pdf` | 11-panel Pareto front, coloured by slope error | `fig:pareto_faith` | `scripts/make_diagnostic_figs.py` (tier-1) | `{value,sobolev}/refit/z3.6/{pareto,grad_faith}_*.csv` |
-| `faithfulness_scorecard.pdf` | value vs Sobolev knee grad_err per param | `fig:faith_scorecard` | same | same |
-| `ns_budget_panel.pdf` | the n_S Mirage + budget arm | `fig:ns_budget` | same (`--budget-dir budget35_value/refit/z3.6`) | + `budget35_value/refit/z3.6` |
-| `crossz_faithfulness.pdf` | z=2.6/3.6/4.2 robustness (**figure dropped from the paper**; data still valid) | `fig:crossz` (commented) | same (`--crossz-dirs …`) | `sobolev/refit/z{2.6,3.6,4.2}` |
-| `maxsize_sensitivity.pdf` | grad_err vs budget, value vs Sobolev | `fig:maxsize_sens` (commented; numbers kept in §4.4) | `scripts/regen_maxsize_sensitivity.py --prod $PROD --z 3.6` | `sens_maxsize*/`, `budget35_*/`, `{value,sobolev}/refit/z3.6` |
-| `seed_band.pdf` | across-seed grad_err band | `fig:seed_band` | notebook §1.3 / `pf.plot_seed_band` | `seed_band/seed_band_summary.json` |
-| `multid_z3.6/multid_bestworst.{pdf,csv}` | 2D/3D combine best/worst rel-err | `fig:multid_bestworst` | `scripts/regen_multid.py --refit-dir $PROD/sobolev --z 3.6` (tier-2, GP) | the Sobolev 1D eqs + GP |
-| `pysr_pred_tau0_Ap.pdf` | τ0/Ap 1D prediction | `fig:tau0_ap_pred` | `$FIGREPO/scripts/regen_fig1.py --refit-dir $PROD/sobolev/refit/z3.6` (tier-2) | `sobolev/refit/z3.6/{refits,payloads}` + GP |
-| `pysr_graphs_3.6_dtau0.pdf` | dτ0 1D prediction | `fig:dtau0_p1d_pred` | `$FIGREPO/scripts/regen_fig3.py --param dtau0 --refit-dir $PROD/sobolev/refit/z3.6` (tier-2) | same + GP |
-| `2d-denorm-Sobol_dtau0-Ap.pdf` | dτ0-Ap 2D de-norm | `fig:denorm_dtau0-ap` (**dropped**) | `$FIGREPO/scripts/regen_fig4.py …` (tier-2) | same + GP |
+| `pareto_faithfulness.pdf` | 11-panel Pareto front, coloured by slope error | `fig:pareto_faith` (Fig. 6) | `scripts/make_diagnostic_figs.py` (tier-1) | `{value,sobolev}/refit/z3.6/{pareto,grad_faith}_*.csv` |
+| `ns_budget_panel.pdf` | the n_S Mirage + budget arm | `fig:ns_budget` (Fig. 7) | same (default `--budget-dir $PROD/seed_band/z3.6_seed0_budget/refit/z3.6`) | + `seed_band/z3.6_seed0_budget/refit/z3.6` |
+| `resolution_correction.pdf` | the HF/LF ratio R(k) of `eq:rescorr` | `fig:rescorr_plot` (Fig. 2) | `scripts/regen_rescorr.py --out-dir <dir>` (tier-1; needs TeX) | `sobolev/refit/z3.6/refits/*.pkl` via `refit.predict` (no GP) |
+| `seed_band.pdf` | across-seed grad_err band | `fig:seed_band` (Fig. 5) | notebook §1.3 / `pf.plot_seed_band` | `seed_band/seed_band_summary.json` |
+| `multid_z3.6/multid_bestworst.{pdf,csv}` | 2D/3D combine best/worst rel-err | `fig:multid_bestworst` (Fig. 4) | `scripts/regen_multid.py --refit-dir $PROD/sobolev --z 3.6` (tier-2, GP) | the Sobolev 1D eqs + GP |
+| `pysr_pred_tau0_Ap.pdf` | τ0/Ap 1D prediction | `fig:tau0_ap_pred` (Fig. 1) | `$FIGREPO/scripts/regen_fig1.py --refit-dir $PROD/sobolev/refit/z3.6` (tier-2) | `sobolev/refit/z3.6/{refits,payloads}` + GP |
+| `faithfulness_scorecard.pdf` | value vs Sobolev knee grad_err per param | **not in the build** (commented out; duplicated `fig:seed_band`) | `scripts/make_diagnostic_figs.py` | `{value,sobolev}/refit/z3.6/{pareto,grad_faith}_*.csv` |
+| `crossz_faithfulness.pdf` | z=2.6/3.6/4.2 robustness (data still valid) | **not in the build** (commented out) | same (`--crossz-dirs …`) | `sobolev/refit/z{2.6,3.6,4.2}` |
+| `maxsize_sensitivity.pdf` | grad_err vs budget, value vs Sobolev | **not in the build** (commented out; numbers kept in §4.4) | `scripts/regen_maxsize_sensitivity.py --prod $PROD --z 3.6` | `sens_maxsize*/`, `budget35_*/`, `{value,sobolev}/refit/z3.6` |
+| `pysr_graphs_3.6_dtau0.pdf` | dτ0 1D prediction | **not in the build** (the `fig:dtau0_p1d_pred` float was dropped) | `$FIGREPO/scripts/regen_fig3.py --param dtau0 --refit-dir $PROD/sobolev/refit/z3.6` (tier-2) | same + GP |
+| `2d-denorm-Sobol_dtau0-Ap.pdf` | dτ0-Ap 2D de-norm | **not in the build** (no `fig:denorm_dtau0-ap` label exists) | `$FIGREPO/scripts/regen_fig4.py …` (tier-2) | same + GP |
+
+Not in this directory: **`param_error_bars.pdf`** (`fig:param_error_bars`, Fig. 3) lives in the
+paper repo's `figs/` and is generated by `$FIGREPO/scripts/regen_fig_param_errors.py`, which parses
+the plain-text block of `table2_stats.tex` below — so the figure cannot drift from `tab:stats_table`.
 
 ## Table fragments (numbers of record)
 | file | paper table | source |
@@ -28,8 +42,11 @@ is `notebooks/reproduce_paper.ipynb`.
 | `table2_stats.tex` | `tab:stats_table` (1D rel-err) | the per-z fits |
 | `multid_z3.6/multid_bestworst.csv` | `tab:multid` (2D/3D combine error) | `regen_multid.py` |
 | `param_priors_table.{tex,txt}` | `tab:param_table` (priors) | `priya_forecast.parameters` |
-| `maxsize_sensitivity.csv` | backs `fig:maxsize_sens` + the §4.4 budget numbers | the sweep sidecars |
+| `maxsize_sensitivity.csv` | backs `fig:maxsize_sens` (not in the build) + the §4.4 budget numbers, which ARE live | the sweep sidecars |
 
-NOTE: `taxonomy_table.tex` on disk was generated with the **old best-loss** pick; the
-paper's `tab:faith_taxonomy` uses the corrected **knee** numbers (recompute via
-`priya_forecast.paper_figures.taxonomy(load_run())`). The knee values are the numbers of record.
+NOTE (corrected 2026-07-29): `taxonomy_table.tex` and `per_param_equations.tex` on disk ARE the
+**knee** versions — regenerated at `f804916`, and their 33 cells + 11 class labels match the paper's
+`tab:faith_taxonomy` exactly. The earlier claim that they were best-loss was wrong and risked someone
+restoring best-loss numbers on its authority. The stale **best-loss** cut survives only in the `.txt`
+siblings `taxonomy_table.txt` / `per_param_equations.txt`, which match NEITHER the paper nor the
+current sidecars under any selection rule — do not use them as a source of record.

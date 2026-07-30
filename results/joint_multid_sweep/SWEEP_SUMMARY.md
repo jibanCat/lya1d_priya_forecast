@@ -27,7 +27,10 @@ budget trend is not an artifact of the biased statistic. **Quote `selected` in t
 - STRUCTURAL criterion (rank stays <=3 once front detaches + all 6 inputs): **FAILS** — rank climbs 2->2->4->5.
 - BUDGET criterion (rank climbs toward 6 with maxsize; cond finite-ing; off-fid -> combine): **largely MET**. The original maxsize=25 rank-2 result was search-starvation (z_Hi dropped; fronts pinned at the cap).
 - Residual: even at maxsize=100 the median fit resolves only ~5/6 directions, and the sloppiest He II direction never lifts off machine-zero (λ6 ~ 2e-15).
-- Clean survivor: the per-parameter combine is rank-6 by construction at ~1/6 the *complexity* budget.
+- Clean survivor: the per-parameter combine is rank-6 by construction, with each 1D fit capped at
+  complexity 20 against 100 for the joint form (a *per-equation* fifth, ~21% of the realized ms100
+  median complexity 95). NB the six knee equations SUM to complexity 104 (112 unfiltered), i.e. more
+  than the joint fit — do NOT claim a lower total budget.
 
 ## Corrections (2026-07-08 six-agent cross-check; two teams derived independently and agree)
 
@@ -60,5 +63,6 @@ iteration count produced which result is the untracked `slurm-joint_ms_sweep-<jo
 Recording those in the diagnostic JSON would prevent a recurrence.
 
 Reproduce: `scripts/submit_joint_sweep.sh` (see `slurm/joint_multid_sweep.slurm`).
-Note `results/*` is gitignored (`.gitignore:247`) — only this summary is committed, so the per-seed
-JSONs backing it are not independently checkable from a clean checkout.
+All 20 per-seed `ms{25,40,60,100}_seed{0..4}/joint_rank_diagnostic.json` files ARE committed
+(whitelisted past `results/*` in `.gitignore`; shipped by `8b64f2d`). Regenerate this table from
+them with `python scripts/aggregate_joint_sweep.py --write-summary` — it reproduces byte-for-byte.

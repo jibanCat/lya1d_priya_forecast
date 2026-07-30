@@ -102,8 +102,8 @@ Produces `pareto_faithfulness`, `faithfulness_scorecard`, `ns_budget_panel`,
 
 ## Reproduce the whole paper
 **One notebook — [`notebooks/reproduce_paper.ipynb`](notebooks/reproduce_paper.ipynb)**
-regenerates **every figure and table**: Tier 1 (Tables 1/2/6/7 + the diagnostic
-figures) runs emulator-free; Tier 2 (the PySR-vs-GP prediction plots + Table 3) runs
+regenerates **every figure and table**: Tier 1 (Tables 1/3/4/5 + the diagnostic
+figures) runs emulator-free; Tier 2 (the PySR-vs-GP prediction plots + Table 2) runs
 the GP-backed scripts if the emulator is available, else prints the command. Full
 step-by-step guide: **[`REPRODUCE.md`](REPRODUCE.md)**.
 

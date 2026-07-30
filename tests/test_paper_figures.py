@@ -4,6 +4,8 @@ from __future__ import annotations
 import warnings
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -60,6 +62,61 @@ def test_plot_functions_return_figures():
         for fn in (pf.plot_scorecard, pf.plot_maxsize_sensitivity,
                    pf.plot_seed_band, pf.plot_ns_budget, pf.plot_crossz, pf.plot_multid):
             assert isinstance(fn(run), Figure)
+
+
+def test_budget_front_keeps_the_sidecars_real_values():
+    """Regression: the placeholder NaN columns must not survive the merge.
+
+    `load_front(path, None)` returns all-NaN grad_err/value_mse; merging without
+    dropping them suffixed the real values to `*_y` and plotted 22 NaNs."""
+    front = pd.DataFrame({"Complexity": [3, 7], "Loss": [1.0, 0.5],
+                          "grad_err": [np.nan, np.nan], "value_mse": [np.nan, np.nan]})
+    side = pd.DataFrame({"Complexity": [3, 7], "grad_err": [0.10, 0.29],
+                         "value_mse": [2.0, 1.0]})
+    out = pf.budget_front(front, side)
+    assert not [c for c in out.columns if c.endswith(("_x", "_y"))]
+    assert out["grad_err"].tolist() == [0.10, 0.29]
+    assert out["value_mse"].tolist() == [2.0, 1.0]
+
+
+@settings(max_examples=20, deadline=None)
+@given(cx=st.lists(st.integers(1, 40), min_size=1, max_size=12, unique=True),
+       shift=st.integers(0, 5))
+def test_budget_front_never_reintroduces_nan_on_matched_rows(cx, shift):
+    """Property: grad_err is NaN exactly where the sidecar has no matching row."""
+    side_cx = [c + shift for c in cx]
+    front = pd.DataFrame({"Complexity": cx, "grad_err": np.nan, "value_mse": np.nan})
+    side = pd.DataFrame({"Complexity": side_cx,
+                         "grad_err": np.linspace(0.01, 0.9, len(side_cx)),
+                         "value_mse": np.linspace(1.0, 9.0, len(side_cx))})
+    out = pf.budget_front(front, side)
+    matched = set(cx) & set(side_cx)
+    assert set(out.loc[out["grad_err"].notna(), "Complexity"]) == matched
+
+
+def test_default_budget_arm_is_the_one_the_shipped_figure_used():
+    """`load_run`'s budget arm must track `make_diagnostic_figs.DEFAULT_BUDGET`.
+
+    The shipped `ns_budget_panel.pdf` came from the seed-0 arm; the old
+    `budget35_value` default is a different maxsize-35 run whose knee sits on
+    the other side of the gate, so the API and the figure must not diverge."""
+    import inspect
+    import re
+    src = (Path(__file__).resolve().parents[1] / "scripts"
+           / "make_diagnostic_figs.py").read_text()
+    m = re.search(r'DEFAULT_BUDGET\s*=\s*f?"\{_PROD\}/(?P<sub>.+?)/refit/', src)
+    assert m, "DEFAULT_BUDGET not found in scripts/make_diagnostic_figs.py"
+    assert inspect.signature(pf.load_run).parameters["budget_sub"].default == m["sub"]
+
+
+@needs_data
+def test_ns_budget_arm_has_real_points_on_the_committed_run():
+    from priya_forecast.pareto_diag import load_front
+    run = pf.load_run()
+    assert run.budget_ns is not None
+    bp = pf._zdir(run.data_dir, run.budget_sub, run.z) / "pareto_ns.csv"
+    out = pf.budget_front(load_front(bp, None), run.budget_ns)
+    assert out["grad_err"].notna().sum() == 22  # every sidecar row lands
 
 
 @needs_data
