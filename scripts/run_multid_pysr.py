@@ -344,6 +344,13 @@ def main():
     parser.add_argument("--maxsize", type=int, default=25)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--z", type=float, default=3.6)
+    # The GP the sweep trains against. Bare GPModel() resolves to
+    # DEFAULT_GP_BASEDIR = InferenceLyaData/Emulator_Files, which is nk=102 on the
+    # eBOSS grid -- NOT the nk=172 `_cut` build (data/kodiaq_gp) the paper defines in
+    # Sec. 2.1. The committed results/joint_multid_sweep/ ran against the nk=102 one.
+    parser.add_argument("--basedir", default=None,
+                        help="GP emulator basedir; default = GPModel's built-in "
+                             "(nk=102). Pass data/kodiaq_gp for the paper's nk=172 build.")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
@@ -351,7 +358,8 @@ def main():
 
     print("Loading real PRIYA GP emulator...")
     from priya_forecast.models.gp_model import GPModel
-    gp = GPModel()
+    gp = GPModel() if args.basedir is None else GPModel(basedir=args.basedir)
+    print(f"[gp] basedir={args.basedir or 'DEFAULT (nk=102 Emulator_Files)'}")
     z = args.z
     k_eboss, _, cov = load_eboss(z=z)
     fid = np.array(fiducial_vector(), dtype=float)
