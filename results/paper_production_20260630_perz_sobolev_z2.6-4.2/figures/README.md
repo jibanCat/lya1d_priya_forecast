@@ -41,6 +41,7 @@ the plain-text block of `table2_stats.tex` below — so the figure cannot drift 
 | `per_param_equations.{tex,txt}` | `tab:per1d_eqs` (knee equations) | `sobolev/refit/z3.6/pareto_*.csv` (knee) |
 | `table2_stats.tex` | `tab:stats_table` (1D rel-err) | the per-z fits |
 | `multid_z3.6/multid_bestworst.csv` | `tab:multid` (2D/3D combine error) | `regen_multid.py` |
+| `multid_z3.6/multid_bestworst_perk.csv` | per-k mean / p90 / max rel-err curves for all ten combos (the rel-err-vs-k panels); same Sobol sample as `multid_bestworst.csv` | `regen_multid.py` (added after `v1.2-paper`) |
 | `param_priors_table.{tex,txt}` | `tab:param_table` (priors) | `priya_forecast.parameters` |
 | `maxsize_sensitivity.csv` | backs `fig:maxsize_sens` (not in the build) + the §4.4 budget numbers, which ARE live | the sweep sidecars |
 

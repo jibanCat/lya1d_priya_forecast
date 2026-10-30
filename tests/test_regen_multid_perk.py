@@ -133,3 +133,37 @@ def test_perk_csv_roundtrips_curves(tmp_path_factory, rel_a, seed):
         for col in ("mean_pct", "p90_pct", "max_pct"):
             np.testing.assert_allclose(g[col].to_numpy(), s[f"per_k_{col}"],
                                        rtol=0, atol=5e-7)
+
+
+# ---- the committed artifact ----------------------------------------------
+
+_MULTID = (pathlib.Path(__file__).resolve().parents[1] / "results"
+           / "paper_production_20260630_perz_sobolev_z2.6-4.2" / "figures" / "multid_z3.6")
+
+
+def test_committed_perk_curves_reduce_to_committed_summary():
+    """The committed per-k curves and the committed `tab:multid` summary come
+    from the same Sobol sample: mean / max / max_k / role agree for all ten
+    combos (the summary is rounded to 4 decimals, max_k to 5)."""
+    perk_csv = _MULTID / "multid_bestworst_perk.csv"
+    header = perk_csv.read_text().splitlines()[0]
+    assert header.startswith("# git=")
+    assert "source=multid_combine_perk z=3.6 n_sobol=256 seed=1234" in header
+
+    perk = pd.read_csv(perk_csv, comment="#", float_precision="round_trip")
+    summ = pd.read_csv(_MULTID / "multid_bestworst.csv", comment="#")
+    assert len(summ) == 10
+    assert list(perk["params"].drop_duplicates()) == list(summ["params"])
+
+    k_default = np.geomspace(0.001, 0.04, 48)  # regen_multid's default k-grid
+    for _, row in summ.iterrows():
+        g = perk[perk["params"] == row["params"]]
+        np.testing.assert_allclose(g["k"].to_numpy(), k_default, rtol=1e-12, atol=0)
+        assert g["dim"].unique().tolist() == [row["dim"]]
+        role = row["role"] if isinstance(row["role"], str) else ""
+        assert g["role"].fillna("").unique().tolist() == [role]
+        assert abs(g["mean_pct"].mean() - row["mean_pct"]) <= 5e-5 + 1e-6
+        assert abs(g["max_pct"].max() - row["max_pct"]) <= 5e-5 + 1e-6
+        k_at_max = g["k"].to_numpy()[int(np.argmax(g["max_pct"].to_numpy()))]
+        assert round(k_at_max, 5) == row["max_k"]
+        assert np.all(g["p90_pct"] <= g["max_pct"]) and np.all(g["p90_pct"] >= 0)
