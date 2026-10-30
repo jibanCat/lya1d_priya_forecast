@@ -4,15 +4,26 @@
 # The committed results/joint_multid_sweep/ trained against a bare GPModel(), which is
 # DEFAULT_GP_BASEDIR = InferenceLyaData/Emulator_Files: nk=102 on the eBOSS k-grid. The
 # emulator Sec. 2.1 defines is data/kodiaq_gp, nk=172 over k=[0.00038,0.0957]. This rerun
-# holds EVERYTHING else fixed and swaps only the emulator, so the two sweeps are directly
-# comparable. Requires --basedir on run_multid_pysr.py (added post-freeze).
+# holds params, z, n_train, seeds and the niter each maxsize ACTUALLY ran with fixed, and
+# swaps only the emulator, so the two sweeps are directly comparable. Requires --basedir
+# on run_multid_pysr.py (added post-freeze).
+#
+# niter is NOT uniform: at maxsize=100, niter=400 overruns 4 h, so the ORIGINAL sweep's
+# maxsize=100 runs used niter=250 (job 53071661; its niter=400 tasks timed out), and
+# this rerun matches that. How the rerun was submitted (2026-08-10, REPO and
+# NUMPY_SHADOW also exported):
+#   sbatch --array=0-14  --time=6:00:00 --export=ALL,NITER=400 slurm/joint_multid_sweep_kodiaq.slurm  # job 56895343
+#   sbatch --array=15-19 --time=9:00:00 --export=ALL,NITER=250 slurm/joint_multid_sweep_kodiaq.slurm  # job 56895344
+# Task 0 died on a stale juliapkg file lock and was resubmitted unchanged as job
+# 56897224 (--array=0, 4 h). Runs from later commits record git, basedir, n_train,
+# niter and seed in the JSON's `run` block; these 20 predate it.
 #
 # Settles whether the joint-fit rank-deficiency is STRUCTURAL or a search-budget
 # artifact by holding params + z + data budget fixed and varying ONLY maxsize.
 #
 #   subset : {ns, Ap, herei, heref, alphaq, hireionz}   (fixed)
 #   z      : 3.6                                          (fixed)
-#   budget : n_train=512, niter=400                       (fixed; both > the
+#   budget : n_train=512, niter=400 (250 at maxsize=100)  (both > the
 #            original 256/200 so data-/iteration-starvation is not a confound)
 #   grid   : maxsize in {25, 40, 60, 100} x seeds {0..4}  = 20 MSE runs
 #   loss   : MSE only (joint-Sobolev is not well-defined; see SOBOLEV_ARM_NOTE
@@ -21,7 +32,7 @@
 # 2-D array: task id encodes (maxsize, seed): ms_idx = id/5, seed = id%5.
 #   #SBATCH --array=0-19
 #
-# Each run dumps results/joint_multid_sweep/ms<MS>_seed<SEED>/joint_rank_diagnostic.json
+# Each run dumps results/joint_multid_sweep_kodiaq/ms<MS>_seed<SEED>/joint_rank_diagnostic.json
 # with the upgraded discriminator fields: front_max_rank, pinned_at_cap,
 # n_inputs_present, in-sample/off-fid MSE, plus the flat `preregistered` block.
 
@@ -64,7 +75,8 @@ module purge
 module load gcc/10.3.0 || true
 PY=${PY:-/sw/pkgs/arc/mamba/py3.11/bin/python}
 
-export PYTHON_JULIAPKG_PROJECT="${HOME}/.julia_env"
+# Overridable: point it at a Julia 1.11.9 project (an unpinned env may have drifted).
+export PYTHON_JULIAPKG_PROJECT="${PYTHON_JULIAPKG_PROJECT:-${HOME}/.julia_env}"
 export JULIA_DEPOT_PATH="${HOME}/.julia"
 
 # numpy<2 shadow (REQUIRED): GPy 1.13.2 needs the numpy 1.x ABI but the base

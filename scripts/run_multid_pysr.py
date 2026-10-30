@@ -77,6 +77,7 @@ from priya_forecast.parameters import (
     fiducial_vector,
     get_param,
 )
+from priya_forecast.provenance import git_stamp
 
 
 def _sobol_design(*, varying_names, n, seed=0):
@@ -259,8 +260,12 @@ def _write_joint_rank_json(*, path, params, fr_student, fr_gp,
                            equation, loss, complexity, z,
                            maxsize=None, front_scan=None, n_inputs_present=None,
                            absent_inputs=None, accuracy_insample=None,
-                           accuracy_offfid=None, sobolev_arm=None):
+                           accuracy_offfid=None, sobolev_arm=None, run=None):
     """Dump the §5.1 rank diagnostic to `path` as JSON.
+
+    `run` (optional) is stored verbatim as the provenance block: git stamp,
+    emulator basedir, n_train, niter, seed. Sweeps against different emulators
+    were otherwise indistinguishable except by output directory name.
 
     Base fields (loss-min / idxmin equation): equation, loss, complexity, the
     whitened+physical Fisher/Jacobian eigen-spectrum, condition number, and
@@ -298,6 +303,8 @@ def _write_joint_rank_json(*, path, params, fr_student, fr_gp,
         diag["accuracy_insample"] = accuracy_insample
     if accuracy_offfid is not None:
         diag["accuracy_offfid"] = accuracy_offfid
+    if run is not None:
+        diag["run"] = dict(run)
     if sobolev_arm is not None:
         diag["sobolev_arm"] = sobolev_arm
 
@@ -476,6 +483,12 @@ def main():
         front_scan=front_scan, n_inputs_present=n_present, absent_inputs=absent,
         accuracy_insample=acc_in, accuracy_offfid=acc_off,
         sobolev_arm=SOBOLEV_ARM_NOTE,
+        run={
+            "git": git_stamp(),
+            "gp_basedir": args.basedir,            # null = GPModel's default
+            "gp_basedir_name": gp.basedir.name,    # e.g. Emulator_Files vs kodiaq_gp
+            "n_train": args.n_train, "niter": args.niter, "seed": args.seed,
+        },
     )
     jp = rank_diag["joint_pysr"]["whitened"]
     gpw = rank_diag["gp_reference"]["whitened"]
