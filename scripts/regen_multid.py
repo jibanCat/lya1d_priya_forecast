@@ -259,7 +259,9 @@ def _write_csv(out_csv: Path, rows: list[dict]) -> None:
     from priya_forecast.provenance import git_stamp
     with open(out_csv, "w", newline="") as fh:
         fh.write(f"# git={git_stamp()} source=multid_combine\n")
-        w = csv.DictWriter(fh, fieldnames=cols)
+        # LF, like the committed CSV: csv's default "\r\n" made every regenerated
+        # row differ byte-wise from the committed file although the values agree.
+        w = csv.DictWriter(fh, fieldnames=cols, lineterminator="\n")
         w.writeheader()
         for r in rows:
             w.writerow({c: r[c] for c in cols})
@@ -282,7 +284,7 @@ def _write_perk_csv(out_csv: Path, rows: list[dict], summaries: dict,
     with open(out_csv, "w", newline="") as fh:
         fh.write(f"# git={git_stamp()} source=multid_combine_perk "
                  f"z={z} n_sobol={n_sobol} seed={seed}\n")
-        w = csv.DictWriter(fh, fieldnames=PERK_COLS)
+        w = csv.DictWriter(fh, fieldnames=PERK_COLS, lineterminator="\n")
         w.writeheader()
         for r in rows:
             s = summaries[r["params"]]

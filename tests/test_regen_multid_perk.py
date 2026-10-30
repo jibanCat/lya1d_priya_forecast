@@ -77,6 +77,23 @@ def test_perk_csv_layout_and_header(tmp_path):
     assert sorted(roles[roles != ""]) == ["best", "best", "worst", "worst"]
 
 
+def test_both_writers_emit_lf_only(tmp_path):
+    """The committed CSVs are LF; a CRLF writer makes every regenerated row
+    differ byte-wise from them even when the values agree."""
+    k = np.geomspace(0.001, 0.04, 4)
+    rel = np.random.default_rng(1).uniform(0, 0.05, (8, k.size))
+    rows, summaries = _rows_and_summaries({"a-b": rel, "c-d": rel / 2}, k)
+    for r in rows:
+        s = summaries[r["params"]]
+        r.update(n_varied=2, p90_pct=s["p90_pct"], max_pct=s["max_pct"],
+                 max_k=s["max_k"], gp_sliced="")
+    rm._write_csv(tmp_path / "summary.csv", rows)
+    rm._write_perk_csv(tmp_path / "perk.csv", rows, summaries, k,
+                       z=3.6, n_sobol=8, seed=0)
+    for name in ("summary.csv", "perk.csv"):
+        assert b"\r" not in (tmp_path / name).read_bytes(), name
+
+
 # ---- hypothesis property tests -------------------------------------------
 
 _rel = arrays(
