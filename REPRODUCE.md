@@ -413,8 +413,15 @@ Three caveats worth knowing before you trust a regenerated figure:
   in ~3 s — but the generator lives in the **paper** repo, not here, and `--refit-dir` is mandatory.
   Its default (`results/refit_phase2_production`) silently produces a *different* figure from an older
   refit set. With the refit-dir above, the output is pixel-identical to the published PDF.
-- **`multid_bestworst`** requires the GP (`GPModel`, ~20 min load) and re-draws its Sobol sample, so a
-  rerun agrees with the published figure only to ~4 significant figures, never byte- or pixel-exactly.
+- **`multid_bestworst`** requires the GP (`GPModel`, ~20 min load). Its Sobol sample is seeded
+  (`--seed 1234`), so the command in §2d reproduces the committed `multid_bestworst.csv`
+  byte-for-byte except the `# git=` line. That was observed on two Great Lakes node types with
+  `requirements.lock.txt` (2026-10-29/30), not guaranteed elsewhere. The per-k file
+  `multid_bestworst_perk.csv` (same sample, 6 decimals) is identical on the same node, but across
+  nodes about 1 in 250 values differs by ±1 in the last printed digit (1e-6 %): BLAS reduction
+  order changes the last bits, and the summary's 4-decimal rounding hides that. Runs with a
+  different `--n-sobol` draw a different sample and give different numbers. The PDF embeds a
+  `CreationDate`, so compare figures rasterized, not by bytes.
   The best/worst parameter combinations are stable.
 - **`seed_band`** plots exactly the committed `seed_band/seed_band_summary.json`. **Fixed 2026-07-30:**
   the published PDF used to be hand-tuned in an interactive session (title, legend text, canvas), and
