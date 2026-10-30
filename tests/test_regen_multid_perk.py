@@ -7,7 +7,10 @@ reproduce the summary's mean / max / max_k exactly. These tests pin that.
 from __future__ import annotations
 
 import importlib.util
+import os
 import pathlib
+import sys
+from unittest import mock
 
 import numpy as np
 import pandas as pd
@@ -17,11 +20,20 @@ from hypothesis.extra.numpy import arrays
 
 
 def _load_regen_multid():
-    """Load scripts/regen_multid.py by path (it's a script, not a package)."""
+    """Load scripts/regen_multid.py by path (it's a script, not a package).
+
+    At import time the script setdefaults the Julia env vars and prepends the
+    upstream emulator to sys.path. Both are undone here so they don't leak into
+    the rest of the session: a later real `import pysr` would otherwise resolve
+    against ~/.julia_env, and GP-gated tests would stop skipping.
+    """
     scr = pathlib.Path(__file__).resolve().parents[1] / "scripts" / "regen_multid.py"
-    spec = importlib.util.spec_from_file_location("regen_multid", scr)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    saved_path = list(sys.path)
+    with mock.patch.dict(os.environ):
+        spec = importlib.util.spec_from_file_location("regen_multid", scr)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+    sys.path[:] = saved_path
     return mod
 
 
@@ -92,6 +104,44 @@ def test_both_writers_emit_lf_only(tmp_path):
                        z=3.6, n_sobol=8, seed=0)
     for name in ("summary.csv", "perk.csv"):
         assert b"\r" not in (tmp_path / name).read_bytes(), name
+
+
+def test_loading_the_script_leaves_env_and_sys_path_alone(monkeypatch):
+    monkeypatch.delenv("PYTHON_JULIAPKG_PROJECT", raising=False)
+    monkeypatch.delenv("JULIA_DEPOT_PATH", raising=False)
+    env_before, path_before = dict(os.environ), list(sys.path)
+    _load_regen_multid()
+    assert dict(os.environ) == env_before
+    assert sys.path == path_before
+
+
+def test_main_writes_both_csvs(tmp_path, monkeypatch):
+    """main() wiring with the GP, refits and combine faked: one run writes the
+    summary and the per-k CSV, and the two agree."""
+    (tmp_path / "refit" / "z3.6").mkdir(parents=True)
+    out = tmp_path / "out"
+    n_k, n_sobol = 6, 8
+    rng = np.random.default_rng(0)
+    monkeypatch.setattr(rm, "GPModel", lambda **kw: object())
+    monkeypatch.setattr(rm, "_load_refits", lambda **kw: ({}, []))
+    monkeypatch.setattr(rm, "build_combined_model", lambda **kw: object())
+    monkeypatch.setattr(rm, "_eval_combo",
+                        lambda **kw: (rng.uniform(0, 0.05, (kw["n_sobol"], n_k)), 0))
+    monkeypatch.setattr(rm, "_make_figure", lambda *a, **kw: None)
+    monkeypatch.setattr(sys, "argv", [
+        "regen_multid.py", "--refit-dir", str(tmp_path), "--z", "3.6",
+        "--out-dir", str(out), "--n-sobol", str(n_sobol), "--n-k", str(n_k)])
+    rm.main()
+
+    summ = pd.read_csv(out / "multid_bestworst.csv", comment="#")
+    perk = pd.read_csv(out / "multid_bestworst_perk.csv", comment="#")
+    assert len(summ) == len(rm.DEFAULT_PAIRS) + len(rm.DEFAULT_TRIPLES)
+    assert len(perk) == len(summ) * n_k
+    assert f"n_sobol={n_sobol} seed=1234" in (out / "multid_bestworst_perk.csv").read_text()
+    for _, row in summ.iterrows():
+        g = perk[perk["params"] == row["params"]]
+        assert abs(g["mean_pct"].mean() - row["mean_pct"]) <= 5e-5 + 1e-6
+        assert abs(g["max_pct"].max() - row["max_pct"]) <= 5e-5 + 1e-6
 
 
 # ---- hypothesis property tests -------------------------------------------
