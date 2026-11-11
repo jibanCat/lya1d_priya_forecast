@@ -1,68 +1,56 @@
-# §5.1 joint multi-D PySR fit — maxsize sweep (budget vs structural)
+# Sec. 5.1 joint six-parameter fit: complexity-limit sweep
 
-Settles whether the joint-fit Fisher rank-deficiency is a search-budget artifact.
-Subset `{ns, Ap, herei, heref, alphaq, hireionz}`, z=3.6, MSE objective, 5 seeds/budget.
-Jobs 53055690 (ms 25/40/60, niter=400) + 53071661 (ms 100, niter=250, 12h wall).
-Diagnostic: `scripts/run_multid_pysr.py` `_front_rank_scan` -> `joint_rank_diagnostic.json`.
+**What this is.** One symbolic equation fitted jointly to six parameters and `k`
+(`ns, Ap, herei, heref, alphaq, hireionz`), at z = 3.6, high fidelity, plain MSE loss, with
+`n_train = 512`. Four complexity limits (`maxsize` 25, 40, 60, 100), five seeds each: 20 fits.
+For each fit the diagnostic counts how many independent parameter directions its gradients
+carry: the numerical rank of the prior-width-whitened Fisher matrix, counting eigenvalues above
+`1e-8` of the largest. A full-rank fit has rank 6.
 
-**Regenerate this table — do not hand-edit it:** `python scripts/aggregate_joint_sweep.py --write-summary`
+**Emulator.** The paper's (Sec. 2.1): `data/kodiaq_gp`, 172 k-bins. The emulator itself is
+rank 6 (condition number 5731; smallest/largest eigenvalue 1.75e-4).
 
-GP reference (whitened): rank 6/6, eigenvalues [469,103,1.75,0.41,0.12,0.066], cond 7133.
-Sloppiest/stiffest = 1.40e-4 (whitened) / 1.23e-5 (physical).
+**Regenerate this table, do not hand-edit it:** `python scripts/aggregate_joint_sweep.py --write-summary`
 
 | maxsize | front-max rank (med, range) | selected rank (med, range) | detached / all-6-inputs | median λ5 | median λ6 | rank-deficient | off-fid (med) |
 |--------:|:--------------------------:|:--------------------------:|:-----------------------:|:---------:|:---------:|:--------------:|:-------------:|
-| 25      | 2 (2-3) | 2 (2-3) | 1/5 · 0/5 | ~0 | ~0 | 5/5 | 0.326 |
-| 40      | 2 (2-3) | 2 (2-3) | 3/5 · 5/5 | ~0 | ~0 | 5/5 | 0.128 |
-| 60      | 4 (3-5) | 4 (3-5) | 4/5 · 5/5 | ~0 | ~0 | 5/5 | 0.066 |
-| 100     | 5 (4-6) | 5 (3-5) | 4/5 · 5/5 | 1.18e-03 | ~0 | 5/5 | 0.047 |
+| 25      | 3 (2-4) | 2 (2-3) | 1/5 · 0/5 | ~0 | ~0 | 5/5 | 0.292 |
+| 40      | 3 (2-4) | 3 (2-4) | 2/5 · 5/5 | ~0 | ~0 | 5/5 | 0.086 |
+| 60      | 4 (3-5) | 4 (3-5) | 5/5 · 5/5 | ~0 | ~0 | 5/5 | 0.064 |
+| 100     | 5 (5-5) | 5 (4-5) | 5/5 · 5/5 | 1.07e-03 | ~0 | 5/5 | 0.049 |
 
-**Two ranks, deliberately.** `front-max` = max rank over *every* Pareto equation; it is biased
-upward because the front grows with maxsize (14.6 -> 48.2 rows scanned), so a max over it can climb
-from extra draws alone. `selected` = rank of the loss-minimizing equation, the one a forecast would
-deploy. They agree here (front-max exceeds selected by +1 in only 3/20 runs, never more), so the
-budget trend is not an artifact of the biased statistic. **Quote `selected` in the paper.**
+Columns: `selected` is the rank of each fit's lowest-loss equation (the one a forecast would
+use). `front-max` is the highest rank found anywhere on that fit's Pareto front. `detached`
+counts fits whose lowest-loss equation is below the complexity limit. `all-6-inputs` counts fits
+whose equation uses all six parameters. `off-fid` is the fit's mean-squared error against the
+emulator away from the fiducial point.
 
-## Verdict (pre-registered)
-- STRUCTURAL criterion (rank stays <=3 once front detaches + all 6 inputs): **FAILS** — rank climbs 2->2->4->5.
-- BUDGET criterion (rank climbs toward 6 with maxsize; cond finite-ing; off-fid -> combine): **largely MET**. The original maxsize=25 rank-2 result was search-starvation (z_Hi dropped; fronts pinned at the cap).
-- Residual: even at maxsize=100 the median fit resolves only ~5/6 directions, and the sloppiest He II direction never lifts off machine-zero (λ6 ~ 2e-15).
-- Clean survivor: the per-parameter combine is rank-6 by construction, with each 1D fit capped at
-  complexity 20 against 100 for the joint form (a *per-equation* fifth, ~21% of the realized ms100
-  median complexity 95). NB the six knee equations SUM to complexity 104 (112 unfiltered), i.e. more
-  than the joint fit — do NOT claim a lower total budget.
+## What the sweep shows
 
-## Corrections (2026-07-08 six-agent cross-check; two teams derived independently and agree)
+- The selected rank rises with the complexity limit: median 2, 3, 4, 5 at `maxsize` 25, 40, 60, 100.
+- No selected fit reaches rank 6. All 20 fits are rank-deficient at the `1e-8` tolerance.
+- At `maxsize = 25` every fit drops at least two of the six parameters; from 40 upward all six are used.
 
-1. **A `#singular` column reading `5/5, 5/5, 5/5, 3/5` was hand-typed into an earlier version of this
-   file and is not reproducible.** `rank_deficient_vs_nparams` is True for **5/5 seeds at every
-   budget**, including maxsize=100. No metric in these JSONs yields 3/5. The `rank-deficient` column
-   above is now derived by the script.
-2. **No *selected* fit reaches rank 6 in any of the 20 runs** (max 5). The "one seed hits 6" is
-   `ms100_seed1`'s **front-scan** value at complexity 93, a non-selected equation; that seed's
-   selected fit is rank 5 and is flagged rank-deficient. Do not conflate the two.
-3. **λ5 = 1.18e-3 is an absolute whitened eigenvalue of the marginally-*recovered* 5th direction.**
-   It is NOT "~1e-3 of the Fisher information", and it does not describe the *unrecovered* sloppiest
-   direction. As an information fraction the sloppiest GP direction is 1.4e-4 (whitened) / 1.2e-5
-   (physical). An earlier draft of §5.1 made both errors in one clause.
+## Limits on what it shows
 
-## Known confound: niter is not held fixed at the top budget
+- **Two things change at the last step.** `maxsize` 25, 40 and 60 ran 400 iterations; `maxsize = 100`
+  ran 250, because 400 iterations at that size overran the wall time in the first sweep. The step
+  from 60 to 100 therefore changes the complexity limit and the iteration count together.
+- **Five seeds.** Ranges overlap between neighbouring limits.
+- **The count depends on the tolerance.** The medians are 2, 3, 4, 5 at `1e-6`, `1e-8` and `1e-10`
+  alike, but at the emulator's own dynamic range (`1.75e-4`) they are 2, 3, 3, 3. One fit
+  (`ms100_seed2`) is rank 6 at `1e-10`.
 
-`slurm/joint_multid_sweep.slurm` pre-registers "vary ONLY maxsize ... niter=400 fixed" and defaults
-`NITER=400`, but `submit_joint_sweep.sh` takes `NITER` from the environment. What actually ran:
+## Provenance
 
-- `53055690_15..19` (ms100, **niter=400**): **TIMEOUT at 04:00:14**, wrote no JSON.
-- `53071661_15..19` (ms100, **niter=250**): COMPLETED (2h57m–5h41m). **These are the ms100 JSONs on disk.**
+- Run 2026-08-10 on Great Lakes, code as committed at `0a2db58`, 4 CPUs per fit, serial PySR.
+- Jobs: `56895343` (tasks 1-14, 400 iterations), `56897224` (task 0, 400 iterations; a resubmission
+  after a file-lock failure), `56895344` (tasks 15-19, 250 iterations). All 20 completed.
+- Elapsed per fit: 43-108 min at `maxsize = 25`, 61-124 min at 40, 1.9-3.7 h at 60, 2.4-4.9 h at 100.
+- These 20 files predate the `run` block that `scripts/run_multid_pysr.py` now writes, so the
+  emulator, iteration count and seed are recorded in the job logs and in this file, not in the JSON.
+- An earlier sweep on the 102-bin default emulator (medians 2, 2, 4, 5) is superseded. It remains
+  in the history at tag `v1.2-paper`.
 
-So maxsize and niter co-vary exactly at the top budget. The only clean maxsize step that shows a
-rank climb is **40 -> 60** (median 2 -> 4). The residual singularity at ms100 may be iteration-limited
-rather than a genuine budget ceiling. The paper (§5.1) now discloses this.
-
-**Provenance gap:** the JSONs record no `niter` / `n_train` / `seed` field. The only record of which
-iteration count produced which result is the untracked `slurm-joint_ms_sweep-<jobid>_<task>.out` logs.
-Recording those in the diagnostic JSON would prevent a recurrence.
-
-Reproduce: `scripts/submit_joint_sweep.sh` (see `slurm/joint_multid_sweep.slurm`).
-All 20 per-seed `ms{25,40,60,100}_seed{0..4}/joint_rank_diagnostic.json` files ARE committed
-(whitelisted past `results/*` in `.gitignore`; shipped by `8b64f2d`). Regenerate this table from
-them with `python scripts/aggregate_joint_sweep.py --write-summary` — it reproduces byte-for-byte.
+Reproduce: `scripts/submit_joint_sweep.sh --dry-run` prints the two submissions; drop `--dry-run` to
+submit them (`slurm/joint_multid_sweep_kodiaq.slurm`).

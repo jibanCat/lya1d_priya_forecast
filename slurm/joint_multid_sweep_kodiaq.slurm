@@ -1,25 +1,24 @@
 #!/bin/bash
-# GreatLakes SLURM — §5.1 joint-fit MAXSIZE SWEEP, RERUN AGAINST THE PAPER'S EMULATOR.
+# GreatLakes SLURM — §5.1 joint-fit MAXSIZE SWEEP on the paper's emulator.
 #
-# The committed results/joint_multid_sweep/ trained against a bare GPModel(), which is
-# DEFAULT_GP_BASEDIR = InferenceLyaData/Emulator_Files: nk=102 on the eBOSS k-grid. The
-# emulator Sec. 2.1 defines is data/kodiaq_gp, nk=172 over k=[0.00038,0.0957]. This rerun
-# holds params, z, n_train, seeds and the niter each maxsize ACTUALLY ran with fixed, and
-# swaps only the emulator, so the two sweeps are directly comparable. Requires --basedir
-# on run_multid_pysr.py (added post-freeze).
+# This is the script behind the committed results/joint_multid_sweep/. It trains against
+# data/kodiaq_gp (nk=172 over k=[0.00038,0.0957]), the emulator Sec. 2.1 defines. An
+# earlier sweep trained against a bare GPModel() (InferenceLyaData/Emulator_Files, nk=102);
+# it is superseded and remains in the history at tag v1.2-paper. This run kept its params,
+# z, n_train, seeds and iteration counts and changed only the emulator.
 #
-# niter is NOT uniform: at maxsize=100, niter=400 overruns 4 h, so the ORIGINAL sweep's
-# maxsize=100 runs used niter=250 (job 53071661; its niter=400 tasks timed out), and
-# this rerun matches that. How the rerun was submitted (2026-08-10, REPO and
-# NUMPY_SHADOW also exported):
+# niter is NOT uniform: at maxsize=100, niter=400 overran 4 h in the earlier sweep, whose
+# maxsize=100 runs therefore used niter=250 (job 53071661), and this run matches that.
+# How it was submitted (2026-08-10, REPO and NUMPY_SHADOW also exported; the output root
+# was then results/joint_multid_sweep_kodiaq and the 20 JSONs were copied over):
 #   sbatch --array=0-14  --time=6:00:00 --export=ALL,NITER=400 slurm/joint_multid_sweep_kodiaq.slurm  # job 56895343
 #   sbatch --array=15-19 --time=9:00:00 --export=ALL,NITER=250 slurm/joint_multid_sweep_kodiaq.slurm  # job 56895344
 # Task 0 died on a stale juliapkg file lock and was resubmitted unchanged as job
 # 56897224 (--array=0, 4 h). Runs from later commits record git, basedir, n_train,
 # niter and seed in the JSON's `run` block; these 20 predate it.
 #
-# Settles whether the joint-fit rank-deficiency is STRUCTURAL or a search-budget
-# artifact by holding params + z + data budget fixed and varying ONLY maxsize.
+# Tests how the joint fit's rank changes with the complexity limit, holding params, z
+# and the data budget fixed. maxsize and niter change together at maxsize=100 (above).
 #
 #   subset : {ns, Ap, herei, heref, alphaq, hireionz}   (fixed)
 #   z      : 3.6                                          (fixed)
@@ -32,7 +31,7 @@
 # 2-D array: task id encodes (maxsize, seed): ms_idx = id/5, seed = id%5.
 #   #SBATCH --array=0-19
 #
-# Each run dumps results/joint_multid_sweep_kodiaq/ms<MS>_seed<SEED>/joint_rank_diagnostic.json
+# Each run dumps results/joint_multid_sweep/ms<MS>_seed<SEED>/joint_rank_diagnostic.json
 # with the upgraded discriminator fields: front_max_rank, pinned_at_cap,
 # n_inputs_present, in-sample/off-fid MSE, plus the flat `preregistered` block.
 
@@ -50,7 +49,7 @@ set -euo pipefail
 export PYTHONUNBUFFERED=1
 
 REPO=${REPO:?REPO must be set via --export}
-OUTPUT_ROOT=${OUTPUT_ROOT:-results/joint_multid_sweep_kodiaq}
+OUTPUT_ROOT=${OUTPUT_ROOT:-results/joint_multid_sweep}
 PARAMS=${PARAMS:-ns Ap herei heref alphaq hireionz}
 N_TRAIN=${N_TRAIN:-512}
 BASEDIR=${BASEDIR:-data/kodiaq_gp}

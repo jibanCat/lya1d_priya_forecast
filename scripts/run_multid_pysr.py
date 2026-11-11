@@ -354,7 +354,7 @@ def main():
     # The GP the sweep trains against. Bare GPModel() resolves to
     # DEFAULT_GP_BASEDIR = InferenceLyaData/Emulator_Files, which is nk=102 on the
     # eBOSS grid -- NOT the nk=172 `_cut` build (data/kodiaq_gp) the paper defines in
-    # Sec. 2.1. The committed results/joint_multid_sweep/ ran against the nk=102 one.
+    # Sec. 2.1. The committed results/joint_multid_sweep/ ran with --basedir data/kodiaq_gp.
     parser.add_argument("--basedir", default=None,
                         help="GP emulator basedir; default = GPModel's built-in "
                              "(nk=102). Pass data/kodiaq_gp for the paper's nk=172 build.")

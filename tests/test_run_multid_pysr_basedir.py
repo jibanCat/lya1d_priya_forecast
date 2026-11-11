@@ -1,9 +1,9 @@
 """`scripts/run_multid_pysr.py --basedir` and the JSON provenance block.
 
-The committed §5.1 sweep (results/joint_multid_sweep/) trained against the
-bare `GPModel()` default, so the default must keep calling it with no
-arguments; `--basedir` must reach `GPModel` unchanged; and the rank JSON must
-say which emulator, budget and code produced it.
+The committed §5.1 sweep (results/joint_multid_sweep/) ran with
+`--basedir data/kodiaq_gp`, so `--basedir` must reach `GPModel` unchanged. The
+default stays the bare `GPModel()` call an earlier, superseded sweep used; and
+the rank JSON must say which emulator, budget and code produced it.
 """
 from __future__ import annotations
 
@@ -62,7 +62,7 @@ def _gpmodel_call(monkeypatch, tmp_path, extra_argv):
 # ---- unit tests ----------------------------------------------------------
 
 def test_default_builds_the_bare_gpmodel(monkeypatch, tmp_path):
-    """No --basedir -> GPModel() exactly as the committed sweep ran."""
+    """No --basedir -> the bare GPModel() call, unchanged."""
     assert _gpmodel_call(monkeypatch, tmp_path, []) == {"args": (), "kwargs": {}}
 
 
