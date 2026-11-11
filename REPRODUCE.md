@@ -3,23 +3,20 @@
 This is the from-scratch tutorial for reproducing the paper *Knowledge
 Distillation with PySR on the PRIYA suite*. Follow it top to bottom.
 
-**The headline: the paper's main results reproduce in ~2 minutes with only
-`numpy / pandas / matplotlib / scipy / sympy / pyyaml / h5py` — no GP emulator,
-no PySR, no Julia.** The one committed production run
-(`results/paper_production_20260630_perz_sobolev_z2.6-4.2/`) shipped, next to
-every PySR Pareto CSV, a **grad-faith sidecar** carrying the two
-emulator-grounded numbers each diagnostic needs. Replaying those CSVs
-regenerates the derivative-faithfulness taxonomy (Table 4, `tab:faith_taxonomy`),
-the equation table (Table 5, `tab:per1d_eqs`), and all six diagnostic figures
-**emulator-free**. Only the four
-*prediction* figures and the multi-D combine need the GP emulator.
+**The headline: every figure and table of the paper is redrawn in about a minute from
+committed files, with only `numpy / pandas / matplotlib / scipy / sympy / pyyaml / h5py`
+and a TeX install — no GP emulator, no PySR, no Julia.** The one committed production run
+(`results/paper_production_20260630_perz_sobolev_z2.6-4.2/`) ships every PySR Pareto
+front, a score file next to each one (`grad_faith_<param>.csv`: the derivative error of
+every candidate equation), and the saved fits. The GP emulator is needed only to
+*recompute* the multi-parameter table, or to refit.
 
 The work is split into three tiers. Most readers only need **Step 1**.
 
 | tier | you need | reproduces | time |
 |------|----------|------------|------|
-| **1** | 7 light pip deps (`requirements-figures.txt`) + a TeX install | 6 diagnostic figures + Tables 1, 3, 4, 5 | ~2 min |
-| **2** | the full venv + the GP emulator (`GPy` + `lyaemu`) + `data/kodiaq_gp` | 4 prediction/multi-D figures + Tables 2/3 regen | ~15 min setup |
+| **1** | 7 light pip deps (`requirements-figures.txt`) + a TeX install | every figure; Tables 1–5 | ~1 min |
+| **2** | the full venv + the GP emulator (`GPy` + `lyaemu`) + `data/kodiaq_gp` | recomputes Table 5 | ~15 min setup |
 | **3** | Tier 2 + Julia/PySR + SLURM | re-train the PySR fits from scratch | hours (cluster) |
 
 Jump to the [full figure/table → command → tier map](#full-figure--table--command--tier-map) at the end.
@@ -75,16 +72,13 @@ export PYTHONPATH=src          # the three tiny emulator-free helper modules
 `priya_forecast.{parameters, grad_faith_io, pareto_diag}` are imported — no
 GPy, PySR, juliacall, or lyaemu.
 
-> **One non-pip prerequisite for the four diagnostic figures.**
-> `scripts/make_diagnostic_figs.py` renders labels with LaTeX
-> (`matplotlib.rcParams["text.usetex"]=True`), so it needs a TeX install with the
-> `latex` + `dvipng` binaries on `PATH` (Debian/Ubuntu:
+> **One non-pip prerequisite for the figures.** `scripts/make_figures.py` typesets
+> labels with LaTeX (`matplotlib.rcParams["text.usetex"]=True`), so it needs a TeX
+> install with `latex` on `PATH` (Debian/Ubuntu:
 > `apt-get install texlive-latex-base texlive-latex-extra dvipng`; conda:
-> `conda install -c conda-forge texlive-core`). **The table reproductions
-> (1b–1d) and the `seed_band`/`maxsize` figures need no TeX.** If you have no
-> TeX and only want the numbers, skip 1e and run 1b–1d.
+> `conda install -c conda-forge texlive-core`). **The tables (1b–1d) need no TeX.**
 
-### 1b. Table 4 (`tab:faith_taxonomy`) — the derivative-faithfulness taxonomy (the paper's main result)
+### 1b. Table 3 (`tab:faith_taxonomy`) — the derivative-faithfulness taxonomy (the paper's main result)
 
 Recompute the knee-selected `grad_err` for the value vs Sobolev objective at
 z=3.6, straight from the committed sidecars:
@@ -112,7 +106,7 @@ PY
 cells and 11 class labels match the paper exactly. **Do not** cross-check against the
 `.txt` sibling: it is the superseded best-loss pick (ns Sobolev 0.121, not 0.160).
 
-### 1c. Table 5 (`tab:per1d_eqs`) — the per-parameter equations at the Pareto knee
+### 1c. Table 4 (`tab:per1d_eqs`) — the per-parameter equations at the Pareto knee
 
 ```bash
 python - <<'PY'
@@ -131,7 +125,7 @@ PY
 
 **Expected output**: `dtau0` cmplx 19 loss 0.0022 grad_err 0.003; `ns` cmplx 18
 loss 9.75 grad_err **0.160**; `hub` cmplx 10 loss 422 grad_err 1.000. Matches the
-`% sympy:` comments above each row of Table 5 in the paper, and the committed
+`% sympy:` comments above each row of Table 4 in the paper, and the committed
 `$PROD/figures/per_param_equations.tex` (the knee cut, regenerated at `f804916`).
 The `.txt` sibling is the superseded best-loss pick — it does not match the paper.
 
@@ -150,88 +144,48 @@ copy is `$PROD/figures/param_priors_table.txt`.
 > matching `parameters.py` and the GP hypercube. No discrepancy remains;
 > `param_priors_table.txt` is still the emulator-box truth.
 
-### 1e. The six diagnostic figures
+### 1e. The paper's figures
 
-Four come from **one** invocation (needs TeX; see the note in 1a):
-
-```bash
-PROD=results/paper_production_20260630_perz_sobolev_z2.6-4.2
-python scripts/make_diagnostic_figs.py \
-    --value-dir   $PROD/value/refit/z3.6 \
-    --sobolev-dir $PROD/sobolev/refit/z3.6 \
-    --budget-dir  $PROD/seed_band/z3.6_seed0_budget/refit/z3.6 \
-    --crossz-dirs 2.6=$PROD/sobolev/refit/z2.6 \
-                  3.6=$PROD/sobolev/refit/z3.6 \
-                  4.2=$PROD/sobolev/refit/z4.2 \
-    --out-dir     results/_repro_scratch/diagnostic
-```
-
-**Expected**: `wrote 4 figures (png+pdf) to results/_repro_scratch/diagnostic` —
-`pareto_faithfulness`, `faithfulness_scorecard`, `ns_budget_panel`,
-`crossz_faithfulness` (`.png` + `.pdf`).
-
-The fifth, `maxsize_sensitivity` (no TeX needed):
+One script draws them, exactly as they appear in the manuscript (needs TeX; see 1a):
 
 ```bash
-python scripts/regen_maxsize_sensitivity.py --prod $PROD --z 3.6 \
-    --out-dir results/_repro_scratch/maxsize
+python scripts/make_figures.py --out results/_repro_scratch/paper_figures
 ```
 
-**Expected**: a `maxsize_sensitivity.{png,pdf,csv}`; the printed table ends with
-`bhfeedback sobolev | 0.771 0.576 0.676 0.750`.
+**Expected**: one `<name>: done` line per figure and one PDF each. Every input is checked
+against tag `v1.2-paper` before it is plotted, so the script needs a full `git clone`.
+On Great Lakes, with `requirements.lock.txt` and TeX Live 2026, the PDFs are byte-identical
+to the committed copies in `$PROD/figures/` and to the manuscript's. Another TeX or
+matplotlib version can change the bytes but not the plotted values, which `--dump DIR`
+writes out.
 
-The sixth, `seed_band`, is a few lines of matplotlib over the committed JSON —
-run it via the notebook (§1.3) or inline:
+Older generators remain for figures the paper no longer includes
+(`make_diagnostic_figs.py`, `regen_maxsize_sensitivity.py`, `regen_rescorr.py`). Nothing
+in the paper depends on them.
 
-```bash
-python - <<'PY'
-import json, numpy as np, matplotlib; matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from priya_forecast.parameters import PARAM_NAMES
-s = json.load(open("results/paper_production_20260630_perz_sobolev_z2.6-4.2/seed_band/seed_band_summary.json"))
-params = [p for p in PARAM_NAMES if p in s["params"]]
-fig, ax = plt.subplots(figsize=(12, 5))
-for i, p in enumerate(params):
-    ax.plot(i - 0.1, min(s["params"][p]["value"][0], 1.25), "o", color="#d6604d")
-    ax.plot(i + 0.1, min(s["params"][p]["sobolev"][0], 1.25), "s", color="#1a9850")
-ax.axhline(s["gate"], ls="--", color="k"); ax.set_xticks(range(len(params)))
-ax.set_xticklabels(params, rotation=30, ha="right")
-fig.savefig("results/_repro_scratch/seed_band.png", dpi=120)
-print("gate", s["gate"], "| ns sobolev band", [round(x, 3) for x in s["params"]["ns"]["sobolev"][:3]])
-PY
-```
+### 1f. One-command option: the notebook
 
-**Expected**: `gate 0.25 | ns sobolev band [0.212, 0.123, 0.246]` (median, min, max
-over 5 seeds) — derivative faithfulness is seed-dependent right at the gate.
-
-### 1f. One-command option: the single whole-paper notebook
-
-`notebooks/reproduce_paper.ipynb` is **the one notebook that reproduces every figure
-and table in the paper**. Tier-1 (Tables 1/3/4/5 + the `pareto_faithfulness`,
-`faithfulness_scorecard`, `ns_budget_panel`, `seed_band` figures) runs emulator-free;
-the **Tier-2 GP-backed cells** (the `pysr_pred_tau0_Ap` / `pysr_graphs_3.6_dtau0` /
-`multid_bestworst` prediction plots + Table 2, `tab:stats_table`) run automatically **if the GP emulator
-is available** (Step 2), else print the exact command and skip — the notebook always
-completes. To run it headlessly (needs `pip install nbconvert ipykernel`):
+`notebooks/reproduce_paper.ipynb` redraws every figure and prints every table, in the
+paper's order, and says which selection rule each one uses. It needs no emulator. To run
+it headlessly (needs `pip install nbconvert ipykernel`):
 
 ```bash
 python -m ipykernel install --user --name priya-venv
-# Tier-2 cells also need the Step-2 env vars (LYA_EMULATOR, FIGREPO, data/kodiaq_gp):
 jupyter nbconvert --to notebook --execute --inplace \
     --ExecutePreprocessor.kernel_name=priya-venv \
     notebooks/reproduce_paper.ipynb
 ```
 
-Or just open it in Jupyter and **Run All**. Reproduced figures land in
-`results/_repro_scratch/` (git-ignored).
+Or just open it in Jupyter and **Run All**. Redrawn figures land in
+`results/_repro_scratch/` (git-ignored). `notebooks/README.md` says what each notebook is for.
 
 ---
 
-## Step 2 — Tier 2 (optional): the prediction + multi-D figures (needs the GP emulator)
+## Step 2 — Tier 2 (optional): recompute the multi-parameter table (needs the GP emulator)
 
-The four prediction figures compare a PySR equation's P1D against the GP truth,
-so they need the multi-fidelity GP emulator. **Julia/PySR are NOT needed here** —
-the equations are already refit and pickled in the production run.
+Table 5 compares the additive model with the GP emulator at new test points, so
+recomputing it needs the multi-fidelity GP emulator. **Julia/PySR are NOT needed here** —
+the equations are already refit and saved in the production run.
 
 ### 2a. Full environment
 
@@ -284,37 +238,18 @@ export JULIA_DEPOT_PATH=$HOME/.julia
 export PYTHONPATH=src:$LYA_EMULATOR                 # src + the emulator repo root
 PY=python                                           # the .venv python (GPy + lyaemu)
 PROD=results/paper_production_20260630_perz_sobolev_z2.6-4.2
-# The regen_fig1/3/4 + regen_table2 scripts live in the paper's LaTeX repo — clone it:
-FIGREPO=$PWD/../Knowledge-Distillation-using-PySR-with-PRIYA-suite
-git clone https://github.com/jibanCat/Knowledge-Distillation-using-PySR-with-PRIYA-suite.git "$FIGREPO"
 ```
 
 ```bash
-# --- Fig 1: pysr_pred_tau0_Ap (tau0 & Ap 1D variation) ---
-# regen_fig1.py takes --refit-dir (point it at the z-dir holding payloads/ + refits/):
-$PY $FIGREPO/scripts/regen_fig1.py --refit-dir $PROD/sobolev/refit/z3.6 \
-    --out-dir $PROD/figures                    # -> $PROD/figures/pysr_pred_tau0_Ap.pdf
-
-# --- pysr_graphs_3.6_dtau0 (predicted-vs-true P1D, one param; figure dropped from the paper) ---
-# --refit-dir must be the z-dir holding payloads/ + refits/ (NOT $PROD/sobolev):
-$PY $FIGREPO/scripts/regen_fig3.py --param dtau0 --z 3.6 \
-    --refit-dir $PROD/sobolev/refit/z3.6 --out-dir $PROD/figures
-
-# --- 2D de-norm scatter: 2d-denorm-Sobol_dtau0-Ap ---
-$PY $FIGREPO/scripts/regen_fig4.py --params dtau0 Ap --z 3.6 \
-    --refit-dir $PROD/sobolev/refit/z3.6 --basedir data/kodiaq_gp --out-dir $PROD/figures
-
-# --- Fig 4 `fig:multid_bestworst` (multi-D best/worst) + Table 3 `tab:multid` backing CSV ---
+# --- Table 5 `tab:multid`: the additive model against the GP at 256 Sobol points ---
 # regen_multid takes the PARENT sobolev dir and appends refit/z<z> itself:
 $PY scripts/regen_multid.py --refit-dir $PROD/sobolev --z 3.6 \
-    --basedir data/kodiaq_gp --out-dir $PROD/figures/multid_z3.6 --n-sobol 256
+    --basedir data/kodiaq_gp --out-dir results/_repro_scratch/multid --n-sobol 256
 ```
 
-Check against the committed outputs: `$PROD/figures/pysr_pred_tau0_Ap.pdf`,
-`pysr_graphs_3.6_dtau0.pdf`, `2d-denorm-Sobol_dtau0-Ap.pdf`,
-`multid_z3.6/multid_bestworst.csv`. The multi-D numbers are already committed, so
-you can *read* Table 3 (`tab:multid`) without the emulator — see 1f / notebook — and only need
-Tier 2 to *regenerate* them.
+Check against the committed `$PROD/figures/multid_z3.6/multid_bestworst.csv`. The numbers
+are already committed, so you can *read* Table 5 without the emulator (§1f) and only need
+Tier 2 to *recompute* them.
 
 ---
 
@@ -376,95 +311,78 @@ scripts/aggregate_seed_band.py \
 
 ---
 
-## Full figure / table → command → tier map
+## Selection rules and settings
 
-`PROD=results/paper_production_20260630_perz_sobolev_z2.6-4.2`.
-Tier-1 commands are emulator-free (`PYTHONPATH=src python …`, TeX only for the
-four diagnostic figures). Tier-2 commands need the Step-2 env; `FIGREPO` is the
-paper's LaTeX repo.
+Which equation is shown where, and where each choice is set. A fit returns a Pareto front
+of candidate equations; the paper chooses from it in three ways (Sec. 2.2.2).
+
+| choice | value | defined in | governs |
+|--------|-------|------------|---------|
+| valid candidate | uses the parameter; no constant above 100; non-zero gradient | `pareto_filters.py`, `single_z/forecast.py` (`_filter_fisher_safe`) | every rule below except lowest-loss |
+| lowest-loss | smallest training loss on the front | `refit_1d_pysr.py` (`pareto["loss"].idxmin()`) | Figures 1, 2; Table 2 |
+| lowest-loss valid | smallest training loss among valid candidates that also pass the threshold | `single_z/forecast.py` (`build_refit_from_pareto_gated`) | Table 5 |
+| Pareto knee | simplest valid candidate with loss within 10% of the best valid loss | `grad_faith_io.py` (`knee_row`, `rel_tol=0.1`) | Tables 3, 4; Figure 5 |
+| faithful | derivative error `<= 0.25` | `paper_figures.GATE`; the same default in `derivative_gate.py`, `grad_faith_score.py`, `eval_grad_faithfulness.py --tol` | every faithful/unfaithful label |
+| derivative error | median over k-bins; bins where the GP slope is below `1e-3` of its peak are skipped | `grad_faith_score.py` (`median_rel_error`) | Tables 3, 4; Figures 5–7 |
+| search budget | `niterations=200`, `populations=48`, `maxsize=20` | `scripts/submit_paper_production.sh` | every production fit |
+| Sobolev weight | `λ = 5` | same script | the Sobolev fits |
+| seeds, redshifts | seeds 0–4 at z = 3.6; z = 2.6, 3.6, 4.2 | same script | Figure 5, Table 3 |
+| complexity control | `maxsize = 35`, value-only loss, `n_P` | same script | Figures 6, 7 |
+| retries | up to 5 attempts until the front has a valid candidate | `single_z/refit.py` (`max_retries=4`) | every fit |
+| operators | `+ − × aq`; `exp log square` | `refit_1d_pysr.py` (`SMART_REFIT_PYSR_KWARGS`) | every 1D fit |
+| test set | 256 Sobol points, seed 1234 | `scripts/regen_multid.py` defaults | Table 5 |
+| joint fit (Sec. 5.1) | lowest-loss; `+ − × /`, `log exp square`; rank tolerance `1e-8` | `scripts/run_multid_pysr.py`; `results/joint_multid_sweep/SWEEP_SUMMARY.md` | Sec. 5.1 |
+
+The command-line defaults of `scripts/refit_one_param_single_z.py` are smaller than the
+production budget (`niterations=50`, `populations=24`, `λ=1`); the production values are
+the ones the submit script passes.
+
+---
+
+## Full figure / table → command map
+
+`PROD=results/paper_production_20260630_perz_sobolev_z2.6-4.2`. Numbers follow the order
+of the current draft; the `\label` is the stable key.
 
 ### Figures
 
-The paper's build loads **six** figures. Everything else below was dropped by the author
-and is commented out in the `.tex` — the generators still work, but nothing in the PDF uses
-them. The committed copies under `$PROD/figures/` are byte-identical to the paper's `figs/`.
+All of the paper's figures are drawn by `scripts/make_figures.py` (§1e) from committed
+files, with no emulator. The copies under `$PROD/figures/` are the manuscript's.
 
-**Active in the built PDF:**
+| paper figure | file | `make_figures.py --only` | selection rule |
+|--------------|------|--------------------------|----------------|
+| Figure 1, `fig:tau0_ap_pred` | `pysr_pred_tau0_Ap.pdf` | `prediction` | lowest-loss |
+| Figure 2, `fig:param_error_bars` | `param_error_bars.pdf` | `param_errors` | lowest-loss |
+| Figure 5, `fig:seed_band` | `seed_band.pdf` | `seed_band` | Pareto knee |
+| Figure 6, `fig:pareto_faith` | `pareto_faithfulness.pdf` | `pareto` | none: every valid candidate |
+| Figure 7, `fig:ns_budget` | `ns_budget_panel.pdf` | `ns_budget` | none: every valid candidate |
 
-| paper figure | file | tier | command |
-|--------------|------|:----:|---------|
-| Pareto faithfulness (`fig:pareto_faith`) | `pareto_faithfulness.pdf` | 1 | `make_diagnostic_figs.py` (§1e) |
-| ns budget panel (`fig:ns_budget`) | `ns_budget_panel.pdf` | 1 | `make_diagnostic_figs.py` (§1e) |
-| Resolution correction (`fig:rescorr_plot`) | `resolution_correction.pdf` | 1 | `scripts/regen_rescorr.py --out-dir <dir>` (no GP; needs TeX) |
-| Per-parameter error bars (`fig:param_error_bars`) | `param_error_bars.pdf` (lives in the paper repo's `figs/`) | 1 | `$FIGREPO/scripts/regen_fig_param_errors.py` — parses the text block of `$PROD/figures/table2_stats.tex`, so it cannot drift from `tab:stats_table` |
-| Across-seed band (`fig:seed_band`) | `seed_band.pdf` | 1 | `paper_figures.plot_seed_band` — see caveat below |
-| tau0 & Ap prediction (`fig:tau0_ap_pred`) | `pysr_pred_tau0_Ap.pdf` | 2\* | `$FIGREPO/scripts/regen_fig1.py --refit-dir $PROD/sobolev/refit/z3.6` (§2d) |
-| Multi-D best/worst (`fig:multid_bestworst`) | `multid_bestworst.pdf` | 2 | `scripts/regen_multid.py` (§2d) |
+Figures 3 and 4 (the multi-parameter error curves) need the per-k data file
+`multid_bestworst_perk.csv`.
 
-**Dropped by the author** (commented out in the `.tex`; not in the built PDF):
-`faithfulness_scorecard.pdf`, `crossz_faithfulness.pdf` (both `make_diagnostic_figs.py`),
-`maxsize_sensitivity.pdf` (`regen_maxsize_sensitivity.py`), `pysr_graphs_3.6_dtau0.pdf`
-(`$FIGREPO/scripts/regen_fig3.py`), `2d-denorm-Sobol_dtau0-Ap.pdf` (`$FIGREPO/scripts/regen_fig4.py`),
-`holdout_validation_{cosmo,astro}` (superseded by `multid_bestworst`).
-
-Three caveats worth knowing before you trust a regenerated figure:
-
-- **`pysr_pred_tau0_Ap` (tier 2\*)** needs no GP — `regen_fig1.py` reads committed pickles and runs
-  in ~3 s — but the generator lives in the **paper** repo, not here, and `--refit-dir` is mandatory.
-  Its default (`results/refit_phase2_production`) silently produces a *different* figure from an older
-  refit set. With the refit-dir above, the output is pixel-identical to the published PDF.
-- **`multid_bestworst`** requires the GP (`GPModel`, ~20 min load) and re-draws its Sobol sample, so a
-  rerun agrees with the published figure only to ~4 significant figures, never byte- or pixel-exactly.
-  The best/worst parameter combinations are stable.
-- **`seed_band`** plots exactly the committed `seed_band/seed_band_summary.json`. **Fixed 2026-07-30:**
-  the published PDF used to be hand-tuned in an interactive session (title, legend text, canvas), and
-  that hand-tuned legend read "best-loss" on points that are Pareto-knee selected — contradicting the
-  figure's own y-axis, its caption and the aggregator. The title and legend now live in
-  `paper_figures.SEED_BAND_TITLE` / `SEED_BAND_LABELS`, so `plot_seed_band(run)` regenerates the
-  shipped figure (aspect matched to 0.1%; not byte-identical, since matplotlib stamps a
-  `CreationDate`).
-
-Figures are compared by content, not bytes: matplotlib stamps a `CreationDate`, so rasterize first —
-`gs -q -dNOPAUSE -dBATCH -sDEVICE=png16m -r150 -sOutputFile=out.png in.pdf` — then compare the PNGs.
+**No longer in the paper** (commented out in the `.tex`): `resolution_correction.pdf`,
+`faithfulness_scorecard.pdf`, `crossz_faithfulness.pdf`, `maxsize_sensitivity.pdf`,
+`pysr_graphs_3.6_dtau0.pdf`, `2d-denorm-Sobol_dtau0-Ap.pdf`. Their committed copies remain.
+The paper's text still quotes the numbers behind the cross-redshift and maxsize ones.
 
 ### Tables
-
-Numbering follows the current build (`oja_template.aux`); the `\label` is the stable key.
 
 | paper table | label | tier | command / source of record |
 |-------------|-------|:----:|----------------------------|
 | Table 1 — parameters + priors | `tab:param_table` | 1 | `priya_forecast.parameters` (§1d); `figures/param_priors_table.txt` |
-| Table 2 — per-param % error (LF/HF) | `tab:stats_table` | 2/3 | committed `figures/table2_stats.tex` is the record; `$FIGREPO/scripts/regen_table2.py` regenerates from the refit/payload pickles — **see caveat below** |
-| Table 3 — multi-D combine vs GP | `tab:multid` | 1 read / 2 regen | committed `figures/multid_z3.6/multid_bestworst.csv` (read); `scripts/regen_multid.py` (regen, §2d) |
-| Table 4 — faithfulness taxonomy | `tab:faith_taxonomy` | 1 | `grad_faith_io.knee_row` on the sidecars (§1b); `figures/taxonomy_table.tex` (knee; the `.txt` sibling is stale best-loss) |
-| Table 5 — per-parameter equations | `tab:per1d_eqs` | 1 | knee row + Pareto CSV (§1c); `figures/per_param_equations.tex` (knee; the `.txt` sibling is stale best-loss) |
-
-**Not in the built PDF** (archived inside `\begin{comment}` blocks in the `.tex`, so they
-carry no number and resolve no `\ref`): `tab:rmse_pe_table` (RMSE / % error 1D/2D/3D —
-pre-reframe hand-picked subsets, never regenerated) and `tab:stats_28_table` (z=2.8 % error —
-z=2.8 is not in the production grid 2.6/3.6/4.2, so it cannot be regenerated as-is).
+| Table 2 — per-param % error (LF/HF) | `tab:stats_table` | 1 read | committed `figures/table2_stats.tex` is the record — **see the gotcha below** |
+| Table 3 — faithfulness taxonomy | `tab:faith_taxonomy` | 1 | `grad_faith_io.knee_row` on the score files (§1b); `figures/taxonomy_table.tex` |
+| Table 4 — per-parameter equations | `tab:per1d_eqs` | 1 | knee row + Pareto CSV (§1c); `figures/per_param_equations.tex` |
+| Table 5 — multi-D combine vs GP | `tab:multid` | 1 read / 2 recompute | committed `figures/multid_z3.6/multid_bestworst.csv` (read); `scripts/regen_multid.py` (§2d) |
 
 ---
 
 ## Known gotchas
 
-- **Diagnostic figures need TeX.** `make_diagnostic_figs.py` uses
-  `text.usetex=True`. Without a `latex`/`dvipng` install it raises a
-  matplotlib LaTeX error. The **table** reproductions and the
-  `seed_band`/`maxsize` figures do not.
-- **`regen_fig1.py` *defaults* `--refit-dir` to `results/refit_phase2_production`**
-  (the older refit set). Pass `--refit-dir $PROD/sobolev/refit/z3.6` explicitly — as
-  §2d does, and as `regen_fig3.py`/`regen_fig4.py` require — to point it at the
-  production Sobolev fits. (No symlink workaround is needed; the earlier hard-coded
-  path was replaced by the `--refit-dir` flag on 2026-06-30.)
-- **Table 2 (`tab:stats_table`, `table2_stats.tex`) does not cleanly re-run from the committed
-  pickles.** `regen_table2.py` expects a payload schema (`pld['payload']`,
-  `z_per_row`) that the production `sobolev/refit/z3.6/payloads/*.pkl` do **not**
-  use (they are the flatter `--save-artifacts` schema), and the older
-  `results/refit_phase2_production/payloads` it defaults to are a different refit
-  set whose numbers don't match the paper. Treat the committed
-  `figures/table2_stats.tex` as the artifact of record; a faithful regeneration
-  needs the specific refit/payload pickles that produced it (re-run the fits,
-  Tier 3, saving artifacts in the schema `regen_table2.py` expects).
+- **Figures need TeX.** `make_figures.py` uses `text.usetex=True`. Without a `latex`
+  install it raises a matplotlib LaTeX error. The **tables** do not need TeX.
+- **Table 2 (`tab:stats_table`) cannot be recomputed from this repository.** Its generator
+  lives in the manuscript's repository and needs the emulator. Treat the committed
+  `figures/table2_stats.tex` as the record.
 - **numpy < 2 / pandas < 3** in the pins is only for ABI compatibility with the
   Tier-2 GPy install; the Tier-1 code itself runs fine on numpy 2.x.

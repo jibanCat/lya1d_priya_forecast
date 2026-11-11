@@ -1,11 +1,8 @@
 # requirements-figures.txt — Tier-1 (emulator-free) reproduction deps.
 #
-# This is ALL a user needs to regenerate the paper's MAIN results (the
-# derivative-faithfulness taxonomy Table 4, the equations Table 5, the
-# diagnostic figures pareto_faithfulness and ns_budget_panel, plus the three
-# regenerable-but-dropped ones faithfulness_scorecard / crossz_faithfulness /
-# maxsize_sensitivity, seed_band, and the Tables 1/3 numbers) directly from the
-# committed CSVs / JSON / sidecars in
+# This is ALL a user needs to redraw every figure of the paper and print every
+# table (notebooks/reproduce_paper.ipynb, scripts/make_figures.py) from the
+# committed CSVs / JSON / score files / saved fits in
 # results/paper_production_20260630_perz_sobolev_z2.6-4.2/.
 #
 # NO GP emulator (GPy / lyaemu), NO PySR, NO Julia are imported on this path.
@@ -16,11 +13,10 @@
 # ABI-compatible with the full Tier-2 emulator install (GPy 1.13.2 is built
 # against the numpy 1.x dtype ABI); Tier-1 code itself works on numpy 2.x.
 #
-# One extra system (non-pip) prerequisite for the four diagnostic figures:
-# scripts/make_diagnostic_figs.py renders labels with LaTeX (matplotlib
-# text.usetex=True), so a TeX installation providing the `latex` + `dvipng`
-# binaries (e.g. TeX Live: texlive-latex-base texlive-latex-extra dvipng) must
-# be on PATH. The TABLE reproduction (Tables 1 / 3 / 4 / 5) needs no LaTeX.
+# One extra system (non-pip) prerequisite for the figures: scripts/make_figures.py
+# typesets labels with LaTeX (matplotlib text.usetex=True), so a TeX installation
+# providing `latex` (e.g. TeX Live: texlive-latex-base texlive-latex-extra) must
+# be on PATH. The tables need no LaTeX.
 
 numpy==1.26.4
 scipy==1.12.0

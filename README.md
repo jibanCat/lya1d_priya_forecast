@@ -46,9 +46,7 @@ python3.11 -m venv .venv-figures && source .venv-figures/bin/activate
 pip install -r requirements-figures.txt      # 7 light deps: numpy scipy pandas matplotlib sympy pyyaml h5py
 export PYTHONPATH=src
 ```
-> Rendering the four LaTeX-labelled diagnostic figures also needs a TeX install
-> (`latex` + `dvipng` on `PATH`). The table reproductions and the seed-band/maxsize
-> figures need no TeX.
+> Drawing the figures also needs a TeX install (`latex` on `PATH`). The tables need no TeX.
 
 ### Tier 2 — full package + GP emulator (prediction figures)
 Adds the multi-fidelity GP so the prediction figures and multi-D combine run.
@@ -89,26 +87,23 @@ PYTHONPATH=src pytest -q -k "not slow"       # ~436 passed; emulator/PySR tests 
 
 ---
 
-## Quickstart — reproduce the diagnostic figures (emulator-free)
-Reads the committed Pareto fronts + grad-faithfulness sidecars and rebuilds the four
-diagnostic figures with **no GP/PySR/Julia**:
+## Quickstart — redraw the paper's figures (emulator-free)
+Reads the committed fits and score files and draws the figures exactly as they appear in
+the manuscript, with **no GP/PySR/Julia**:
 
 ```bash
-PYTHONPATH=src python scripts/make_diagnostic_figs.py --out-dir results/_repro_scratch/diagnostic
+python scripts/make_figures.py --out results/_repro_scratch/paper_figures
 ```
-Produces `pareto_faithfulness`, `faithfulness_scorecard`, `ns_budget_panel`,
-`crossz_faithfulness` (PNG + PDF). Defaults read the committed production run
-`results/paper_production_20260630_perz_sobolev_z2.6-4.2/`.
+Each input is checked against tag `v1.2-paper` before it is plotted.
 
 ## Reproduce the whole paper
-**One notebook — [`notebooks/reproduce_paper.ipynb`](notebooks/reproduce_paper.ipynb)**
-regenerates **every figure and table**: Tier 1 (Tables 1/3/4/5 + the diagnostic
-figures) runs emulator-free; Tier 2 (the PySR-vs-GP prediction plots + Table 2) runs
-the GP-backed scripts if the emulator is available, else prints the command. Full
-step-by-step guide: **[`REPRODUCE.md`](REPRODUCE.md)**.
+**[`notebooks/reproduce_paper.ipynb`](notebooks/reproduce_paper.ipynb)** redraws every
+figure and prints every table from committed files, in about a minute, and says which
+selection rule each one uses. Full step-by-step guide: **[`REPRODUCE.md`](REPRODUCE.md)**.
 
-To re-run the PySR pipeline and test your own hypotheses, see
-**[`notebooks/rerun_paper.ipynb`](notebooks/rerun_paper.ipynb)** (Tier 3; needs the GP emulator).
+**[`notebooks/rerun_paper.ipynb`](notebooks/rerun_paper.ipynb)** refits the equations
+yourself (needs the GP emulator and PySR). [`notebooks/README.md`](notebooks/README.md)
+says which notebook is for what.
 
 ## Use it as a library
 The diagnostic is `priya_forecast.pareto_diag` / `priya_forecast.paper_figures`
@@ -132,9 +127,10 @@ gate `0.25`); `value_mse` = log-P value error. See the walkthrough for the defin
 src/priya_forecast/   Installed package: GP + PySR models, the derivative gate,
                       Sobolev loss, grad-faith sidecar I/O, Pareto diagnostic,
                       single_z/ + multi_z/ pipelines, the `priya-forecast` CLI.
-scripts/              Pipeline drivers: make_diagnostic_figs.py, eval_grad_faithfulness.py,
+scripts/              Pipeline drivers: make_figures.py, eval_grad_faithfulness.py,
                       regen_*.py, submit_paper_production.sh, refit/aggregate entry points.
-notebooks/            reproduce_paper.ipynb — the single all-figures-and-tables notebook.
+notebooks/            reproduce_paper.ipynb (replot the paper) and rerun_paper.ipynb (refit);
+                      see notebooks/README.md.
 tests/                pytest suite (-k "not slow"); emulator-touching tests skip on a bare clone.
 docs/                 User docs: the diagnostic walkthrough, code-review map, onboarding,
                       method/perf notes.  docs/dev/ holds internal design/handoff history.
