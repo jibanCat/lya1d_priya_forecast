@@ -30,11 +30,10 @@ git clone https://github.com/jibanCat/lya1d_priya_forecast.git
 cd lya1d_priya_forecast
 ```
 
-Everything Tier-1 needs is already in the clone. Two large inputs are **not**:
-- `data/kodiaq_gp/` (~43 MB, git-ignored) — the stripped GP emulator basedir,
-  needed only for **Tier 2**. Built in Step 2.
-- the trained MF-emulator pickles — they live inside the emulator repo you clone
-  in Step 2.
+Everything Tier-1 needs is already in the clone. Two things are **not**, and are needed
+only from Tier 2 on. Both are public and are cloned in Step 2:
+- the trained GP emulator (`data/kodiaq_gp/`, ~74 MB, git-ignored);
+- the `lyaemu` package that loads it.
 
 What *is* committed and does the heavy lifting for Tier 1:
 
@@ -196,41 +195,37 @@ pip install -e .            # or: pip install -r requirements.lock.txt  (exact, 
 pip install GPy emukit matplotlib     # the emulator extras (the `gp` + `forecast` groups)
 ```
 
-### 2b. Clone the GP emulator
-
-The emulator is `github.com/sbird/lya_emulator` (the author works from a fork).
-Clone it anywhere and point `$LYA_EMULATOR` at the repo root — the importable
-package `lyaemu` sits at that root:
+### 2b. Get the emulator (two public repositories)
 
 ```bash
-export LYA_EMULATOR=$PWD/../lya_emulator        # any path you like
-git clone https://github.com/sbird/lya_emulator "$LYA_EMULATOR"
+# the trained emulator the paper uses (172 k-bins); the clone root is the basedir,
+# and data/kodiaq_gp is where every script looks by default
+git clone https://github.com/jibanCat/kodiaq-squad-gp data/kodiaq_gp
+
+# the lyaemu package that loads it
+git clone https://github.com/jibanCat/InferenceLyaData ../InferenceLyaData
+export LYA_EMULATOR=$PWD/../InferenceLyaData        # the directory that contains lyaemu/
 ```
 
-### 2c. Build `data/kodiaq_gp` (the stripped GP basedir)
+Do **not** use `InferenceLyaData/Emulator_Files_KS` as the emulator. The file loaded from
+there has 329 k-bins: a different emulator, whose high-fidelity P1D differs from the paper's
+by a few percent. The data repository's own README gives a verified `lyaemu` commit and a
+`verify_basedir.py` check.
 
-`data/kodiaq_gp/` is the inference-time subset of a full KODIAQ-SQUAD GP training
-directory. `scripts/prep_kodiaq_gp.py` strips a full basedir down to just the
-files the forecast reads (all 13 z-bin pickles + the MF flux-vector HDF5 +
-`emulator_params.json`), dropping alt-cut variants, leave-one-out diagnostics,
-the temperature emulator, and the `kims_*` test subdir.
+### 2c. The one-parameter sweeps
+
+The scoring and the multi-parameter table rebuild each equation's normalisation from a
+50-point sweep of its parameter. Write those sweep files once (a few minutes; all 11
+parameters, 13 redshifts):
 
 ```bash
-# --source is the FULL upstream basedir. The committed data was built from
-# (on GreatLakes / Turbo):
-#   /nfs/turbo/umor-yueyingn/mfho/birdgroup/lya_xq100/kodiaq_2_2_4_6-48-48
-# Substitute your own copy of that directory (obtain it from the PRIYA / KODIAQ
-# emulator authors — it is the multi-fidelity GP training set of Ho et al. 2025).
-python scripts/prep_kodiaq_gp.py \
-    --source /path/to/kodiaq_2_2_4_6-48-48 \
-    --dest data/kodiaq_gp
+PYTHONPATH=src:$LYA_EMULATOR python scripts/regen_1pvar.py      # -> data/single_z_1pvar/
 ```
 
-**Expected**: `Wrote stripped GP basedir to data/kodiaq_gp (~43 MB).` and a
-`data/kodiaq_gp/README.md` recording the source. Provenance of the committed
-copy is in that README (`Source: .../kodiaq_2_2_4_6-48-48`).
+They must come from the same emulator as the fits. Always regenerate them after changing
+the emulator directory.
 
-### 2d. The four env vars, then the commands
+### 2d. The environment variables, then the command
 
 ```bash
 export PYTHON_JULIAPKG_PROJECT=$HOME/.julia_env    # (only used if Julia is present)
@@ -253,9 +248,8 @@ Tier 2 to *recompute* them.
 
 The same command rewrites `multid_bestworst_perk.csv`, the per-k curves Figures 3 and 4 are
 drawn from. A rerun reproduces Table 5's four-decimal values; the sixth decimal of a few
-per-k values can differ between machines. It also needs the one-parameter sweeps in
-`data/single_z_1pvar` (`scripts/regen_1pvar.py`): without them the script says so and
-falls back to emulator slices, which is not the result in the paper.
+per-k values can differ between machines. It needs the sweep files of Step 2c: without
+them the script says so and falls back to emulator slices, which is not the result in the paper.
 
 ---
 
@@ -272,23 +266,10 @@ and never touches the committed production run.
 ABI), the `lyaemu` package, a GP basedir, and Julia/PySR (the notebook retrains the equations from scratch, so
 PySR runs).
 
-**Provisioning the GP emulator (two public repos).** The `lyaemu` package is in
-[`github.com/jibanCat/InferenceLyaData`](https://github.com/jibanCat/InferenceLyaData). The trained
-emulator the paper uses (172 k-bins) is
-[`github.com/jibanCat/kodiaq-squad-gp`](https://github.com/jibanCat/kodiaq-squad-gp); its clone root
-is the basedir.
-
-```bash
-git clone https://github.com/jibanCat/InferenceLyaData ../InferenceLyaData    # the lyaemu package
-git clone https://github.com/jibanCat/kodiaq-squad-gp data/kodiaq-squad-gp      # the paper's emulator
-pip install GPy emukit                             # numpy must stay < 2
-export LYA_EMULATOR=$PWD/../InferenceLyaData        # its lyaemu/ dir is the package
-export GP_BASEDIR=data/kodiaq-squad-gp              # the clone root is the basedir
-```
-
-Do **not** point `GP_BASEDIR` at `InferenceLyaData/Emulator_Files_KS`. The file loaded from there has
-329 k-bins: a different emulator, whose high-fidelity P1D differs from the paper's by a few percent.
-The notebook's first cell prints the number of k-bins of the basedir it found.
+**The emulator** is the one from Step 2b: the `lyaemu` package from `InferenceLyaData`
+(`LYA_EMULATOR`) and the trained emulator in `data/kodiaq_gp`, which is the notebook's default.
+If you cloned the emulator somewhere else, set `GP_BASEDIR` to that directory. The notebook's
+first cell prints the number of k-bins of the emulator it found; the paper's has 172.
 
 The notebook's first cell reads `LYA_EMULATOR` and `GP_BASEDIR` and reports what is missing; if either is
 absent it prints these commands and skips the run rather than erroring.
@@ -306,15 +287,49 @@ sbatch --export=ALL,REPO=$PWD slurm/rerun_grid.slurm --preset full --label full_
 
 ---
 
-## Step 3 — Tier 3 (optional): re-train the PySR fits (needs Julia/PySR + SLURM)
+## Step 3 — Tier 3 (optional): re-train the PySR fits (needs Julia/PySR)
 
-The whole production run (per-z Sobolev + value baseline + 5-seed band + ns budget
-control + maxsize sweep) is one self-documenting submit script:
+You do not need this to reproduce the paper. It needs the Step-2 emulator, the sweep files
+of Step 2c, and PySR (`pip install -e ".[gp,forecast,pysr]"`; Julia is installed by
+`juliacall` on first use).
+
+**One fit, three commands** (n_P, Sobolev loss, the paper's budget; about 15 min on four cores):
+
+```bash
+export PYTHONPATH=src:$LYA_EMULATOR
+
+python scripts/refit_one_param_single_z.py --param ns --z 3.6 --output-dir out/sobolev \
+    --target-space log --maxsize 20 --niterations 200 --populations 48 --seed 0 \
+    --use-sobolev --sobolev-lambda 5                       # -> out/sobolev/refit/z3.6/pareto_ns.csv
+
+python scripts/eval_grad_faithfulness.py --pareto out/sobolev/refit/z3.6/pareto_ns.csv \
+    --param ns --z 3.6 --out out/sobolev/refit/z3.6/grad_faith_ns.csv   # score every valid candidate
+
+python -c "
+from priya_forecast.grad_faith_io import read_grad_faith_sidecar, knee_row
+print(knee_row(read_grad_faith_sidecar('out/sobolev/refit/z3.6/grad_faith_ns.csv')))"   # the knee equation
+```
+
+The flags in the first command are required: the script's own defaults are smaller than the
+paper's budget. The fits are not deterministic, so a rerun reproduces the faithful or
+unfaithful class, not the digits.
+
+**The whole grid, one command** (11 parameters x 3 redshifts x 2 losses at the paper's budget;
+it writes its own sweep files, fits, scores and compares with the committed run):
+
+```bash
+python -m priya_forecast.rerun --preset full --label full_seed0 --dry-run     # print the settings only
+python -m priya_forecast.rerun --preset full --label full_seed0               # about 10 h on four cores
+sbatch --export=ALL,REPO=$PWD,LYA_EMULATOR=$LYA_EMULATOR slurm/rerun_grid.slurm --preset full --label full_seed0
+```
+
+**The paper's own production run**, as SLURM job arrays (per-z Sobolev + value baseline +
+5-seed band + n_P budget control + maxsize sweep):
 
 ```bash
 scripts/submit_paper_production.sh --dry-run          # print the sbatch lines only
-SLURM_ACCOUNT=<acct> LYA_EMULATOR=/path/to/lya_emulator \
-    scripts/submit_paper_production.sh                # submit to GreatLakes SLURM
+SLURM_ACCOUNT=<acct> LYA_EMULATOR=$LYA_EMULATOR \
+    scripts/submit_paper_production.sh                # submit
 ```
 
 It writes `RUN_MANIFEST.md` with the exact recipe (one PySR model per (param, z),

@@ -12,7 +12,8 @@ results/single_z_example/
 
 # Single-z pipeline derived data: regenerate via scripts/prep_kodiaq_gp.py.
 data/kodiaq_gp/
-# The paper's emulator, cloned from github.com/jibanCat/kodiaq-squad-gp (REPRODUCE.md, Step 3a).
+# The same emulator cloned under its own name (github.com/jibanCat/kodiaq-squad-gp);
+# REPRODUCE.md Step 2b clones it to data/kodiaq_gp, the default.
 data/kodiaq-squad-gp/
 
 # Single-z 1pvar training data: regenerate via scripts/regen_1pvar.py.
