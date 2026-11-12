@@ -1,0 +1,285 @@
+{
+  "params": [
+    "ns",
+    "Ap",
+    "herei",
+    "heref",
+    "alphaq",
+    "hireionz"
+  ],
+  "n_params": 6,
+  "z": 3.6,
+  "maxsize": 40,
+  "joint_equation": "(((((30.667528 - x5) + ((x0 * 5.5668883) - x4)) + x2) + (exp(square((x6 + (((x2 / (-1.249244 - x2)) - (x1 - x0)) / 11.222612)) - 1.9219621)) + x3)) - (x6 * 15.171246)) - (x1 * -2.6025755)",
+  "joint_loss": 0.74560374,
+  "joint_complexity": 39,
+  "joint_pysr": {
+    "physical": {
+      "eigenvalues": [
+        1803.9151784332817,
+        89.69120609681542,
+        4.252134739026377e-15,
+        7.189648348495397e-16,
+        -8.4492929022254805e-16,
+        -6.1644623642278515e-15
+      ],
+      "lambda_max": 1803.9151784332817,
+      "lambda_min": -6.1644623642278515e-15,
+      "condition_number": null,
+      "numerical_rank": {
+        "1e-06": 2,
+        "1e-08": 2,
+        "1e-10": 2
+      }
+    },
+    "whitened": {
+      "eigenvalues": [
+        199.2298909593718,
+        91.38759046363792,
+        5.281542690935956e-15,
+        1.2461022438637489e-15,
+        -3.615506074110078e-15,
+        -8.267096574957288e-15
+      ],
+      "lambda_max": 199.2298909593718,
+      "lambda_min": -8.267096574957288e-15,
+      "condition_number": null,
+      "numerical_rank": {
+        "1e-06": 2,
+        "1e-08": 2,
+        "1e-10": 2
+      }
+    },
+    "sigma": [
+      0.023914640557706226,
+      0.10369867636175809,
+      0.02994574898221472,
+      0.011944133474449182,
+      0.02030502690656346,
+      0.017916200211673783
+    ],
+    "rank_deficient_vs_nparams": true
+  },
+  "gp_reference": {
+    "physical": {
+      "eigenvalues": [
+        2002.6534065787291,
+        200.30409050816166,
+        1.2706133795151884,
+        0.12127629194121323,
+        0.06632710808700215,
+        0.0549757891480642
+      ],
+      "lambda_max": 2002.6534065787291,
+      "lambda_min": 0.0549757891480642,
+      "condition_number": 36427.91558998924,
+      "numerical_rank": {
+        "1e-06": 6,
+        "1e-08": 6,
+        "1e-10": 6
+      }
+    },
+    "whitened": {
+      "eigenvalues": [
+        424.8572223967653,
+        105.38992010143542,
+        1.564511015404503,
+        0.2530816284895359,
+        0.13659641329018796,
+        0.0741384167968177
+      ],
+      "lambda_max": 424.8572223967653,
+      "lambda_min": 0.0741384167968177,
+      "condition_number": 5730.594754418897,
+      "numerical_rank": {
+        "1e-06": 6,
+        "1e-08": 6,
+        "1e-10": 6
+      }
+    },
+    "sigma": [
+      0.08725524861765992,
+      0.824770068422368,
+      2.4504217868792755,
+      2.8628740187114086,
+      3.8290865468470674,
+      3.571328533754525
+    ]
+  },
+  "front_scan": {
+    "front_max_rank_1e8": 2,
+    "front_max_rank_complexity": 16,
+    "min_complexity_scanned": 10,
+    "n_front_scanned": 27,
+    "per_row": [
+      {
+        "complexity": 11,
+        "loss": 3.138489,
+        "rank_1e8": 1
+      },
+      {
+        "complexity": 12,
+        "loss": 3.0016026,
+        "rank_1e8": 1
+      },
+      {
+        "complexity": 13,
+        "loss": 2.8986263,
+        "rank_1e8": 1
+      },
+      {
+        "complexity": 14,
+        "loss": 2.7124083,
+        "rank_1e8": 1
+      },
+      {
+        "complexity": 15,
+        "loss": 2.6760938,
+        "rank_1e8": 1
+      },
+      {
+        "complexity": 16,
+        "loss": 2.5120025,
+        "rank_1e8": 2
+      },
+      {
+        "complexity": 17,
+        "loss": 2.479375,
+        "rank_1e8": 2
+      },
+      {
+        "complexity": 18,
+        "loss": 2.3967674,
+        "rank_1e8": 2
+      },
+      {
+        "complexity": 19,
+        "loss": 2.360772,
+        "rank_1e8": 2
+      },
+      {
+        "complexity": 20,
+        "loss": 2.3378134,
+        "rank_1e8": 2
+      },
+      {
+        "complexity": 21,
+        "loss": 2.2798398,
+        "rank_1e8": 2
+      },
+      {
+        "complexity": 22,
+        "loss": 2.2416048,
+        "rank_1e8": 2
+      },
+      {
+        "complexity": 23,
+        "loss": 1.9186602,
+        "rank_1e8": 2
+      },
+      {
+        "complexity": 25,
+        "loss": 1.6573843,
+        "rank_1e8": 2
+      },
+      {
+        "complexity": 27,
+        "loss": 1.406668,
+        "rank_1e8": 2
+      },
+      {
+        "complexity": 28,
+        "loss": 1.3355261,
+        "rank_1e8": 2
+      },
+      {
+        "complexity": 29,
+        "loss": 1.2378025,
+        "rank_1e8": 2
+      },
+      {
+        "complexity": 30,
+        "loss": 1.1539357,
+        "rank_1e8": 2
+      },
+      {
+        "complexity": 31,
+        "loss": 1.0835502,
+        "rank_1e8": 2
+      },
+      {
+        "complexity": 32,
+        "loss": 1.0516397,
+        "rank_1e8": 2
+      },
+      {
+        "complexity": 33,
+        "loss": 0.96744525,
+        "rank_1e8": 2
+      },
+      {
+        "complexity": 34,
+        "loss": 0.9431697,
+        "rank_1e8": 2
+      },
+      {
+        "complexity": 35,
+        "loss": 0.8603738,
+        "rank_1e8": 2
+      },
+      {
+        "complexity": 36,
+        "loss": 0.8573369,
+        "rank_1e8": 2
+      },
+      {
+        "complexity": 37,
+        "loss": 0.78778404,
+        "rank_1e8": 2
+      },
+      {
+        "complexity": 38,
+        "loss": 0.7848645,
+        "rank_1e8": 2
+      },
+      {
+        "complexity": 39,
+        "loss": 0.74560374,
+        "rank_1e8": 2
+      }
+    ]
+  },
+  "n_inputs_present": 6,
+  "absent_inputs": [],
+  "accuracy_insample": {
+    "student_vs_gp": 0.1412036354486803,
+    "perfect1d_vs_gp": 0.049486080890262074,
+    "n_points": 512
+  },
+  "accuracy_offfid": {
+    "student_vs_gp": 0.10680499413743605,
+    "perfect1d_vs_gp": 0.005408540083294314,
+    "n_points": 32
+  },
+  "sobolev_arm": {
+    "feasible": false,
+    "reason": "Sobolev loss perturbs one feature row (X[1,:]+=h) and matches the single `dataset.weights` channel = one param's target gradient. A joint 6-input eq needs dP/dtheta_i for all 6 params (6 gradient channels + 6 perturb dirs); PySR has only one weights vector, so joint-Sobolev is not well-defined with the current machinery. This sweep uses MSE only."
+  },
+  "preregistered": {
+    "maxsize": 40,
+    "n_params": 6,
+    "best_loss_complexity": 39,
+    "pinned_at_cap": false,
+    "n_inputs_present": 6,
+    "absent_inputs": [],
+    "idxmin_rank_whitened_1e8": 2,
+    "front_max_rank_1e8": 2,
+    "front_max_rank_complexity": 16,
+    "joint_condition_number_whitened": null,
+    "gp_condition_number_whitened": 5730.594754418897,
+    "offfid_student_vs_gp": 0.10680499413743605,
+    "offfid_perfect1d_vs_gp": 0.005408540083294314,
+    "insample_student_vs_gp": 0.1412036354486803,
+    "insample_perfect1d_vs_gp": 0.049486080890262074
+  }
+}

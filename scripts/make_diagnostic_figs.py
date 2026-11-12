@@ -143,13 +143,17 @@ def main():
         xytext=(float(tgt["Complexity"]) - 14, float(tgt["value_mse"]) * 9),
     )}
     y_label_value = r"value MSE vs GP ($\log P$, HF) -- lower is better"
+    # The in-figure ns Mirage arrow (`annotate`) collided with the ns panel's
+    # legend + data points at print size, so it is dropped from the figure and
+    # moved to the caption (see caption sentence in the regen report). `annotate`
+    # is still computed above for provenance but no longer drawn.
     p1 = out / "pareto_faithfulness.pdf"
     render_grid(fronts, p1, y_col="value_mse",
                 y_label=y_label_value,
-                param_order=list(PARAM_NAMES), annotate=annotate)
+                param_order=list(PARAM_NAMES), annotate=None)
     render_grid(fronts, out / "pareto_faithfulness.png", y_col="value_mse",
                 y_label=y_label_value,
-                param_order=list(PARAM_NAMES), annotate=annotate)
+                param_order=list(PARAM_NAMES), annotate=None)
 
     # ---------- Figure 2: scorecard (numbers on the two resisters) ----------
     rows = sorted(((p, bestloss(VALUE, p), bestloss(SOBOLEV, p)) for p in PARAM_NAMES),
@@ -182,58 +186,41 @@ def main():
     fig.savefig(out / "faithfulness_scorecard.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
 
-    # ---------- Figure 3: ns money panel (endpoints labelled) ----------
-    # Same hard two-tone as the pareto grid: green faithful (<=0.25) / red Mirage.
+    # ---------- Figure 3: ns money panel (SINGLE-COLUMN, decluttered) ----------
+    # Included at \linewidth in a one-column `figure` (~3.4in wide), so the panel
+    # is sized to the column with a small, self-consistent font set (a large
+    # 12in figure downscaled to a column rendered ~5pt text). The two endpoint
+    # callouts overlapped the point cluster at this size, and the two-line title
+    # duplicated the caption, so both are dropped from the figure and moved to
+    # the caption (numbers reported in the regen report). Same three fronts, same
+    # hard two-tone (green faithful <=0.25 / red Mirage), same data.
     cmap = mcolors.ListedColormap(["#1a9850", "#d6604d"])
     norm = mcolors.BoundaryNorm([0.0, GATE_TOL + 1e-12, 1.0], cmap.N)
-    fig, ax = plt.subplots(figsize=(12, 6.4), layout="constrained")
-    sc = None
-    for lab, d, mk in [("value@20", VALUE, "o"), ("value@budget (maxsize 35)", BUDGET, "^"),
-                       ("Sobolev@20", SOBOLEV, "s")]:
-        df = read_grad_faith_sidecar(f"{d}/grad_faith_ns.csv")
-        sc = ax.scatter(df["Complexity"], df["value_mse"], c=np.clip(df["grad_err"], 0, 1),
-                        cmap=cmap, norm=norm, marker=mk, s=72, edgecolor="k", lw=.5, label=lab)
-    # label the two load-bearing endpoints (best-loss of budget and Sobolev)
-    bdf = knee_row(read_grad_faith_sidecar(f"{BUDGET}/grad_faith_ns.csv"))
-    sdf = knee_row(read_grad_faith_sidecar(f"{SOBOLEV}/grad_faith_ns.csv"))
-    # PASS/FAIL + colour are derived from the actual grad_err, not hardcoded:
-    # at the higher maxsize=35 budget the value-loss ns point is seed-fragile
-    # (passes some seeds, fails others), so the label must follow the data.
-    def _verdict(g):
-        return ("PASS", "#1a9850") if float(g) <= GATE_TOL else ("FAIL", "#7f0000")
-    b_word, b_color = _verdict(bdf["grad_err"])
-    s_word, s_color = _verdict(sdf["grad_err"])
-    # Text positions (data coords) kept inside the axes so they don't overrun the
-    # two-line title (top) or the x-axis label (bottom) at the enlarged font.
-    ax.annotate(rf"budget (maxsize 35): $\mathrm{{grad\_err}}$ {bdf['grad_err']:.3f} {b_word}"
-                "\n" rf"value {bdf['value_mse']:.1e}",
-                xy=(bdf["Complexity"], bdf["value_mse"]),
-                xytext=(bdf["Complexity"] - 12, bdf["value_mse"] * 2.4),
-                fontsize=14, color=b_color,
-                arrowprops=dict(arrowstyle="->", color=b_color, lw=1.2))
-    ax.annotate(rf"Sobolev: $\mathrm{{grad\_err}}$ {sdf['grad_err']:.3f} {s_word}"
-                "\n" rf"value {sdf['value_mse']:.1e}",
-                xy=(sdf["Complexity"], sdf["value_mse"]),
-                xytext=(1.5, sdf["value_mse"] * 0.42),
-                fontsize=14, color=s_color,
-                arrowprops=dict(arrowstyle="->", color=s_color, lw=1.2))
-    ax.set_yscale("log"); ax.set_xlabel("complexity")
-    ax.set_ylabel(r"value MSE vs GP ($\log P$, HF) -- lower is better")
-    # Explicit (smaller than rcParams axes.titlesize) so this long two-line title
-    # fits inside the narrow single-panel figure instead of overflowing its edges.
-    ax.set_title(r"$n_s$ -- a deeper value-loss budget (maxsize 35) reaches low value error but its"
-                 "\n"
-                 r"slope faithfulness is seed-fragile; the Sobolev objective clears the gate reliably",
-                 fontsize=15)
-    ax.grid(which="both", alpha=.25); ax.legend(loc="upper right", fontsize=16)
-    cb = fig.colorbar(sc, ax=ax, ticks=[GATE_TOL])
-    # Explicit size: this long vertical label is clipped at the larger rcParams size.
-    cb.set_label(r"$\mathrm{grad\_err}$: green = faithful ($\leq 0.25$)   red = Mirage ($> 0.25$)",
-                 fontsize=16)
-    cb.ax.tick_params(labelsize=15)
-    fig.savefig(out / "ns_budget_panel.pdf", bbox_inches="tight")
-    fig.savefig(out / "ns_budget_panel.png", dpi=150, bbox_inches="tight")
-    plt.close(fig)
+    with plt.rc_context({
+        "font.size": 9, "axes.titlesize": 10, "axes.labelsize": 11,
+        "xtick.labelsize": 9, "ytick.labelsize": 9, "legend.fontsize": 8,
+    }):
+        fig, ax = plt.subplots(figsize=(3.7, 3.45), layout="constrained")
+        sc = None
+        for lab, d, mk in [("value@20", VALUE, "o"),
+                           ("value@budget", BUDGET, "^"),
+                           ("Sobolev@20", SOBOLEV, "s")]:
+            df = read_grad_faith_sidecar(f"{d}/grad_faith_ns.csv")
+            sc = ax.scatter(df["Complexity"], df["value_mse"],
+                            c=np.clip(df["grad_err"], 0, 1), cmap=cmap, norm=norm,
+                            marker=mk, s=34, edgecolor="k", lw=.4, label=lab)
+        ax.set_yscale("log")
+        ax.set_xlabel("complexity")
+        ax.set_ylabel(r"value MSE vs GP ($\log P$, HF)")
+        ax.grid(which="both", alpha=.25)
+        ax.legend(loc="upper right", handletextpad=0.3, borderpad=0.3)
+        cb = fig.colorbar(sc, ax=ax, ticks=[GATE_TOL])
+        cb.set_label(r"$\mathrm{grad\_err}$ (green $\leq 0.25$, red $> 0.25$)",
+                     fontsize=9)
+        cb.ax.tick_params(labelsize=8)
+        fig.savefig(out / "ns_budget_panel.pdf", bbox_inches="tight")
+        fig.savefig(out / "ns_budget_panel.png", dpi=150, bbox_inches="tight")
+        plt.close(fig)
 
     # ---------- Figure 4: cross-z robustness (Sobolev best-loss grad_err vs z) ----------
     CROSSZ = parse_crossz(args.crossz_dirs, SOBOLEV)

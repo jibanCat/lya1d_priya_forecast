@@ -27,7 +27,7 @@ Quick start
 -----------
 >>> from priya_forecast import paper_figures as pf
 >>> run = pf.load_run()                      # committed run; or load_run("/path/to/other_run")
->>> tax = pf.taxonomy(run); print(tax)        # Table 6
+>>> tax = pf.taxonomy(run); print(tax)        # Table 4 (tab:faith_taxonomy)
 >>> with pf.paper_style():                    # large LaTeX labels (override freely)
 ...     fig = pf.plot_scorecard(run)
 ...     fig.savefig("scorecard.pdf")
@@ -79,6 +79,8 @@ class PaperRun:
     sidecars: dict = field(default_factory=dict)
     # budget-control ns sidecar (value @ maxsize=35), or None
     budget_ns: pd.DataFrame | None = None
+    # which sub-path budget_ns came from, so figures use the SAME arm
+    budget_sub: str = "seed_band/z3.6_seed0_budget"
     seed_band: dict | None = None          # seed_band_summary.json
     maxsize: pd.DataFrame | None = None     # maxsize_sensitivity.csv
     multid: pd.DataFrame | None = None      # multid_bestworst.csv
@@ -98,7 +100,10 @@ def load_run(
     *,
     value_sub: str = "value",
     sobolev_sub: str = "sobolev",
-    budget_sub: str = "budget35_value",
+    # The arm the SHIPPED figure came from (== make_diagnostic_figs.DEFAULT_BUDGET).
+    # "budget35_value" is a DIFFERENT maxsize-35 run whose knee sits on the other side
+    # of the gate (0.15 pass vs 0.28 fail) — do not switch without re-writing the caption.
+    budget_sub: str = "seed_band/z3.6_seed0_budget",
     crossz: tuple[float, ...] = (2.6, 3.6, 4.2),
     figures_sub: str = "figures",
 ) -> PaperRun:
@@ -117,6 +122,7 @@ def load_run(
             if f.exists():
                 run.sidecars[(loss, p)] = read_grad_faith_sidecar(f)
 
+    run.budget_sub = budget_sub
     bud = _zdir(base, budget_sub, z) / "grad_faith_ns.csv"
     if bud.exists():
         run.budget_ns = read_grad_faith_sidecar(bud)
@@ -203,7 +209,7 @@ def classify(sobolev_grad_err: float, gate: float = GATE) -> str:
 
 
 def taxonomy(run: PaperRun, gate: float = GATE) -> pd.DataFrame:
-    """Table 6: value vs Sobolev knee grad_err per parameter + class."""
+    """Table 4 (`tab:faith_taxonomy`): value vs Sobolev knee grad_err per parameter + class."""
     rows = []
     for p in PARAM_NAMES:
         s = _knee_grad_err(run, "sobolev", p)
@@ -217,7 +223,8 @@ def taxonomy(run: PaperRun, gate: float = GATE) -> pd.DataFrame:
 
 
 def equations(run: PaperRun, loss: str = "sobolev") -> pd.DataFrame:
-    """Table 7: the knee-selected candidate per parameter (complexity/loss/grad_err).
+    """Table 5 (`tab:per1d_eqs`): the knee-selected candidate per parameter
+    (complexity/loss/grad_err).
 
     The equation string itself lives in the pareto_<param>.csv next to the
     sidecar; this returns the knee row's metrics (join on the pareto CSV for the
@@ -291,9 +298,26 @@ def plot_maxsize_sensitivity(run: PaperRun, *, highlight=("ns", "omegamh2"),
     return fig
 
 
+# The paper's Fig. 5 (`fig:seed_band`) labels. The points are KNEE-selected, so the
+# legend must say so: the shipped PDF was hand-tuned in an interactive session and its
+# legend read "best-loss", contradicting the figure's own y-axis and caption. Verified
+# knee, not best-loss: seed_band_summary.json's medians equal knee_row to 6 decimals.
+SEED_BAND_TITLE = (r"Across-seed band ($z=3.6$, seeds 0--4): "
+                   r"derivative faithfulness is seed-dependent near the gate")
+SEED_BAND_LABELS = ("value@20 (knee, 5 seeds)", "Sobolev@20 (knee, 5 seeds)")
+
+
 def plot_seed_band(run: PaperRun, *, params=None, gate: float = GATE,
-                   pretty: dict | None = None, figsize=(12, 5)):
-    """Across-seed median grad_err with [min,max] whiskers, value vs Sobolev. Returns Figure."""
+                   # (10, 4.65) reproduces the shipped PDF's aspect to 0.1% (2.122 vs
+                   # 2.120), so the float occupies the same height in the build.
+                   pretty: dict | None = None, figsize=(10, 4.65),
+                   title: str | None = SEED_BAND_TITLE,
+                   labels: tuple[str, str] = SEED_BAND_LABELS):
+    """Across-seed median knee grad_err with [min,max] whiskers, value vs Sobolev.
+
+    Defaults reproduce the paper's Fig. 5 (`fig:seed_band`) including its title and
+    legend; pass ``title=None`` / ``labels=("value", "Sobolev")`` for a bare version.
+    Returns Figure."""
     import matplotlib.pyplot as plt
     if run.seed_band is None:
         raise ValueError("run.seed_band is None (seed_band_summary.json not found).")
@@ -302,21 +326,38 @@ def plot_seed_band(run: PaperRun, *, params=None, gate: float = GATE,
     params = params or [p for p in PARAM_NAMES if p in P]
     x = np.arange(len(params))
     fig, ax = plt.subplots(figsize=figsize, layout="constrained")
-    for off, key, c, mk in ((-0.15, "value", C_VALUE, "o"), (0.15, "sobolev", C_SOBOLEV, "s")):
+    for off, key, c, mk, lab in ((-0.15, "value", C_VALUE, "o", labels[0]),
+                                 (0.15, "sobolev", C_SOBOLEV, "s", labels[1])):
         med = np.array([P[p][key][0] for p in params], float)
         lo = np.array([P[p][key][1] for p in params], float)
         hi = np.array([P[p][key][2] for p in params], float)
         ax.errorbar(x + off, np.clip(med, 0, 1.2),
                     yerr=[np.clip(med, 0, 1.2) - np.clip(lo, 0, 1.2),
                           np.clip(hi, 0, 1.2) - np.clip(med, 0, 1.2)],
-                    fmt=mk, color=c, ms=8, capsize=3, lw=1.2, label=key)
+                    fmt=mk, color=c, ms=8, capsize=3, lw=1.2, label=lab)
     ax.axhline(gate, color="k", ls="--", lw=1.2)
     ax.text(0, gate + 0.02, f"gate {gate}")
     ax.set_xticks(x)
     ax.set_xticklabels([pretty.get(p, p) for p in params], rotation=45, ha="right")
     ax.set_ylabel(r"knee $\mathrm{grad\_err}$ (median, [min,max])")
+    if title:
+        # paper_style's axes.titlesize (20) overruns this canvas; the shipped figure's
+        # title sits at roughly the tick-label size.
+        ax.set_title(title, fontsize=plt.rcParams["xtick.labelsize"])
     ax.legend(loc="upper left")
     return fig
+
+
+def budget_front(front: pd.DataFrame, sidecar: pd.DataFrame) -> pd.DataFrame:
+    """Attach the budget arm's real `grad_err`/`value_mse` to its Pareto front.
+
+    `load_front(path, None)` fills placeholder all-NaN `grad_err`/`value_mse`
+    columns. They must be dropped *before* the merge: otherwise pandas keeps the
+    NaN originals and suffixes the real values, so every budget point plots as
+    NaN and the arm silently disappears from `fig:ns_budget`."""
+    keep = ["Complexity", "grad_err", "value_mse"]
+    return (front.drop(columns=["grad_err", "value_mse"], errors="ignore")
+                 .merge(sidecar[keep], on="Complexity", how="left"))
 
 
 def plot_ns_budget(run: PaperRun, *, gate: float = GATE, figsize=(8, 5.4)):
@@ -330,11 +371,10 @@ def plot_ns_budget(run: PaperRun, *, gate: float = GATE, figsize=(8, 5.4)):
     series = [("value", load_front(d_val / "pareto_ns.csv", d_val / "grad_faith_ns.csv"), "o"),
               ("Sobolev", load_front(d_sob / "pareto_ns.csv", d_sob / "grad_faith_ns.csv"), "s")]
     if run.budget_ns is not None:
-        bp = _zdir(run.data_dir, "budget35_value", run.z) / "pareto_ns.csv"
+        bp = _zdir(run.data_dir, run.budget_sub, run.z) / "pareto_ns.csv"
         if bp.exists():
-            series.append(("value@budget", load_front(bp, None).merge(
-                run.budget_ns[["Complexity", "grad_err", "value_mse"]], on="Complexity",
-                how="left", suffixes=("", "_y")), "^"))
+            series.append(("value@budget",
+                           budget_front(load_front(bp, None), run.budget_ns), "^"))
     cmap = mcolors.ListedColormap(["#1a9850", "#d6604d"])
     norm = mcolors.BoundaryNorm([0.0, gate + 1e-12, 1.0], cmap.N)
     fig, ax = plt.subplots(figsize=figsize, layout="constrained")

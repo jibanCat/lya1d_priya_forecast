@@ -1,18 +1,18 @@
-\begin{table}[!h]
-\caption{\label{tab:taxonomy} Per-parameter derivative faithfulness at $z=3.6$: best-loss grad\_err of the value-optimal equation for the value and Sobolev objectives, the across-seed Sobolev median (sub/superscript = min/max over 5 seeds), and the gate (0.25) classification. Recomputed from the production sidecars.}
+\begin{table}[!ht]
+\caption{\label{tab:taxonomy} Per-parameter derivative faithfulness at $z=3.6$: the Pareto-knee grad\_err of the value-optimal and Sobolev objectives, the across-seed Sobolev median (sub/superscript = min/max over 5 seeds), and the gate (0.25) classification. Knee = lowest-complexity candidate within 10\% of the front's minimum loss; regenerated to match the paper's inline table.}
 \begin{ruledtabular}\centering
 \begin{tabular}{c|cccc}
 Parameter & value grad\_err & Sobolev grad\_err & Sobolev seed band & class \\
 \hline
-$d\tau_0$ & 0.009 & 0.003 & $0.003_{0.003}^{0.003}$ & faithful \\
-$\tau_0$ & 0.005 & 0.005 & $0.006_{0.004}^{0.007}$ & faithful \\
-$n_S$ & 0.365 & 0.121 & $0.186_{0.154}^{0.271}$ & faithful \\
-$A_P$ & 0.228 & 0.076 & $0.205_{0.149}^{0.230}$ & faithful \\
-$z_{Hei}$ & 0.120 & 0.080 & $0.080_{0.050}^{0.086}$ & faithful \\
-$z_{Hef}$ & 0.113 & 0.051 & $0.139_{0.083}^{0.164}$ & faithful \\
-$\alpha_q$ & 0.125 & 0.150 & $0.110_{0.105}^{0.129}$ & faithful \\
-$h$ & 0.986 & 0.984 & $0.975_{0.963}^{0.978}$ & resistant \\
-$\Omega_0 h^2$ & 0.388 & 0.150 & $0.132_{0.103}^{0.205}$ & faithful \\
-$z_{Hi}$ & 0.244 & 0.097 & $0.087_{0.066}^{0.221}$ & faithful \\
-$\epsilon_{AGN}$ & 0.702 & 0.771 & $0.659_{0.537}^{0.803}$ & above-gate \\
+$d\tau_0$ & 0.009 & 0.003 & $0.003_{0.002}^{0.003}$ & faithful \\
+$\tau_0$ & 0.006 & 0.005 & $0.005_{0.004}^{0.006}$ & faithful \\
+$n_S$ & 0.365 & 0.160 & $0.212_{0.123}^{0.246}$ & faithful \\
+$A_P$ & 0.298 & 0.155 & $0.158_{0.100}^{0.212}$ & faithful \\
+$z_{Hei}$ & 0.079 & 0.084 & $0.081_{0.078}^{0.087}$ & faithful \\
+$z_{Hef}$ & 0.105 & 0.045 & $0.130_{0.112}^{0.142}$ & faithful \\
+$\alpha_q$ & 0.126 & 0.134 & $0.110_{0.081}^{0.132}$ & faithful \\
+$h$ & 0.986 & 1.000 & $0.996_{0.976}^{1.000}$ & resistant \\
+$\Omega_0 h^2$ & 0.697 & 0.063 & $0.096_{0.087}^{0.126}$ & faithful \\
+$z_{Hi}$ & 0.266 & 0.167 & $0.078_{0.077}^{0.204}$ & faithful \\
+$\epsilon_{AGN}$ & 1.418 & 0.771 & $0.778_{0.590}^{0.815}$ & resistant \\
 \end{tabular}\end{ruledtabular}\end{table}

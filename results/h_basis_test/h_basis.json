@@ -1,0 +1,27 @@
+{
+  "description": "h basis test: is dP/dh shaped like a k-rescaling dP/dlnk? ap_corr2 = single-feature R^2 of the AP template; ap_partial = its unique variance after partialling out P. Both small + corr negative => NOT AP.",
+  "by_z": {
+    "2.6": {
+      "corr_dPdh_dPdlnk": -0.2080127115165525,
+      "corr_dPdh_P": 0.012149682769703435,
+      "ap_corr2": 0.0432692881524685,
+      "ap_partial_var": 0.06126111624148616,
+      "n_k": 48
+    },
+    "3.6": {
+      "corr_dPdh_dPdlnk": -0.2504752800406364,
+      "corr_dPdh_P": -0.13272753353817324,
+      "ap_corr2": 0.06273786591143524,
+      "ap_partial_var": 0.06237050590092554,
+      "n_k": 48
+    },
+    "4.2": {
+      "corr_dPdh_dPdlnk": -0.2632080986273545,
+      "corr_dPdh_P": -0.05816249077128443,
+      "ap_corr2": 0.06927850318302718,
+      "ap_partial_var": 0.06848692840209329,
+      "n_k": 48
+    }
+  },
+  "verdict": "AP/k-rescaling hypothesis NOT supported: dP/dh is weakly (negatively) correlated with dP/dlnk (~-0.25) and the template explains ~6% of the variance -> h is weak/under-determined."
+}

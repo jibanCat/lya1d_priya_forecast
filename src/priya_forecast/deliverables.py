@@ -313,8 +313,10 @@ def write_param_variation_resolution_correction(
             return
         cols = min(3, len(present))
         rows = (len(present) + cols - 1) // cols
+        # Sized to the paper's full text width (figure*, ~7.1in) with a
+        # print-legible font set; the previous 7-9pt labels were unreadable.
         fig, axes = plt.subplots(
-            rows, cols, figsize=(3.2 * cols, 2.5 * rows),
+            rows, cols, figsize=(2.55 * cols, 2.25 * rows),
             sharex=True, sharey=False, squeeze=False,
         )
         for ax in axes.flat:
@@ -334,22 +336,22 @@ def write_param_variation_resolution_correction(
                 p_lf = r.predict(theta_phys=theta_phys, k=k_grid, resolution=LF_RESOLUTION, z=z_arg)
                 with np.errstate(divide="ignore", invalid="ignore"):
                     ratio = np.where(np.abs(p_lf) > 0, p_hf / p_lf, np.nan)
-                ax.plot(k_grid, ratio, color=color, lw=1.2,
-                        label=f"q={q:.1f} (θ={theta_phys:.3g})")
-            ax.axhline(1.0, color="gray", lw=0.5, alpha=0.7)
-            ax.set_title(f"{pname}", fontsize=9)
+                ax.plot(k_grid, ratio, color=color, lw=1.4,
+                        label=rf"$q={q:.1f}\ (\theta={theta_phys:.3g})$")
+            ax.axhline(1.0, color="gray", lw=0.6, alpha=0.7)
+            ax.set_title(rf"$\mathrm{{{pname}}}$", fontsize=13)
             ax.set_xscale("log")
             if i // cols == rows - 1:
-                ax.set_xlabel("k [s/km]", fontsize=8)
+                ax.set_xlabel(r"$k\,\mathrm{[s\,km^{-1}]}$", fontsize=13)
             if i % cols == 0:
-                ax.set_ylabel(r"$R(k;\theta)$", fontsize=8)
-            ax.tick_params(axis="both", which="major", labelsize=7)
+                ax.set_ylabel(r"$R(k;\theta)$", fontsize=15)
+            ax.tick_params(axis="both", which="major", labelsize=11)
             if i == 0:
-                ax.legend(fontsize=6, loc="best")
+                ax.legend(fontsize=9, loc="best")
         suptitle = title
         if z_eval is not None:
-            suptitle += f" — z = {z_eval:.2f}"
-        fig.suptitle(suptitle, fontsize=10)
+            suptitle += rf" -- $z = {z_eval:.2f}$"
+        fig.suptitle(suptitle, fontsize=15)
         fig.tight_layout(rect=(0, 0, 1, 0.94))
         fig.savefig(
             output_dir / f"resolution_correction_param_variation_{suffix}.png",
@@ -362,9 +364,9 @@ def write_param_variation_resolution_correction(
         plt.close(fig)
 
     _make_grid(cosmo_block,
-               "HF/LF ratio vs θ-quantile — cosmology + mean-flux", "cosmo")
+               r"HF/LF ratio vs $\theta$-quantile -- cosmology + mean-flux", "cosmo")
     _make_grid(astro_block,
-               "HF/LF ratio vs θ-quantile — IGM thermal / astro", "astro")
+               r"HF/LF ratio vs $\theta$-quantile -- IGM thermal / astro", "astro")
 
 
 def write_holdout_validation(

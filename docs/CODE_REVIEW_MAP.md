@@ -75,7 +75,7 @@ the GP-backed figures; **Tier 1** the emulator-free figures/tables (~2 min).
 - `write_grad_faith_sidecar` (`:35`) — the `# param= z= tol= log_space= git= source=` header (the
   provenance convention) + columns; `read_grad_faith_sidecar` (`:53`) skips the `#` header.
 - `knee_row` (`:59`) — **the Pareto-knee pick**: lowest complexity within `rel_tol=10%` of best loss.
-  ⚠️ *Important:* the paper's Tables 6/7 use the **knee**, not plain best-loss (`idxmin`), which
+  ⚠️ *Important:* the paper's Tables 4/5 use the **knee**, not plain best-loss (`idxmin`), which
   degenerates to the most-complex equation on a truncated front (`:64-66`).
 
 ### `src/priya_forecast/refit_1d_pysr.py` (1171 lines) — the refit engine (skim; mostly plumbing)
@@ -112,8 +112,10 @@ log-slope-of-the-combine the Fisher-relevant quantity — see `refit_taylor.py` 
 1. **grad_err is log-space and that is correct** — not a mislabel: via the anchored combine
    (`refit_taylor.py`) the log-slope ratio = the deployed model's linear Fisher-space slope ratio.
    `docs/dev/pr_review/VERDICT.md`'s "linear-P, correctly labelled" bullet is **superseded** (banner there).
-2. **Knee, not best-loss** — Tables 6/7 use `knee_row`; the committed `taxonomy_table.tex` /
-   `per_param_equations.tex` on disk are the *old best-loss* cut (different numbers) — don't mix them.
+2. **Knee, not best-loss** — Tables 4/5 use `knee_row`. **Corrected 2026-07-30:** the committed
+   `taxonomy_table.tex` / `per_param_equations.tex` are the *knee* cut too (regenerated at
+   `f804916`; all 22 numbers and 11 classes match `paper_figures.taxonomy` exactly). It is the
+   `.txt` siblings that are the stale best-loss cut — don't mix those in.
 3. **Single-z is production; multi-z Sobolev is disabled** (guarded, M2).
 4. **The z=4.2 IGM-thermal "blow-ups"** are the gate hitting a noise-level GP slope (relative-only
    floor), not unfaithful equations — state IGM-thermal verdicts per-z.

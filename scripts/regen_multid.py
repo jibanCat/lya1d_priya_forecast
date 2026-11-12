@@ -12,7 +12,8 @@ fits never saw. We sweep a BROAD set of 2D pairs and 3D triples (Sobol points
 across each combo's joint prior sub-cube), compare the combine against the GP
 over the kodiaq k-grid, and report per-combo mean / 90th-percentile / max
 relative error. The best- and worst-case combos per dimensionality become the
-figure; every combo lands in the CSV.
+figure; every combo lands in the CSV (``multid_bestworst.csv``), and every
+combo's per-k mean / p90 / max curves in ``multid_bestworst_perk.csv``.
 
 How the machinery is reused (nothing is reinvented here):
   * Per-param equation reload + normalization:
@@ -237,7 +238,7 @@ def _eval_combo(*, combo, fid, combine, gp_hf, k_grid, z, n_sobol, seed):
 
 
 def _summarize(rel: np.ndarray, k_grid: np.ndarray) -> dict:
-    """Per-combo scalars (in %) + the per-k mean curve for plotting."""
+    """Per-combo scalars (in %) + the per-k mean/p90/max curves for plotting."""
     flat = rel.ravel()
     per_k_mean = rel.mean(axis=0)
     per_k_max = rel.max(axis=0)
@@ -248,6 +249,7 @@ def _summarize(rel: np.ndarray, k_grid: np.ndarray) -> dict:
         "max_k": float(k_grid[int(np.argmax(per_k_max))]),
         "per_k_mean_pct": 100.0 * per_k_mean,
         "per_k_p90_pct": 100.0 * np.percentile(rel, 90, axis=0),
+        "per_k_max_pct": 100.0 * per_k_max,
     }
 
 
@@ -257,10 +259,43 @@ def _write_csv(out_csv: Path, rows: list[dict]) -> None:
     from priya_forecast.provenance import git_stamp
     with open(out_csv, "w", newline="") as fh:
         fh.write(f"# git={git_stamp()} source=multid_combine\n")
-        w = csv.DictWriter(fh, fieldnames=cols)
+        # LF, like the committed CSV: csv's default "\r\n" made every regenerated
+        # row differ byte-wise from the committed file although the values agree.
+        w = csv.DictWriter(fh, fieldnames=cols, lineterminator="\n")
         w.writeheader()
         for r in rows:
             w.writerow({c: r[c] for c in cols})
+
+
+PERK_COLS = ["dim", "params", "role", "k", "mean_pct", "p90_pct", "max_pct"]
+
+
+def _write_perk_csv(out_csv: Path, rows: list[dict], summaries: dict,
+                    k_grid: np.ndarray, *, z: float, n_sobol: int,
+                    seed: int) -> None:
+    """Long-format per-k curves: one row per (combo, k), every combo.
+
+    The summary CSV's scalars are reductions of these curves over the same
+    Sobol sample (``mean_pct`` = the k-average of the per-k mean, ``max_pct``
+    = the max of the per-k max, at ``max_k``); p90 has no such identity
+    because a percentile does not commute with the k-average.
+    """
+    from priya_forecast.provenance import git_stamp
+    with open(out_csv, "w", newline="") as fh:
+        fh.write(f"# git={git_stamp()} source=multid_combine_perk "
+                 f"z={z} n_sobol={n_sobol} seed={seed}\n")
+        w = csv.DictWriter(fh, fieldnames=PERK_COLS, lineterminator="\n")
+        w.writeheader()
+        for r in rows:
+            s = summaries[r["params"]]
+            for j, k in enumerate(k_grid):
+                w.writerow({
+                    "dim": r["dim"], "params": r["params"], "role": r["role"],
+                    "k": float(k),
+                    "mean_pct": round(float(s["per_k_mean_pct"][j]), 6),
+                    "p90_pct": round(float(s["per_k_p90_pct"][j]), 6),
+                    "max_pct": round(float(s["per_k_max_pct"][j]), 6),
+                })
 
 
 def _make_figure(out_base: Path, rows: list[dict], summaries: dict,
@@ -288,8 +323,11 @@ def _make_figure(out_base: Path, rows: list[dict], summaries: dict,
         picks[(dim, "best")] = sub_sorted[0]
         picks[(dim, "worst")] = sub_sorted[-1]
 
+    # figure* at full text width (~7.1in): a 16in native downscaled ~0.44 gave
+    # ~9pt on-page labels; a 12.5in native lands on-page labels ~13pt / ticks
+    # ~10pt while keeping the same 2-panel aspect.
     fig, (axL, axR) = plt.subplots(
-        1, 2, figsize=(16, 7), gridspec_kw={"width_ratios": [1.15, 1.0]},
+        1, 2, figsize=(12.5, 5.6), gridspec_kw={"width_ratios": [1.15, 1.0]},
     )
 
     # --- Left: rel-err(%) vs k for best & worst per dim ---
@@ -314,7 +352,9 @@ def _make_figure(out_base: Path, rows: list[dict], summaries: dict,
     axL.axhline(1.0, ls=":", color="0.4", lw=1.0)
     axL.text(k_grid[0], 1.05, r"1\%", color="0.4", fontsize=15, va="bottom")
     axL.grid(alpha=0.3, which="both")
-    axL.legend(loc="upper left", frameon=False)
+    # Smaller than the rcParams legend size so the four best/worst entries fit
+    # inside the (now narrower) left panel without overrunning the curves.
+    axL.legend(loc="upper left", frameon=False, fontsize=13)
 
     # --- Right: horizontal summary bars (mean), with p90 + max markers ---
     rows_sorted = sorted(rows, key=lambda r: (r["dim"], r["mean_pct"]))
@@ -466,6 +506,11 @@ def main() -> None:
     out_csv = args.out_dir / "multid_bestworst.csv"
     _write_csv(out_csv, rows)
     print(f"\nWrote {out_csv}")
+
+    out_perk = args.out_dir / "multid_bestworst_perk.csv"
+    _write_perk_csv(out_perk, rows, summaries, k_grid, z=args.z,
+                    n_sobol=args.n_sobol, seed=args.seed)
+    print(f"Wrote {out_perk}")
 
     out_fig = args.out_dir / "multid_bestworst"
     _make_figure(out_fig, rows, summaries, k_grid, z=args.z, n_sobol=args.n_sobol)
