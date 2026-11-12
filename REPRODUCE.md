@@ -49,7 +49,7 @@ results/paper_production_20260630_perz_sobolev_z2.6-4.2/
 │   ├── z3.6_seed0_budget/refit/z3.6/      #   ns budget control (maxsize 35)
 │   └── seed_band_summary.json             #   aggregated 5-seed medians/ranges
 ├── sens_maxsize{30,40}_{value,sobolev}/   # maxsize sweep
-└── figures/                               # table .txt/.tex/.csv of record (committed); figure PDFs are regenerable
+└── figures/                               # table .tex/.csv of record; the paper's figure PDFs
 ```
 
 ---
@@ -102,8 +102,7 @@ PY
 `bhfeedback` 1.418 → **0.771 RESISTANT**. Nine of eleven parameters clear the
 0.25 gate under Sobolev; only `hub` and `bhfeedback` resist. Cross-check against
 `$PROD/figures/taxonomy_table.tex` — the knee cut, regenerated at `f804916`, whose 33
-cells and 11 class labels match the paper exactly. **Do not** cross-check against the
-`.txt` sibling: it is the superseded best-loss pick (ns Sobolev 0.121, not 0.160).
+cells and 11 class labels match the paper exactly.
 
 ### 1c. Table 4 (`tab:per1d_eqs`) — the per-parameter equations at the Pareto knee
 
@@ -126,7 +125,6 @@ PY
 loss 9.75 grad_err **0.160**; `hub` cmplx 10 loss 422 grad_err 1.000. Matches the
 `% sympy:` comments above each row of Table 4 in the paper, and the committed
 `$PROD/figures/per_param_equations.tex` (the knee cut, regenerated at `f804916`).
-The `.txt` sibling is the superseded best-loss pick — it does not match the paper.
 
 ### 1d. Table 1 — the 11 parameters + priors
 
@@ -209,8 +207,8 @@ export LYA_EMULATOR=$PWD/../InferenceLyaData        # the directory that contain
 
 Do **not** use `InferenceLyaData/Emulator_Files_KS` as the emulator. The file loaded from
 there has 329 k-bins: a different emulator, whose high-fidelity P1D differs from the paper's
-by a few percent. The data repository's own README gives a verified `lyaemu` commit and a
-`verify_basedir.py` check.
+by a few percent. The data repository (`kodiaq-squad-gp`) ships its own check,
+`verify_basedir.py`, and its README names a verified `lyaemu` commit.
 
 ### 2c. The one-parameter sweeps
 

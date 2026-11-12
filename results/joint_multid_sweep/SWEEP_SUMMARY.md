@@ -50,7 +50,9 @@ emulator away from the fiducial point.
 - These 20 files predate the `run` block that `scripts/run_multid_pysr.py` now writes, so the
   emulator, iteration count and seed are recorded in the job logs and in this file, not in the JSON.
 - An earlier sweep on the 102-bin default emulator (medians 2, 2, 4, 5) is superseded. It remains
-  in the history at tag `v1.2-paper`.
+  in the history at tag `v1.2-paper`. The run times and job history the manuscript quotes for the
+  sweep (44-72 min, 1.9-3.4 h, 3.0-5.7 h; jobs `53055690`, `53071661`) are those of that earlier
+  sweep, not of the files here.
 
 Reproduce: `scripts/submit_joint_sweep.sh --dry-run` prints the two submissions; drop `--dry-run` to
 submit them (`slurm/joint_multid_sweep_kodiaq.slurm`).
