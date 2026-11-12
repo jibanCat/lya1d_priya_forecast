@@ -1,122 +1,122 @@
-# Code review map — reproduce all results end-to-end
+# Code review map — where each result of the paper comes from
 
-A by-eye review guide to the pipeline that produces every result in the paper: what to
-run, in what order, and — for each core file — the exact functions to read and which
-**paper claim** they back. Line numbers are as of code git `ffbe28f` and drift a little;
-the function names are stable. Companion: `REPRODUCE.md` (how to run) and
-`docs/dev/PAPER_MFHO_DECISION_SHEET_2026-07-01.md` (open author decisions).
+A guide for reading the code by eye: the order in which results flow, and, for each core
+file, the function to read and the statement of the paper it backs. It names functions, not
+line numbers, so it does not go stale when a file is edited.
 
----
-
-## Part 1 — Rerun everything (one command)
-
-```bash
-scripts/submit_paper_production.sh          # SLURM: all per-z fits + value baseline
-                                            # + 5-seed band + maxsize/budget sweeps
-```
-Self-documenting: writes `results/.../RUN_MANIFEST.md` with the git stamp + every job id.
-Tiers (see `REPRODUCE.md`): **Tier 3** re-runs the fits (needs Julia/PySR + SLURM); **Tier 2**
-the GP-backed figures; **Tier 1** the emulator-free figures/tables (~2 min).
+Companions: [`REPRODUCE.md`](../REPRODUCE.md) says how to run everything and has the table
+"Selection rules and settings"; [`scripts/README.md`](../scripts/README.md) shows the plotting
+function behind each figure.
 
 ---
 
-## Part 2 — The pipeline, in the order results flow
+## Part 1 — The pipeline, in the order results flow
 
-| # | stage | file | key entry |
+| # | stage | entry point | what it writes |
 |---|---|---|---|
-| 1 | submit / define the run | `scripts/submit_paper_production.sh` | the whole grid (z, seeds, λ, maxsize) |
-| 2 | SLURM array (per param, z) | `slurm/single_z_refit.slurm` | one task per param |
-| 3 | refit one param | `scripts/refit_one_param_single_z.py` → `refit_1d_pysr.refit_1d_for_param` | the PySR fit |
-| 4 | GP-score each candidate | `scripts/make_grad_faith_sidecars.sh` → `scripts/eval_grad_faithfulness.py` | the `grad_faith_*.csv` sidecars |
-| 5 | aggregate seeds | `scripts/aggregate_seed_band.py` | `seed_band_summary.json` |
-| 6 | figures + tables | `notebooks/reproduce_paper.ipynb` (+ `scripts/regen_*`, `paper_figures.py`) | every paper float |
+| 1 | define the run | `scripts/submit_paper_production.sh` | the grid: redshifts, seeds, Sobolev weight, `maxsize`, search budget; `RUN_MANIFEST.md` |
+| 2 | one fit | `slurm/single_z_refit.slurm` → `scripts/refit_one_param_single_z.py` → `single_z/refit.refit_one_param_single_z` → `refit_1d_pysr.refit_1d_for_param` | `pareto_<param>.csv`; with `--save-artifacts` also `refits/<param>.pkl` and `payloads/<param>.pkl` |
+| 3 | sweep files for scoring | `scripts/regen_1pvar.py` → `single_z/training_data.regenerate_param` | `data/single_z_1pvar/{lf,hf}_<param>_npoints50.hdf5` |
+| 4 | score every valid candidate | `scripts/make_grad_faith_sidecars.sh` → `scripts/eval_grad_faithfulness.py` → `grad_faith_score.score_pareto` | `grad_faith_<param>.csv` beside each Pareto file |
+| 5 | aggregate the seeds | `scripts/aggregate_seed_band.py` | `seed_band/seed_band_summary.json` |
+| 6 | multi-parameter test | `scripts/regen_multid.py` | `figures/multid_z3.6/multid_bestworst.csv` and `multid_bestworst_perk.csv` |
+| 7 | figures and tables | `scripts/make_figures.py`; `paper_figures.taxonomy`, `paper_figures.equations`; `notebooks/reproduce_paper.ipynb` | the seven figures; Tables 2 to 5 |
+| 8 | Sec. 5.1 joint fit | `scripts/run_multid_pysr.py`, `scripts/aggregate_joint_sweep.py` | `results/joint_multid_sweep/` |
+
+`python -m priya_forecast.rerun` runs stages 2 to 4 for a whole grid in one process, into
+`results/tutorial_reruns/` (`rerun.run_grid`).
 
 ---
 
-## Part 3 — Core science files (read these — mapped to paper claims)
+## Part 2 — Core science files, mapped to the paper
 
-### Review order (≈1,040 lines = the whole method)
-`parameters.py` → `sobolev_loss.py` → `derivative_gate.py` → `refit_taylor.py` → `grad_faith_io.py`.
+Suggested reading order: `parameters.py` → `refit_1d_pysr.py` (the two functions named below)
+→ `sobolev_loss.py` → `derivative_gate.py` → `grad_faith_score.py` → `grad_faith_io.py` →
+`pareto_filters.py` → `refit_taylor.py`.
 
-### `src/priya_forecast/parameters.py` (136 lines) — **Table 1**
-- `class Param` (`:20`) — `fid`, `prior=(lo,hi)`, `latex`; `lo<fid<hi` enforced at load.
-- `PARAMS_11D` (`:56`) — the 11 params, fiducials, priors. **This is the source of truth for
-  Table 1.** ⚠️ *Known discrepancy:* the paper's Table 1 (L173) lists z_Hei max 4.1 / z_Hef min
-  2.6, but the emulator hypercube here is [3.5,4.5] / [2.2,3.2] — your open `\mfho` decision.
-- Note `A_P` is stored as `A_P/1e-9` (fid 1.46 = 1.46e-9); only the GP sees the physical value.
+### `src/priya_forecast/parameters.py` — Table 1
+- `PARAMS_11D`: the eleven parameters with their ranges and fiducial values. This is the
+  source of Table 1.
+- `A_P` is stored in units of 1e-9 (fiducial 1.46); only the emulator sees the physical value.
+- `with_overrides`, `override_params`: used by the rerun notebook only. `PARAMS_11D` itself is
+  never changed.
 
-### `src/priya_forecast/sobolev_loss.py` (177 lines) — **the Sobolev method (Eq. sobolev)**
-- `make_sobolev_loss(lam, h)` (`:13`) — the Julia `loss_function` string PySR minimizes:
-  `MSE(pred, y) + λ·MSE(∂pred/∂x0, target_grad)`, with `∂pred/∂x0` finite-differenced *inside*
-  the loss (`:25-31`) and `target_grad` delivered via PySR's per-point `weights`.
-- `_fidelity_grad_weights` (`:39`) / `_fidelity_grad_weights_multiz` (`:80`) — build the target:
-  **`∂logP_GP/∂θ`** (takes `np.log` of `gp.predict`, `:72-74` / `:115-116`), normalized by the
-  param width and per-k std. **This is why the target is log-space.**
-- `sobolev_target_weights[_multiz]` (`:125/:160`) — assemble LF+HF rows to match the training matrix.
+### `src/priya_forecast/refit_1d_pysr.py` — the fit
+- `_generate_1pvar_inline`: the training set of one fit. Fifty values of one parameter across
+  its range, the other ten at the fiducial point, at low and high fidelity. It is built in
+  memory from the emulator at fit time.
+- `SMART_REFIT_PYSR_KWARGS`: the operators (`+ − × aq ^`; `exp log square`; `^` is listed and
+  constrained out of the search).
+- `refit_1d_for_param`: the single-redshift production fit. It refuses the Sobolev loss on a
+  linear target, because the Sobolev term matches a log-slope. Its returned equation is the
+  lowest-loss row of the Pareto front (`pareto["loss"].idxmin()`): the paper's "lowest-loss"
+  rule.
+- `Refit1DResult.predict` returns the flux power; `predict_log` returns its logarithm.
+- `refit_1d_multiz_for_param` raises `NotImplementedError` for the Sobolev loss. The paper's
+  fits are single-redshift.
 
-### `src/priya_forecast/derivative_gate.py` (114 lines) — **`grad_err` (Eq. grad_err) + the gate**
-- `gp_param_gradient` (`:22`) — the GP slope; `log_space=True` → `np.log` before differencing (`:39-40`)
-  → returns `∂logP_GP/∂θ`.
-- `equation_param_gradient` (`:44`) — the equation slope; `log_space` → uses `refit.predict_log` (`:56-57`).
-- `derivative_faithful` (`:65`) — `median_k |cand/target − 1| ≤ tol` (tol 0.25). The **floor mask** (`:78`,
-  `floor_frac=1e-3`) drops bins where the GP slope is near-zero; applied to **both** sides (`:81`).
-- ⚠️ *Doc nit:* the module docstring (`:8`) still shows the linear `|dP_eq/dP_GP−1|` (the `log_space=False`
-  default); **production runs `log_space=True`** (log-slope). The numbers of record are log-space.
+### `src/priya_forecast/single_z/refit.py` — the retry
+- `refit_one_param_single_z`: repeats the fit with a new seed, up to five attempts, until the
+  front holds at least one valid candidate (`max_retries=4`).
 
-### `src/priya_forecast/refit_taylor.py` (540 lines) — **the additive combine + the Fisher-consistency identity**
-- `mode="local_anchored"` (`:350`) — the deployed model:
-  `P_F(θ) = P_GP(fid) + Σ_i [P_F_i(θ_i) − P_F_i(fid_i)]`; at θ=fid every deviation cancels → `P_GP(fid)`.
-- Multi-z `predict` (`:250-280`): `out_log = logP_GP(fid) + Σ (logP_eq(θ) − logP_eq(fid))`, then
-  `np.exp` (`:280`). **This is the anchor-cancellation** the paper cites: differentiating at fid gives
-  `∂P_F/∂θ = P_GP(fid)·∂logP_eq/∂θ`, so `P_GP(fid)` cancels in the GP ratio and the log-slope ratio
-  equals the deployed model's linear (Fisher-space) slope ratio. Single-z equivalent at `:445`.
+### `src/priya_forecast/sobolev_loss.py` — the Sobolev loss, Eq. 10
+- `make_sobolev_loss(lam, h)`: the loss PySR minimises, `mse + λ·gmse`. The equation's slope
+  is finite-differenced inside the loss; the emulator's slope arrives through PySR's
+  per-point `weights`.
+- `_fidelity_grad_weights`: the target slope, a central difference of the emulator's `log P`,
+  rescaled to the normalised variables of the fit.
 
-### `src/priya_forecast/grad_faith_io.py` (77 lines) — **sidecar schema + the knee selection**
-- `write_grad_faith_sidecar` (`:35`) — the `# param= z= tol= log_space= git= source=` header (the
-  provenance convention) + columns; `read_grad_faith_sidecar` (`:53`) skips the `#` header.
-- `knee_row` (`:59`) — **the Pareto-knee pick**: lowest complexity within `rel_tol=10%` of best loss.
-  ⚠️ *Important:* the paper's Tables 4/5 use the **knee**, not plain best-loss (`idxmin`), which
-  degenerates to the most-complex equation on a truncated front (`:64-66`).
+### `src/priya_forecast/derivative_gate.py` — the finite differences
+- `gp_param_gradient`, `equation_param_gradient`: the same central difference for the emulator
+  and for an equation, at the fiducial point, step `1e-3·max(|θ_fid|, 1)`. With
+  `log_space=True`, which is what production uses, they difference `log P`.
+- The module docstring still writes the metric in linear form; the numbers of record are in
+  log space.
 
-### `src/priya_forecast/refit_1d_pysr.py` (1171 lines) — the refit engine (skim; mostly plumbing)
-- `Refit1DResult.predict` (`:266`) returns raw `P_F`; `predict_log` (`:277`) returns `logP_F`
-  (`log_space=True` applies `exp`/`log`). These are what the gate calls.
-- `refit_1d_for_param` (`:1001`) — the single-z production path. **Guard `:1088`:** `use_sobolev`
-  requires `log_space=True` (else the log target vs linear model is self-contradictory).
-- `refit_1d_multiz_for_param` (`:835`) — multi-z; **guarded `:873`** (`NotImplementedError`, the M2
-  fix) — multi-z Sobolev is disabled (linear target vs log weights). Single-z is the production path.
-- The Pareto CSV writer (`:~1155`) emits the `# git=` provenance header (skim).
+### `src/priya_forecast/grad_faith_score.py` — the derivative error, Eq. 9
+- `median_rel_error`: the median over k-bins of `|slope_eq / slope_GP − 1|`, skipping bins
+  where the emulator's slope is below `1e-3` of its peak.
+- `score_pareto`: scores every valid candidate of one Pareto file. It rebuilds the equation's
+  normalisation from the sweep file of stage 3 (`single_z/forecast.per_param_local_norm`, Eq. 2),
+  and stops if that file's k-grid differs from the scoring grid. The sweep file must come from
+  the same emulator as the fit; nothing checks that.
+
+### `src/priya_forecast/grad_faith_io.py` — score files and the knee
+- `write_grad_faith_sidecar`, `read_grad_faith_sidecar`: the score file, with its header line
+  `# param= z= tol= log_space= git= source=`.
+- `knee_row`: the Pareto knee. Among the rows of a score file (valid candidates only), the
+  simplest one whose loss is within 10% of the best (`rel_tol=0.1`).
+
+### `src/priya_forecast/pareto_filters.py` and `single_z/forecast.py` — valid candidates
+- `single_z/forecast._filter_fisher_safe` keeps an equation if all three hold:
+  `equation_uses_param` (it contains the parameter); `has_pathological_constant` is false (no
+  constant above 100); `is_fisher_stencil_safe` (it stays finite when each input is shifted by
+  ±0.05 and ±0.1 around the middle of its normalised range).
+- `single_z/forecast.build_refit_from_pareto_gated`: the lowest-loss valid candidate that also
+  passes the 0.25 threshold. This is the rule behind Table 5 and Figures 3 and 4.
+
+### `src/priya_forecast/refit_taylor.py` — the additive combine, Eqs. 3 to 5
+- `AdditiveTaylorModel.predict` with `log_space=True`:
+  `log P = log P_GP(fid) + Σ_i [log f_i(θ_i) − log f_i(fid)]`, then the exponential. At the
+  fiducial point every deviation cancels and the model returns the emulator's value.
+
+### Background, not used for a result of the paper
+`likelihood.py`, `ksdata_likelihood.py`, `fisher.py` and the `multi_z/` package implement a
+Fisher forecast. `scripts/run_multid_pysr.py` uses the Fisher matrix for the rank diagnostic of
+Sec. 5.1; the paper reports no forecast.
 
 ---
 
-## Part 4 — Scoring, aggregation, figures
+## Part 3 — Things to keep in mind while reading
 
-- `scripts/eval_grad_faithfulness.py` (169) — `median_rel_error` (`:38`) = the gate metric;
-  `main` (`:51`) scores every Fisher-safe candidate (`_filter_fisher_safe`, `:86`) and writes the
-  sidecar. **`--log-space` is the default now** (`:62`); `--linear-space` opts out.
-- `scripts/aggregate_seed_band.py` (137) — `GATE=0.25` (`:29`), `SEEDS=0..4` (`:30`); per param takes
-  the **knee** `grad_err` (`best_loss_grad_err` → `knee_row`, `:46-55`) across seeds → median/min/max.
-- `scripts/make_diagnostic_figs.py` (274), `regen_maxsize_sensitivity.py` (202), `regen_multid.py` (487),
-  `src/priya_forecast/paper_figures.py` (415, the reusable Tier-1 module).
-- GP-prediction plots live in the **paper repo**: `$FIGREPO/scripts/regen_fig{1,3,4}.py` + `regen_table2.py`.
-- `notebooks/reproduce_paper.ipynb` — the single notebook that runs every figure/table (Tier-1 + Tier-2).
-
-### Fisher forecast (background only — the paper dropped the σ presentation)
-`likelihood.py` (238) + `ksdata_likelihood.py` (239) + `fisher.py` (417) — the KODIAQ-SQUAD
-**linear-P_F** covariance + Fisher matrix (no `np.log` in `fisher.py`; this is what makes the
-log-slope-of-the-combine the Fisher-relevant quantity — see `refit_taylor.py` above).
-
----
-
-## Part 5 — Things to keep in mind while reviewing
-1. **grad_err is log-space and that is correct** — not a mislabel: via the anchored combine
-   (`refit_taylor.py`) the log-slope ratio = the deployed model's linear Fisher-space slope ratio.
-   `docs/dev/pr_review/VERDICT.md`'s "linear-P, correctly labelled" bullet is **superseded** (banner there).
-2. **Knee, not best-loss** — Tables 4/5 use `knee_row`. **Corrected 2026-07-30:** the committed
-   `taxonomy_table.tex` / `per_param_equations.tex` are the *knee* cut too (regenerated at
-   `f804916`; all 22 numbers and 11 classes match `paper_figures.taxonomy` exactly). It is the
-   `.txt` siblings that are the stale best-loss cut — don't mix those in.
-3. **Single-z is production; multi-z Sobolev is disabled** (guarded, M2).
-4. **The z=4.2 IGM-thermal "blow-ups"** are the gate hitting a noise-level GP slope (relative-only
-   floor), not unfaithful equations — state IGM-thermal verdicts per-z.
-5. Open author decisions (priors L173, log-P eq conventions, wall-time, etc.) are in the decision sheet.
+1. **The derivative error is in log space.** The fits train on `log P`, the Sobolev term
+   matches a log-slope, and the score compares log-slopes.
+2. **Three selection rules are in use**, and each table and figure uses one of them: lowest-loss,
+   lowest-loss valid, and the Pareto knee. The table in `REPRODUCE.md` says which is used where.
+3. **Scoring depends on a file that is not committed**: the sweep files of stage 3. For the
+   committed results they match the sweeps the fits were trained on.
+4. **The fits are not deterministic.** PySR runs multithreaded, so a rerun reproduces an
+   equation's faithful or unfaithful class, not its digits.
+5. **Provenance.** Score files, the seed-band summary and the multi-parameter tables carry a
+   `git=` stamp. The committed Pareto files, saved fits and `.tex` table files do not; their record is
+   `RUN_MANIFEST.md`.
