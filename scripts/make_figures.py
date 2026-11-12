@@ -9,6 +9,9 @@ values are the published ones.
 
     fig:tau0_ap_pred       pysr_pred_tau0_Ap.pdf     sobolev/refit/z3.6/{refits,payloads}/*.pkl
     fig:param_error_bars   param_error_bars.pdf      figures/table2_stats.tex
+    fig:multid_bestworst   multid_bestworst.pdf      figures/multid_z3.6/multid_bestworst_perk.csv
+    fig:multid_3d          multid_3d.pdf             (as committed at b59e670; checked against
+                                                     multid_bestworst.csv, Table 5)
     fig:seed_band          seed_band.pdf             seed_band/seed_band_summary.json
     fig:pareto_faith       pareto_faithfulness.pdf   {value,sobolev}/refit/z3.6/grad_faith_*.csv
                                                      + seed_band/z3.6_seed0_budget (n_P)
@@ -16,6 +19,8 @@ values are the published ones.
 
 Which equation each figure shows (Sec. 2.2.2 of the paper):
   * fig:tau0_ap_pred and fig:param_error_bars use the lowest-loss equation of each fit;
+  * fig:multid_bestworst and fig:multid_3d use the lowest-loss valid equation that passes
+    the derivative threshold (as Table 5), over 256 Sobol test points, seed 1234;
   * fig:seed_band uses the Pareto-knee equation (the simplest valid equation whose loss
     is within 10% of the best valid loss; priya_forecast.grad_faith_io.knee_row);
   * fig:pareto_faith and fig:ns_budget show every valid candidate, with no selection.
@@ -49,17 +54,17 @@ Z = 3.6
 sys.path.insert(0, str(CODE / "src"))
 
 
-def at_anchor(path: Path) -> Path:
-    """Return `path` after checking it is byte-identical to the tagged blob."""
+def at_anchor(path: Path, ref: str = ANCHOR) -> Path:
+    """Return `path` after checking it is byte-identical to the blob at `ref` (the tag)."""
     rel = path.relative_to(CODE).as_posix()
-    tagged = subprocess.run(["git", "-C", str(CODE), "rev-parse", f"{ANCHOR}:{rel}"],
+    tagged = subprocess.run(["git", "-C", str(CODE), "rev-parse", f"{ref}:{rel}"],
                             capture_output=True, text=True)
     if tagged.returncode != 0:
-        raise SystemExit(f"{rel} is not in {ANCHOR}; refusing to plot it.")
+        raise SystemExit(f"{rel} is not in {ref}; refusing to plot it.")
     here = subprocess.run(["git", "-C", str(CODE), "hash-object", str(path)],
                           capture_output=True, text=True, check=True).stdout.strip()
     if here != tagged.stdout.strip():
-        raise SystemExit(f"{rel} differs from {ANCHOR}; refusing to plot it.")
+        raise SystemExit(f"{rel} differs from {ref}; refusing to plot it.")
     return path
 
 
@@ -192,6 +197,78 @@ def fig_param_errors(out: Path, dump: dict) -> None:
     ax.legend(handles=handles, loc="lower center", bbox_to_anchor=(0.45, 1.0), ncol=2,
               columnspacing=1.0, handletextpad=0.4)
     S.save(fig, out / "param_error_bars.pdf", width=S.COLUMN_IN)
+
+
+# --------------------------------------------------------------------------- #
+# fig:multid_bestworst (2D) and fig:multid_3d (3D): the additive model's error against k
+# --------------------------------------------------------------------------- #
+# The per-k curves were not saved at v1.2-paper. Commit b59e670 regenerated them from
+# exactly the v1.2-paper inputs; its summary CSV is byte-identical to the tagged one, and
+# fig_multid() checks the curves against that summary (Table 5) again before plotting.
+MULTID_PERK_COMMIT = "b59e670"
+MULTID_COLOURS = {"best": "#0072B2", "worst": "#882255"}   # blue, wine: not used elsewhere
+
+
+def fig_multid(out: Path, dump: dict) -> None:
+    import matplotlib.pyplot as plt
+    import pandas as pd
+    from matplotlib.lines import Line2D
+    from matplotlib.patches import Patch
+
+    base = PROD / "figures" / f"multid_z{Z}"
+    summary = pd.read_csv(at_anchor(base / "multid_bestworst.csv"), comment="#")    # Table 5
+    perk = pd.read_csv(at_anchor(base / "multid_bestworst_perk.csv", MULTID_PERK_COMMIT),
+                       comment="#")
+    for _, r in summary.iterrows():          # the curves must reproduce Table 5, at its precision
+        c = perk[perk["params"] == r["params"]]
+        k_worst = float(c["k"].iloc[int(np.argmax(c["max_pct"].to_numpy()))])
+        if not (abs(c["mean_pct"].mean() - r["mean_pct"]) < 6e-5
+                and abs(c["max_pct"].max() - r["max_pct"]) < 6e-5
+                and abs(round(k_worst, 5) - r["max_k"]) < 6e-6):
+            raise SystemExit(
+                f"per-k curves for {r['params']} do not reproduce Table 5; refusing to plot")
+
+    picks = {}
+    for dim in ("2D", "3D"):
+        sub = summary[summary["dim"] == dim].sort_values("mean_pct")
+        # best and worst by mean error, as Table 5
+        picks[dim] = {"best": sub.iloc[0]["params"], "worst": sub.iloc[-1]["params"]}
+    shown = [p for pk in picks.values() for p in pk.values()]
+    top = 1.05 * perk[perk["params"].isin(shown)]["p90_pct"].max()   # one y-range for both figures
+    for dim, fname in (("2D", "multid_bestworst.pdf"), ("3D", "multid_3d.pdf")):
+        sub = summary[summary["dim"] == dim]
+        pick = picks[dim]
+        fig, ax = plt.subplots(figsize=(S.COLUMN_IN, 2.35))
+        handles = []
+        for role in ("worst", "best"):
+            c = perk[perk["params"] == pick[role]].sort_values("k")
+            k = c["k"].to_numpy(float)
+            col = MULTID_COLOURS[role]
+            mean_k, p90_k = c["mean_pct"].to_numpy(float), c["p90_pct"].to_numpy(float)
+            ax.fill_between(k, mean_k, p90_k, color=col, alpha=0.16, lw=0)
+            ax.plot(k, p90_k, color=col, lw=0.6, alpha=0.8)
+            ax.plot(k, mean_k, color=col, lw=1.5)
+            names = ", ".join(S.SYMBOL[p] for p in pick[role].split("-"))
+            mean = float(sub[sub["params"] == pick[role]]["mean_pct"].iloc[0])
+            handles.append(Line2D([], [], color=col, lw=1.4,
+                                  label=f"{role} by mean error: {names} ({mean:.2f}\\%)"))
+            dump[pick[role]] = dict(role=role, k=k.tolist(), mean_pct=c["mean_pct"].tolist(),
+                                    p90_pct=c["p90_pct"].tolist())
+        ax.axhline(1.0, color=S.GREY, lw=0.7, ls="--")
+        ax.text(1.01, 1.0, r"1\%", color=S.GREY, ha="left", va="center", fontsize=7,
+                transform=ax.get_yaxis_transform(), clip_on=False)
+        ax.set_xscale("log")
+        ax.set_xlim(k.min(), k.max())
+        ax.set_ylim(0, top)
+        ax.set_xlabel(S.K_LABEL)
+        ax.set_ylabel(r"relative error [\%]")
+        handles += [Line2D([], [], color=S.INK, lw=1.5, label="line: mean over 256 test points"),
+                    Patch(facecolor=S.INK, alpha=0.16, edgecolor="none",
+                          label="band: from the mean up to the 90th percentile")]
+        ax.legend(handles=handles, loc="lower center", bbox_to_anchor=(0.5, 1.0), ncol=1,
+                  fontsize=6.5, handlelength=1.6, title_fontsize=7,
+                  title=("two" if dim == "2D" else "three") + " parameters varied")
+        S.save(fig, out / fname, width=S.COLUMN_IN)
 
 
 # --------------------------------------------------------------------------- #
@@ -361,7 +438,7 @@ def fig_ns_budget(out: Path, dump: dict) -> None:
 
 
 FIGURES = {
-    "prediction": fig_prediction, "param_errors": fig_param_errors,
+    "prediction": fig_prediction, "param_errors": fig_param_errors, "multid": fig_multid,
     "seed_band": fig_seed_band, "pareto": fig_pareto, "ns_budget": fig_ns_budget,
 }
 

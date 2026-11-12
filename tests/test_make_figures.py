@@ -34,15 +34,22 @@ needs_tag = pytest.mark.skipif(not _HAS_TAG, reason=f"needs tag {mf.ANCHOR} (a f
 
 
 def test_one_generator_per_figure_the_paper_renders():
-    # fig:multid_bestworst and fig:multid_3d are added with the per-k data they plot.
-    assert {"prediction", "param_errors", "seed_band", "pareto", "ns_budget"} <= set(mf.FIGURES)
-    assert "resolution" not in mf.FIGURES            # the paper dropped that figure
+    # "multid" draws two figures: fig:multid_bestworst and fig:multid_3d.
+    assert set(mf.FIGURES) == {"prediction", "param_errors", "multid", "seed_band", "pareto",
+                               "ns_budget"}
 
 
 @needs_tag
 def test_accepts_an_input_that_matches_the_tag():
     path = mf.PROD / "seed_band" / "seed_band_summary.json"
     assert mf.at_anchor(path) == path
+
+
+@needs_tag
+def test_per_k_curves_are_the_ones_the_manuscript_pins():
+    path = mf.PROD / "figures" / "multid_z3.6" / "multid_bestworst_perk.csv"
+    assert mf.MULTID_PERK_COMMIT == "b59e670"
+    assert mf.at_anchor(path, mf.MULTID_PERK_COMMIT) == path
 
 
 @needs_tag
@@ -57,5 +64,6 @@ def test_every_figure_builds_without_the_emulator(tmp_path):
     subprocess.run([sys.executable, str(SCRIPT), "--out", str(tmp_path)], check=True,
                    cwd=ROOT, env={**os.environ, "MPLBACKEND": "Agg"})
     built = {p.name for p in tmp_path.glob("*.pdf")}
-    assert {"pysr_pred_tau0_Ap.pdf", "param_error_bars.pdf", "seed_band.pdf",
-            "pareto_faithfulness.pdf", "ns_budget_panel.pdf"} <= built
+    assert built == {"pysr_pred_tau0_Ap.pdf", "param_error_bars.pdf", "multid_bestworst.pdf",
+                     "multid_3d.pdf", "seed_band.pdf", "pareto_faithfulness.pdf",
+                     "ns_budget_panel.pdf"}
