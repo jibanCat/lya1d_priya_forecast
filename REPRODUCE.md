@@ -16,7 +16,7 @@ The work is split into three tiers. Most readers only need **Step 1**.
 | tier | you need | reproduces | time |
 |------|----------|------------|------|
 | **1** | 7 light pip deps (`requirements-figures.txt`) + a TeX install | every figure; Tables 1–5 | ~1 min |
-| **2** | the full venv + the GP emulator (`GPy` + `lyaemu`) + `data/kodiaq_gp` | recomputes Table 5 | ~15 min setup |
+| **2** | the full venv + the GP emulator (`GPy` + `lyaemu`) + `data/kodiaq_gp` | recomputes Table 5 and the per-k curves behind Figures 3 and 4 | ~15 min setup |
 | **3** | Tier 2 + Julia/PySR + SLURM | re-train the PySR fits from scratch | hours (cluster) |
 
 Jump to the [full figure/table → command → tier map](#full-figure--table--command--tier-map) at the end.
@@ -251,6 +251,12 @@ Check against the committed `$PROD/figures/multid_z3.6/multid_bestworst.csv`. Th
 are already committed, so you can *read* Table 5 without the emulator (§1f) and only need
 Tier 2 to *recompute* them.
 
+The same command rewrites `multid_bestworst_perk.csv`, the per-k curves Figures 3 and 4 are
+drawn from. A rerun reproduces Table 5's four-decimal values; the sixth decimal of a few
+per-k values can differ between machines. It also needs the one-parameter sweeps in
+`data/single_z_1pvar` (`scripts/regen_1pvar.py`): without them the script says so and
+falls back to emulator slices, which is not the result in the paper.
+
 ---
 
 ## Step 3a — Tier 3 (optional): re-run and tweak the PySR pipeline (`rerun_paper.ipynb`)
@@ -320,7 +326,7 @@ of candidate equations; the paper chooses from it in three ways (Sec. 2.2.2).
 |--------|-------|------------|---------|
 | valid candidate | uses the parameter; no constant above 100; non-zero gradient | `pareto_filters.py`, `single_z/forecast.py` (`_filter_fisher_safe`) | every rule below except lowest-loss |
 | lowest-loss | smallest training loss on the front | `refit_1d_pysr.py` (`pareto["loss"].idxmin()`) | Figures 1, 2; Table 2 |
-| lowest-loss valid | smallest training loss among valid candidates that also pass the threshold | `single_z/forecast.py` (`build_refit_from_pareto_gated`) | Table 5 |
+| lowest-loss valid | smallest training loss among valid candidates that also pass the threshold | `single_z/forecast.py` (`build_refit_from_pareto_gated`) | Table 5; Figures 3, 4 |
 | Pareto knee | simplest valid candidate with loss within 10% of the best valid loss | `grad_faith_io.py` (`knee_row`, `rel_tol=0.1`) | Tables 3, 4; Figure 5 |
 | faithful | derivative error `<= 0.25` | `paper_figures.GATE`; the same default in `derivative_gate.py`, `grad_faith_score.py`, `eval_grad_faithfulness.py --tol` | every faithful/unfaithful label |
 | derivative error | median over k-bins; bins where the GP slope is below `1e-3` of its peak are skipped | `grad_faith_score.py` (`median_rel_error`) | Tables 3, 4; Figures 5–7 |
@@ -330,7 +336,7 @@ of candidate equations; the paper chooses from it in three ways (Sec. 2.2.2).
 | complexity control | `maxsize = 35`, value-only loss, `n_P` | same script | Figures 6, 7 |
 | retries | up to 5 attempts until the front has a valid candidate | `single_z/refit.py` (`max_retries=4`) | every fit |
 | operators | `+ − × aq`; `exp log square` | `refit_1d_pysr.py` (`SMART_REFIT_PYSR_KWARGS`) | every 1D fit |
-| test set | 256 Sobol points, seed 1234 | `scripts/regen_multid.py` defaults | Table 5 |
+| test set | 256 Sobol points, seed 1234 | `scripts/regen_multid.py` defaults | Table 5; Figures 3, 4 |
 | joint fit (Sec. 5.1) | lowest-loss; `+ − × /`, `log exp square`; rank tolerance `1e-8` | `scripts/run_multid_pysr.py`; `results/joint_multid_sweep/SWEEP_SUMMARY.md` | Sec. 5.1 |
 
 The command-line defaults of `scripts/refit_one_param_single_z.py` are smaller than the
@@ -353,12 +359,14 @@ files, with no emulator. The copies under `$PROD/figures/` are the manuscript's.
 |--------------|------|--------------------------|----------------|
 | Figure 1, `fig:tau0_ap_pred` | `pysr_pred_tau0_Ap.pdf` | `prediction` | lowest-loss |
 | Figure 2, `fig:param_error_bars` | `param_error_bars.pdf` | `param_errors` | lowest-loss |
+| Figure 3, `fig:multid_bestworst` | `multid_bestworst.pdf` | `multid` | lowest-loss valid |
+| Figure 4, `fig:multid_3d` | `multid_3d.pdf` | `multid` | lowest-loss valid |
 | Figure 5, `fig:seed_band` | `seed_band.pdf` | `seed_band` | Pareto knee |
 | Figure 6, `fig:pareto_faith` | `pareto_faithfulness.pdf` | `pareto` | none: every valid candidate |
 | Figure 7, `fig:ns_budget` | `ns_budget_panel.pdf` | `ns_budget` | none: every valid candidate |
 
-Figures 3 and 4 (the multi-parameter error curves) need the per-k data file
-`multid_bestworst_perk.csv`.
+Figures 3 and 4 are drawn from `figures/multid_z3.6/multid_bestworst_perk.csv`: the mean and
+90th-percentile error in each k-bin, for each of the ten parameter combinations of Table 5.
 
 **No longer in the paper** (commented out in the `.tex`): `resolution_correction.pdf`,
 `faithfulness_scorecard.pdf`, `crossz_faithfulness.pdf`, `maxsize_sensitivity.pdf`,
