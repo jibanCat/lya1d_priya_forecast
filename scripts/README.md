@@ -48,14 +48,14 @@ values["sobolev"]["ns"]         # [median, min, max, number of seeds]
 
 ### What each function draws, and from what
 
-| function | `--only` | paper figure | reads (under `results/paper_production_20260630_perz_sobolev_z2.6-4.2/`) | equation shown |
-|---|---|---|---|---|
-| `fig_prediction` | `prediction` | Fig. 1, `fig:tau0_ap_pred` | `sobolev/refit/z3.6/{refits,payloads}/{tau0,Ap}.pkl` | lowest-loss |
-| `fig_param_errors` | `param_errors` | Fig. 2, `fig:param_error_bars` | `figures/table2_stats.tex` | lowest-loss |
-| `fig_multid` | `multid` | Fig. 3, `fig:multid_bestworst`; Fig. 4, `fig:multid_3d` | `figures/multid_z3.6/multid_bestworst_perk.csv`, checked against `multid_bestworst.csv` (Table 5) | lowest-loss valid |
-| `fig_seed_band` | `seed_band` | Fig. 5, `fig:seed_band` | `seed_band/seed_band_summary.json` | Pareto knee |
-| `fig_pareto` | `pareto` | Fig. 6, `fig:pareto_faith` | `{value,sobolev}/refit/z3.6/grad_faith_*.csv`, `seed_band/z3.6_seed0_budget/refit/z3.6/grad_faith_ns.csv` | every valid candidate |
-| `fig_ns_budget` | `ns_budget` | Fig. 7, `fig:ns_budget` | the three `grad_faith_ns.csv` files above | every valid candidate |
+| function | `--only` | paper figure | what it draws (committed copy) | reads (under `results/paper_production_20260630_perz_sobolev_z2.6-4.2/`) | equation shown |
+|---|---|---|---|---|---|
+| `fig_prediction` | `prediction` | Fig. 1, `fig:tau0_ap_pred` | <img src="../results/paper_production_20260630_perz_sobolev_z2.6-4.2/figures/pysr_pred_tau0_Ap.png" width="260"> | `sobolev/refit/z3.6/{refits,payloads}/{tau0,Ap}.pkl` | lowest-loss |
+| `fig_param_errors` | `param_errors` | Fig. 2, `fig:param_error_bars` | <img src="../results/paper_production_20260630_perz_sobolev_z2.6-4.2/figures/param_error_bars.png" width="170"> | `figures/table2_stats.tex` | lowest-loss |
+| `fig_multid` | `multid` | Fig. 3, `fig:multid_bestworst`; Fig. 4, `fig:multid_3d` | <img src="../results/paper_production_20260630_perz_sobolev_z2.6-4.2/figures/multid_bestworst.png" width="170"> <img src="../results/paper_production_20260630_perz_sobolev_z2.6-4.2/figures/multid_3d.png" width="170"> | `figures/multid_z3.6/multid_bestworst_perk.csv`, checked against `multid_bestworst.csv` (Table 5) | lowest-loss valid |
+| `fig_seed_band` | `seed_band` | Fig. 5, `fig:seed_band` | <img src="../results/paper_production_20260630_perz_sobolev_z2.6-4.2/figures/seed_band.png" width="260"> | `seed_band/seed_band_summary.json` | Pareto knee |
+| `fig_pareto` | `pareto` | Fig. 6, `fig:pareto_faith` | <img src="../results/paper_production_20260630_perz_sobolev_z2.6-4.2/figures/pareto_faithfulness.png" width="260"> | `{value,sobolev}/refit/z3.6/grad_faith_*.csv`, `seed_band/z3.6_seed0_budget/refit/z3.6/grad_faith_ns.csv` | every valid candidate |
+| `fig_ns_budget` | `ns_budget` | Fig. 7, `fig:ns_budget` | <img src="../results/paper_production_20260630_perz_sobolev_z2.6-4.2/figures/ns_budget_panel.png" width="170"> | the three `grad_faith_ns.csv` files above | every valid candidate |
 
 The selection rules are defined in `REPRODUCE.md`, "Selection rules and settings".
 
