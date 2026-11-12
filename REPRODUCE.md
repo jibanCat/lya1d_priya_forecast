@@ -272,17 +272,23 @@ and never touches the committed production run.
 ABI), the `lyaemu` package, a GP basedir, and Julia/PySR (the notebook retrains the equations from scratch, so
 PySR runs).
 
-**Provisioning the GP emulator (one public repo has both parts).** The package and the trained GP data both
-live in [`github.com/jibanCat/InferenceLyaData`](https://github.com/jibanCat/InferenceLyaData):
+**Provisioning the GP emulator (two public repos).** The `lyaemu` package is in
+[`github.com/jibanCat/InferenceLyaData`](https://github.com/jibanCat/InferenceLyaData). The trained
+emulator the paper uses (172 k-bins) is
+[`github.com/jibanCat/kodiaq-squad-gp`](https://github.com/jibanCat/kodiaq-squad-gp); its clone root
+is the basedir.
 
 ```bash
-git clone https://github.com/jibanCat/InferenceLyaData ../InferenceLyaData
+git clone https://github.com/jibanCat/InferenceLyaData ../InferenceLyaData    # the lyaemu package
+git clone https://github.com/jibanCat/kodiaq-squad-gp data/kodiaq-squad-gp      # the paper's emulator
 pip install GPy emukit                             # numpy must stay < 2
 export LYA_EMULATOR=$PWD/../InferenceLyaData        # its lyaemu/ dir is the package
-export GP_BASEDIR=$LYA_EMULATOR/Emulator_Files_KS   # the KODIAQ-SQUAD GP basedir
-# optional: strip the 104 MB basedir down to ~20 MB
-# python scripts/prep_kodiaq_gp.py --source $GP_BASEDIR --dest data/kodiaq_gp && export GP_BASEDIR=data/kodiaq_gp
+export GP_BASEDIR=data/kodiaq-squad-gp              # the clone root is the basedir
 ```
+
+Do **not** point `GP_BASEDIR` at `InferenceLyaData/Emulator_Files_KS`. The file loaded from there has
+329 k-bins: a different emulator, whose high-fidelity P1D differs from the paper's by a few percent.
+The notebook's first cell prints the number of k-bins of the basedir it found.
 
 The notebook's first cell reads `LYA_EMULATOR` and `GP_BASEDIR` and reports what is missing; if either is
 absent it prints these commands and skips the run rather than erroring.
