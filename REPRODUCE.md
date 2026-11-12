@@ -407,7 +407,7 @@ The paper's text still quotes the numbers behind the cross-redshift and maxsize 
 | paper table | label | tier | command / source of record |
 |-------------|-------|:----:|----------------------------|
 | Table 1 — parameters + priors | `tab:param_table` | 1 | `priya_forecast.parameters` (§1d); `figures/param_priors_table.txt` |
-| Table 2 — per-param % error (LF/HF) | `tab:stats_table` | 1 read | committed `figures/table2_stats.tex` is the record — **see the gotcha below** |
+| Table 2 — per-param % error (LF/HF) | `tab:stats_table` | 1 | recomputed from the saved fits `sobolev/refit/z3.6/{refits,payloads}/*.pkl` (the notebook's Table 2 cell); `figures/table2_stats.tex` |
 | Table 3 — faithfulness taxonomy | `tab:faith_taxonomy` | 1 | `grad_faith_io.knee_row` on the score files (§1b); `figures/taxonomy_table.tex` |
 | Table 4 — per-parameter equations | `tab:per1d_eqs` | 1 | knee row + Pareto CSV (§1c); `figures/per_param_equations.tex` |
 | Table 5 — multi-D combine vs GP | `tab:multid` | 1 read / 2 recompute | committed `figures/multid_z3.6/multid_bestworst.csv` (read); `scripts/regen_multid.py` (§2d) |
@@ -418,8 +418,9 @@ The paper's text still quotes the numbers behind the cross-redshift and maxsize 
 
 - **Figures need TeX.** `make_figures.py` uses `text.usetex=True`. Without a `latex`
   install it raises a matplotlib LaTeX error. The **tables** do not need TeX.
-- **Table 2 (`tab:stats_table`) cannot be recomputed from this repository.** Its generator
-  lives in the manuscript's repository and needs the emulator. Treat the committed
-  `figures/table2_stats.tex` as the record.
+- **Table 2 (`tab:stats_table`) needs no emulator.** Each saved fit under
+  `sobolev/refit/z3.6/refits/` is stored with the emulator values of its training sweep
+  (`payloads/`), and the table is the equation's error against those values. The notebook
+  recomputes it and reproduces `figures/table2_stats.tex` exactly.
 - **numpy < 2 / pandas < 3** in the pins is only for ABI compatibility with the
   Tier-2 GPy install; the Tier-1 code itself runs fine on numpy 2.x.

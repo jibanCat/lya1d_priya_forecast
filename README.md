@@ -43,7 +43,8 @@ EOF
 ```
 
 Table 1 is `src/priya_forecast/parameters.py`; Table 2 is
-`results/paper_production_20260630_perz_sobolev_z2.6-4.2/figures/table2_stats.tex`.
+`results/paper_production_20260630_perz_sobolev_z2.6-4.2/figures/table2_stats.tex`, which the
+notebook below recomputes from the saved fits.
 [`scripts/README.md`](scripts/README.md) shows the plotting function behind each figure.
 
 ## If you really need to rerun the fits
