@@ -127,7 +127,8 @@ gate `0.25`); `value_mse` = log-P value error. See the walkthrough for the defin
 src/priya_forecast/   Installed package: GP + PySR models, the derivative gate,
                       Sobolev loss, grad-faith sidecar I/O, Pareto diagnostic,
                       single_z/ + multi_z/ pipelines, the `priya-forecast` CLI.
-scripts/              Pipeline drivers: make_figures.py, eval_grad_faithfulness.py,
+scripts/              Pipeline drivers: make_figures.py (how to run it: scripts/README.md),
+                      eval_grad_faithfulness.py,
                       regen_*.py, submit_paper_production.sh, refit/aggregate entry points.
 notebooks/            reproduce_paper.ipynb (replot the paper) and rerun_paper.ipynb (refit);
                       see notebooks/README.md.
