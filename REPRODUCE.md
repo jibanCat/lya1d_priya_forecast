@@ -338,7 +338,7 @@ of candidate equations; the paper chooses from it in three ways (Sec. 2.2.2).
 
 | choice | value | defined in | governs |
 |--------|-------|------------|---------|
-| valid candidate | uses the parameter; no constant above 100; non-zero gradient | `pareto_filters.py`, `single_z/forecast.py` (`_filter_fisher_safe`) | every rule below except lowest-loss |
+| valid candidate | contains the parameter; no constant above 100; stays finite when each input is shifted by ±0.05 and ±0.1 around the middle of its normalised range | `pareto_filters.py`, `single_z/forecast.py` (`_filter_fisher_safe`) | every rule below except lowest-loss |
 | lowest-loss | smallest training loss on the front | `refit_1d_pysr.py` (`pareto["loss"].idxmin()`) | Figures 1, 2; Table 2 |
 | lowest-loss valid | smallest training loss among valid candidates that also pass the threshold | `single_z/forecast.py` (`build_refit_from_pareto_gated`) | Table 5; Figures 3, 4 |
 | Pareto knee | simplest valid candidate with loss within 10% of the best valid loss | `grad_faith_io.py` (`knee_row`, `rel_tol=0.1`) | Tables 3, 4; Figure 5 |
