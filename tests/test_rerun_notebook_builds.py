@@ -42,6 +42,11 @@ def test_builder_reproduces_valid_notebook_when_present(tmp_path):
 
 
 def test_committed_notebook_keeps_its_executed_outputs():
+    # The number of output chunks varies from run to run (the fit log is a stream), so
+    # check what a stripped notebook cannot have: an output on every code cell, and
+    # the comparison table of the run.
     nb = json.loads(NB.read_text())
-    n_out = sum(len(c.get("outputs", [])) for c in nb["cells"])
-    assert n_out >= 90, f"committed notebook looks output-stripped ({n_out} outputs)"
+    code = [c for c in nb["cells"] if c["cell_type"] == "code"]
+    assert all(c.get("outputs") for c in code), "committed notebook looks output-stripped"
+    text = "".join("".join(o.get("text", "")) for c in code for o in c["outputs"])
+    assert "grad_err_rerun" in text and "done: " in text
