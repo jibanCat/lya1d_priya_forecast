@@ -367,3 +367,54 @@ def compare_to_production(run_dir, production_dir=DEFAULT_PRODUCTION_DIR, *,
                                  verdict_rerun=vr, verdict_prod=vq,
                                  flipped=(vr != vq), flag=flag))
     return pd.DataFrame(rows)
+
+
+def main(argv=None):
+    """Command line for run_grid, so the same run can be a cluster job.
+
+        python -m priya_forecast.rerun --preset full --label full_seed0
+
+    `--preset full` is the paper's grid and search budget (11 parameters, z = 2.6, 3.6
+    and 4.2, both losses, niterations=200, populations=48, maxsize=20, lambda=5).
+    `--preset quick` is the notebook's small setting. See slurm/rerun_grid.slurm.
+    """
+    import argparse
+    ap = argparse.ArgumentParser(prog="python -m priya_forecast.rerun",
+                                 description=main.__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--preset", choices=("quick", "full"), default="quick")
+    ap.add_argument("--label", help="names the run directory: <out-root>/rerun_<label>")
+    ap.add_argument("--params", nargs="+", help="default: all 11")
+    ap.add_argument("--zs", nargs="+", type=float, help="default: the preset's redshifts")
+    ap.add_argument("--arms", nargs="+", choices=_VALID_ARMS, help="default: both losses")
+    ap.add_argument("--seed", type=int)
+    ap.add_argument("--maxsize", type=int)
+    ap.add_argument("--basedir", help="GP emulator directory (default: data/kodiaq_gp)")
+    ap.add_argument("--out-root", type=Path, help="default: results/tutorial_reruns")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="print the settings and stop; load nothing, write nothing")
+    args = ap.parse_args(argv)
+
+    chosen = {k: v for k, v in vars(args).items()
+              if k not in ("preset", "dry_run") and v is not None}
+    cfg = getattr(RerunConfig, args.preset)(**chosen)
+    cfg.validate()
+    print(f"run directory: {cfg.run_dir}")
+    print("\n".join(_settings_lines(cfg)))
+    warnings = budget_warnings(cfg)
+    print("\n".join(["Differences from the production budget:"] + [" - " + w for w in warnings])
+          if warnings else
+          "This config matches the production grid and budget on every knob checked.")
+    if args.dry_run:
+        return 0
+
+    run_dir = run_grid(cfg)
+    table = compare_to_production(run_dir, zs=cfg.zs, arms=cfg.arms, params=cfg.params)
+    table.to_csv(run_dir / "compare_to_production.csv", index=False)
+    print(table[["param", "z", "arm", "grad_err_rerun", "grad_err_prod", "flag",
+                 "flipped"]].to_string(index=False))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

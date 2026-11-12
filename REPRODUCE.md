@@ -290,6 +290,14 @@ absent it prints these commands and skips the run rather than erroring.
 Run the notebook in Jupyter (or headlessly via `jupyter nbconvert --execute`). Output lands in
 `results/tutorial_reruns/`, which is git-ignored for isolation.
 
+The notebook's default setting is small. To run the same grid at the paper's search budget as one
+cluster job (66 fits, about 10 h on four cores), and read the result back in the notebook:
+
+```bash
+REPO=$PWD bash slurm/rerun_grid.slurm --preset full --label full_seed0 --dry-run   # print the settings only
+sbatch --export=ALL,REPO=$PWD slurm/rerun_grid.slurm --preset full --label full_seed0
+```
+
 ---
 
 ## Step 3 — Tier 3 (optional): re-train the PySR fits (needs Julia/PySR + SLURM)

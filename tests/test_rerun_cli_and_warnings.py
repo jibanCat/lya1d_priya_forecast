@@ -33,3 +33,43 @@ def test_budget_warnings_silent_on_full():
     # full at production budget, all params, all z, both arms -> no budget shortfall
     w = budget_warnings(RerunConfig.full())
     assert w == []
+
+
+# ---- command line: the same run_grid, usable from a cluster job --------------------
+
+def test_cli_dry_run_full_preset_is_the_production_budget(capsys, tmp_path):
+    from priya_forecast import rerun
+    rc = rerun.main(["--preset", "full", "--label", "full_seed0",
+                     "--out-root", str(tmp_path), "--dry-run"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "budget: niter=200 pop=48 maxsize=20" in out
+    assert "zs: [2.6, 3.6, 4.2]" in out and "sobolev_lambda: 5.0" in out
+    assert "matches the production grid and budget" in out
+    assert not (tmp_path / "rerun_full_seed0").exists()        # a dry run writes nothing
+
+
+def test_cli_runs_the_grid_with_the_requested_settings(monkeypatch, tmp_path, capsys):
+    from priya_forecast import rerun
+    seen = {}
+
+    def fake_run_grid(cfg, **kw):
+        seen["cfg"] = cfg
+        cfg.run_dir.mkdir(parents=True)
+        return cfg.run_dir
+
+    monkeypatch.setattr(rerun, "run_grid", fake_run_grid)
+    rc = rerun.main(["--preset", "full", "--label", "s1", "--seed", "1", "--zs", "3.6",
+                     "--params", "ns", "Ap", "--out-root", str(tmp_path)])
+    cfg = seen["cfg"]
+    assert rc == 0
+    assert (cfg.label, cfg.seed, cfg.zs, cfg.params) == ("s1", 1, [3.6], ["ns", "Ap"])
+    assert (cfg.niterations, cfg.populations, cfg.maxsize) == (200, 48, 20)
+    assert (tmp_path / "rerun_s1" / "compare_to_production.csv").exists()
+
+
+def test_cli_rejects_a_bad_override_before_running(tmp_path):
+    import pytest
+    from priya_forecast import rerun
+    with pytest.raises(ValueError, match="unknown param"):
+        rerun.main(["--params", "nope", "--out-root", str(tmp_path), "--dry-run"])

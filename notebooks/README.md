@@ -13,6 +13,7 @@ the script that builds the manuscript's figures, so they match the paper exactly
 A run from `rerun_paper.ipynb` is yours, on your budget and seed. It writes to
 `results/tutorial_reruns/` and never changes the committed results. Its default setting
 is much smaller than the paper's (`niterations = 30`, `populations = 8`, against 200 and
-48), so treat its output as illustrative.
+48), so treat its output as illustrative. To run the same grid at the paper's budget on a
+cluster, submit `slurm/rerun_grid.slurm --preset full` (Section 6 of the notebook).
 
 Selection rules and settings are listed in `REPRODUCE.md` ("Selection rules and settings").
