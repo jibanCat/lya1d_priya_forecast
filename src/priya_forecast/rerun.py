@@ -17,6 +17,9 @@ PRODUCTION_BUDGET = {"niterations": 200, "populations": 48, "maxsize": 20,
                      "sobolev_lambda": 5.0}
 _PRODUCTION_MARKERS = ("paper_production", "refit_phase2_production")
 _VALID_ARMS = ("value", "sobolev")
+# dtau0 and tau0 rescale the mean flux after the emulator call; the other nine ranges in
+# parameters.py are the emulator's training ranges, with no emulator outside them.
+_POSTPROCESSED = ("dtau0", "tau0")
 
 
 @dataclass
@@ -78,6 +81,27 @@ class RerunConfig:
         unknown = set(self.params) - set(ALL_PARAMS)
         if unknown:
             raise ValueError(f"unknown param(s): {sorted(unknown)}")
+        self._validate_overrides()
+
+    def _validate_overrides(self) -> None:
+        """Reject an override the emulator cannot serve, before any fit starts.
+
+        A range may be narrowed, not widened beyond the emulator's training range,
+        and every fiducial value must lie strictly inside its range.
+        """
+        from priya_forecast.parameters import get_param, validate_priors, with_overrides
+        try:
+            overridden = with_overrides(self.fiducial_overrides, self.prior_overrides)
+        except KeyError as e:
+            raise ValueError(e.args[0]) from None
+        for name, (lo, hi) in (self.prior_overrides or {}).items():
+            box_lo, box_hi = get_param(name).prior
+            if name not in _POSTPROCESSED and not (box_lo <= lo and hi <= box_hi):
+                raise ValueError(
+                    f"prior override for {name!r}, ({lo}, {hi}), reaches outside the "
+                    f"emulator's range ({box_lo}, {box_hi}). A range can be narrowed, "
+                    "not widened.")
+        validate_priors(overridden)
 
 
 def cli_command_for(cfg, param, z, arm):
@@ -207,6 +231,7 @@ def run_grid(cfg, *, gp_loader=None, regen_fn=None, refit_fn=None, score_fn=None
     regen_fn = regen_fn or _real_regen_fn
     refit_fn = refit_fn or _real_refit_fn
     score_fn = score_fn or _real_score_inprocess
+    _refuse_a_different_run(cfg, run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
     k_grid = kodiaq_k_grid(cfg.kmin, cfg.kmax, 48)
     data_1pvar = run_dir / "_1pvar"
@@ -246,15 +271,43 @@ def run_grid(cfg, *, gp_loader=None, regen_fn=None, refit_fn=None, score_fn=None
     return run_dir
 
 
+def _settings_lines(cfg):
+    """The settings of a run, as the lines RUN_MANIFEST.md records them."""
+    return [
+        f"- params: {cfg.params}", f"- zs: {cfg.zs}", f"- arms: {cfg.arms}",
+        f"- budget: niter={cfg.niterations} pop={cfg.populations} maxsize={cfg.maxsize}",
+        f"- sobolev_lambda: {cfg.sobolev_lambda}", f"- seed: {cfg.seed}",
+        f"- operators: {'SMART' if cfg.smart_kwargs else 'DEFAULT'}",
+        f"- emulator: {cfg.basedir}",
+        f"- fiducial_overrides: {cfg.fiducial_overrides}",
+        f"- prior_overrides: {cfg.prior_overrides}",
+    ]
+
+
+def _refuse_a_different_run(cfg, run_dir):
+    """One run directory holds one run.
+
+    paper_figures.load_run reads every grad_faith_*.csv under the directory, so a
+    second run with other settings under the same label would be tabulated together
+    with the first. Repeating a run with identical settings is allowed: it overwrites
+    its own files.
+    """
+    if not any(run_dir.glob("*/refit/*/grad_faith_*.csv")):
+        return
+    manifest = run_dir / "RUN_MANIFEST.md"
+    recorded = manifest.read_text().splitlines() if manifest.exists() else []
+    if all(line in recorded for line in _settings_lines(cfg)):
+        return
+    raise ValueError(
+        f"{run_dir} already holds a run with different settings; this run's score "
+        "files would be mixed with it. Set a new cfg.label, or delete that directory.")
+
+
 def _write_manifest(cfg, run_dir, n_done, stamp):
     lines = [
         f"# RERUN MANIFEST — {cfg.label}", "",
         f"- fits completed: {n_done}",
-        f"- params: {cfg.params}", f"- zs: {cfg.zs}", f"- arms: {cfg.arms}",
-        f"- budget: niter={cfg.niterations} pop={cfg.populations} maxsize={cfg.maxsize}",
-        f"- sobolev_lambda: {cfg.sobolev_lambda}", f"- seed: {cfg.seed}",
-        f"- fiducial_overrides: {cfg.fiducial_overrides}",
-        f"- prior_overrides: {cfg.prior_overrides}",
+        *_settings_lines(cfg),
         f"- stamp: {stamp}", "",
         "Illustrative tutorial run — NOT the production result. See "
         "results/paper_production_20260630_perz_sobolev_z2.6-4.2/ for the paper run.",

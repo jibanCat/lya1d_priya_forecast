@@ -112,3 +112,25 @@ def test_score_inprocess_reuses_gp_and_writes_sidecar(monkeypatch, tmp_path):
     import pandas as pd
     df = pd.read_csv(out, comment="#")
     assert list(df["grad_err"]) == [0.2]
+
+
+def _run(cfg, tmp_path):
+    cfg.out_root = tmp_path
+    return run_grid(cfg, gp_loader=_fake_gp_loader, regen_fn=_fake_regen_fn,
+                    refit_fn=_make_refit_fn([]), score_fn=_fake_score_fn,
+                    progress=lambda *_: None)
+
+
+def test_run_grid_refuses_a_label_that_holds_a_different_run(tmp_path):
+    # load_run reads every grad_faith_*.csv under the run directory, so a second run
+    # with other settings under the same label would be tabulated together with the first.
+    _run(RerunConfig.quick(params=["ns", "tau0"]), tmp_path)
+    with pytest.raises(ValueError, match="label"):
+        _run(RerunConfig.quick(params=["ns"], seed=1), tmp_path)
+    assert (tmp_path / "rerun_quick" / "value" / "refit" / "z3.6" / "grad_faith_tau0.csv").exists()
+
+
+def test_run_grid_allows_repeating_the_same_run(tmp_path):
+    _run(RerunConfig.quick(params=["ns"]), tmp_path)
+    _run(RerunConfig.quick(params=["ns"]), tmp_path)          # overwrites its own files
+    _run(RerunConfig.quick(params=["ns"], seed=1, label="seed1"), tmp_path)   # new label
