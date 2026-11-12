@@ -77,6 +77,7 @@ from priya_forecast.parameters import (
     fiducial_vector,
     get_param,
 )
+from priya_forecast.provenance import git_stamp
 
 
 def _sobol_design(*, varying_names, n, seed=0):
@@ -259,8 +260,12 @@ def _write_joint_rank_json(*, path, params, fr_student, fr_gp,
                            equation, loss, complexity, z,
                            maxsize=None, front_scan=None, n_inputs_present=None,
                            absent_inputs=None, accuracy_insample=None,
-                           accuracy_offfid=None, sobolev_arm=None):
+                           accuracy_offfid=None, sobolev_arm=None, run=None):
     """Dump the §5.1 rank diagnostic to `path` as JSON.
+
+    `run` (optional) is stored verbatim as the provenance block: git stamp,
+    emulator basedir, n_train, niter, seed. Sweeps against different emulators
+    were otherwise indistinguishable except by output directory name.
 
     Base fields (loss-min / idxmin equation): equation, loss, complexity, the
     whitened+physical Fisher/Jacobian eigen-spectrum, condition number, and
@@ -298,6 +303,8 @@ def _write_joint_rank_json(*, path, params, fr_student, fr_gp,
         diag["accuracy_insample"] = accuracy_insample
     if accuracy_offfid is not None:
         diag["accuracy_offfid"] = accuracy_offfid
+    if run is not None:
+        diag["run"] = dict(run)
     if sobolev_arm is not None:
         diag["sobolev_arm"] = sobolev_arm
 
@@ -344,6 +351,13 @@ def main():
     parser.add_argument("--maxsize", type=int, default=25)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--z", type=float, default=3.6)
+    # The GP the sweep trains against. Bare GPModel() resolves to
+    # DEFAULT_GP_BASEDIR = InferenceLyaData/Emulator_Files, which is nk=102 on the
+    # eBOSS grid -- NOT the nk=172 `_cut` build (data/kodiaq_gp) the paper defines in
+    # Sec. 2.1. The committed results/joint_multid_sweep/ ran with --basedir data/kodiaq_gp.
+    parser.add_argument("--basedir", default=None,
+                        help="GP emulator basedir; default = GPModel's built-in "
+                             "(nk=102). Pass data/kodiaq_gp for the paper's nk=172 build.")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
@@ -351,7 +365,8 @@ def main():
 
     print("Loading real PRIYA GP emulator...")
     from priya_forecast.models.gp_model import GPModel
-    gp = GPModel()
+    gp = GPModel() if args.basedir is None else GPModel(basedir=args.basedir)
+    print(f"[gp] basedir={args.basedir or 'DEFAULT (nk=102 Emulator_Files)'}")
     z = args.z
     k_eboss, _, cov = load_eboss(z=z)
     fid = np.array(fiducial_vector(), dtype=float)
@@ -468,6 +483,12 @@ def main():
         front_scan=front_scan, n_inputs_present=n_present, absent_inputs=absent,
         accuracy_insample=acc_in, accuracy_offfid=acc_off,
         sobolev_arm=SOBOLEV_ARM_NOTE,
+        run={
+            "git": git_stamp(),
+            "gp_basedir": args.basedir,            # null = GPModel's default
+            "gp_basedir_name": gp.basedir.name,    # e.g. Emulator_Files vs kodiaq_gp
+            "n_train": args.n_train, "niter": args.niter, "seed": args.seed,
+        },
     )
     jp = rank_diag["joint_pysr"]["whitened"]
     gpw = rank_diag["gp_reference"]["whitened"]

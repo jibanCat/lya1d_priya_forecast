@@ -47,3 +47,29 @@ def test_presets_accept_field_overrides():
     assert c.zs == [3.6]                       # untouched preset default preserved
     f = RerunConfig.full(label="myfull")
     assert f.label == "myfull" and f.zs == [2.6, 3.6, 4.2]
+
+
+# ---- fiducial / prior overrides are checked before any fit starts -----------------
+
+def test_validate_rejects_a_range_wider_than_the_emulators():
+    # Ap's range (1.2, 2.6) is the emulator's training range; outside it there is no
+    # emulator, and the run used to die later with an empty AssertionError.
+    cfg = RerunConfig.quick(prior_overrides={"Ap": (0.5, 4.0)})
+    with pytest.raises(ValueError, match="emulator"):
+        cfg.validate()
+
+
+def test_validate_accepts_a_narrower_range():
+    RerunConfig.quick(prior_overrides={"Ap": (1.3, 2.2)}).validate()
+
+
+def test_validate_rejects_a_fiducial_outside_its_range():
+    with pytest.raises(ValueError, match="ns"):
+        RerunConfig.quick(fiducial_overrides={"ns": 1.2}).validate()
+    with pytest.raises(ValueError, match="Ap"):       # default fiducial 1.46 is now outside
+        RerunConfig.quick(prior_overrides={"Ap": (1.6, 2.2)}).validate()
+
+
+def test_validate_rejects_an_unknown_override_name():
+    with pytest.raises(ValueError, match="nope"):
+        RerunConfig.quick(fiducial_overrides={"nope": 1.0}).validate()

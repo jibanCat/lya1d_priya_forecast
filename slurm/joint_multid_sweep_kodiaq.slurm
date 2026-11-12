@@ -1,12 +1,28 @@
 #!/bin/bash
-# GreatLakes SLURM — §5.1 joint-fit MAXSIZE SWEEP (pre-registered).
+# GreatLakes SLURM — §5.1 joint-fit MAXSIZE SWEEP on the paper's emulator.
 #
-# Settles whether the joint-fit rank-deficiency is STRUCTURAL or a search-budget
-# artifact by holding params + z + data budget fixed and varying ONLY maxsize.
+# This is the script behind the committed results/joint_multid_sweep/. It trains against
+# data/kodiaq_gp (nk=172 over k=[0.00038,0.0957]), the emulator Sec. 2.1 defines. An
+# earlier sweep trained against a bare GPModel() (InferenceLyaData/Emulator_Files, nk=102);
+# it is superseded and remains in the history at tag v1.2-paper. This run kept its params,
+# z, n_train, seeds and iteration counts and changed only the emulator.
+#
+# niter is NOT uniform: at maxsize=100, niter=400 overran 4 h in the earlier sweep, whose
+# maxsize=100 runs therefore used niter=250 (job 53071661), and this run matches that.
+# How it was submitted (2026-08-10, REPO and NUMPY_SHADOW also exported; the output root
+# was then results/joint_multid_sweep_kodiaq and the 20 JSONs were copied over):
+#   sbatch --array=0-14  --time=6:00:00 --export=ALL,NITER=400 slurm/joint_multid_sweep_kodiaq.slurm  # job 56895343
+#   sbatch --array=15-19 --time=9:00:00 --export=ALL,NITER=250 slurm/joint_multid_sweep_kodiaq.slurm  # job 56895344
+# Task 0 died on a stale juliapkg file lock and was resubmitted unchanged as job
+# 56897224 (--array=0, 4 h). Runs from later commits record git, basedir, n_train,
+# niter and seed in the JSON's `run` block; these 20 predate it.
+#
+# Tests how the joint fit's rank changes with the complexity limit, holding params, z
+# and the data budget fixed. maxsize and niter change together at maxsize=100 (above).
 #
 #   subset : {ns, Ap, herei, heref, alphaq, hireionz}   (fixed)
 #   z      : 3.6                                          (fixed)
-#   budget : n_train=512, niter=400                       (fixed; both > the
+#   budget : n_train=512, niter=400 (250 at maxsize=100)  (both > the
 #            original 256/200 so data-/iteration-starvation is not a confound)
 #   grid   : maxsize in {25, 40, 60, 100} x seeds {0..4}  = 20 MSE runs
 #   loss   : MSE only (joint-Sobolev is not well-defined; see SOBOLEV_ARM_NOTE
@@ -26,7 +42,7 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=24G
 #SBATCH --time=4:00:00
-#SBATCH --job-name=joint_ms_sweep
+#SBATCH --job-name=joint_ms_kodiaq
 #SBATCH --output=slurm-%x-%A_%a.out
 
 set -euo pipefail
@@ -36,6 +52,7 @@ REPO=${REPO:?REPO must be set via --export}
 OUTPUT_ROOT=${OUTPUT_ROOT:-results/joint_multid_sweep}
 PARAMS=${PARAMS:-ns Ap herei heref alphaq hireionz}
 N_TRAIN=${N_TRAIN:-512}
+BASEDIR=${BASEDIR:-data/kodiaq_gp}
 NITER=${NITER:-400}
 Z=${Z:-3.6}
 
@@ -50,13 +67,15 @@ OUTPUT_DIR="${OUTPUT_ROOT}/ms${MAXSIZE}_seed${SEED}"
 
 echo "[slurm] host=$(hostname) job=${SLURM_JOB_ID:-?} array_task=${TID}"
 echo "[slurm] maxsize=${MAXSIZE} seed=${SEED} params=[${PARAMS}] z=${Z} n_train=${N_TRAIN} niter=${NITER}"
+echo "[slurm] BASEDIR=${BASEDIR}  (paper emulator, nk=172)"
 echo "[slurm] OUTPUT_DIR=${OUTPUT_DIR}"
 
 module purge
 module load gcc/10.3.0 || true
 PY=${PY:-/sw/pkgs/arc/mamba/py3.11/bin/python}
 
-export PYTHON_JULIAPKG_PROJECT="${HOME}/.julia_env"
+# Overridable: point it at a Julia 1.11.9 project (an unpinned env may have drifted).
+export PYTHON_JULIAPKG_PROJECT="${PYTHON_JULIAPKG_PROJECT:-${HOME}/.julia_env}"
 export JULIA_DEPOT_PATH="${HOME}/.julia"
 
 # numpy<2 shadow (REQUIRED): GPy 1.13.2 needs the numpy 1.x ABI but the base
@@ -84,6 +103,7 @@ echo "[slurm] starting joint multi-D PySR fit (maxsize=${MAXSIZE}, seed=${SEED})
     --n-train "$N_TRAIN" \
     --niter "$NITER" --maxsize "$MAXSIZE" \
     --seed "$SEED" --z "$Z" \
+    --basedir "$BASEDIR" \
     --output "$OUTPUT_DIR"
 
 echo "[slurm] done -> ${OUTPUT_DIR}/joint_rank_diagnostic.json"

@@ -19,10 +19,8 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import json
-import os
 
-from priya_forecast.parameters import PARAM_NAMES, override_params
+from priya_forecast.parameters import PARAM_NAMES
 from priya_forecast.grad_faith_io import write_grad_faith_sidecar
 # The scoring core is shared with priya_forecast.rerun (in-process, GP-reusing).
 # median_rel_error is re-exported for back-compat with existing callers/tests.
@@ -49,10 +47,7 @@ def main():
                    help="write a grad-faith sidecar CSV to this path")
     args = p.parse_args()
 
-    fid_ov = json.loads(os.environ.get("PRIYA_FIDUCIAL_OVERRIDES", "null"))
-    prior_ov = json.loads(os.environ.get("PRIYA_PRIOR_OVERRIDES", "null"))
-    with override_params(fid_ov, prior_ov):
-        _score(args)
+    _score(args)
 
 
 def _score(args):

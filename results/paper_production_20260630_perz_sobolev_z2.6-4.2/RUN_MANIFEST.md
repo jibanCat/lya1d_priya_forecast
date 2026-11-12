@@ -3,8 +3,8 @@
 - **git:** `fc914fc` @ `stage10-multiz-sobolev` (+uncommitted at submit time)
 - **released:** the code anchor for the manuscript is tag `v1.2-paper` (see the tag message for the
   commit); the earlier `v1.0-paper` (`a84e36d`) is the superseded pre-Sec.5.1 release and must not be
-  cited. The artifacts live on the `paper-production` line, NOT on `main` (PR #7 is still open), so a
-  reader must check out the tag rather than clone the default branch. The committed grad-faith
+  cited. `git checkout v1.2-paper` shows every file the paper cites exactly as cited; commits
+  after the tag change no production fit, score file or table. The committed grad-faith
   sidecars record the scoring code as `git=7aa26af`, an ancestor of the anchor.
   Because the run carried uncommitted working-tree changes, the figures/CSVs are **not**
   byte-regenerable from a single clean checkout — reproduce from the committed artifacts (Tier 1, no GP) or re-run the
