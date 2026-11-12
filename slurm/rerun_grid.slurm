@@ -7,6 +7,7 @@
 # The paper's grid at the paper's search budget (11 parameters x z = 2.6, 3.6, 4.2 x
 # both losses = 66 fits; niterations=200, populations=48, maxsize=20, lambda=5):
 #   sbatch --export=ALL,REPO=$PWD slurm/rerun_grid.slurm --preset full --label full_seed0
+# (LYA_EMULATOR must be set in the submitting shell; --export=ALL passes it on.)
 # Another seed of the seed band, one redshift only:
 #   sbatch --export=ALL,REPO=$PWD slurm/rerun_grid.slurm --preset full --zs 3.6 --seed 1 --label z36_seed1
 # Print the settings without running anything:
@@ -42,8 +43,9 @@ PY="${REPO}/.venv/bin/python"
 [ -x "$PY" ] || { echo "ERROR: project venv missing at $PY — see README install."; exit 1; }
 export PYTHON_JULIAPKG_PROJECT="${PYTHON_JULIAPKG_PROJECT:-${HOME}/.julia_env}"
 export JULIA_DEPOT_PATH="${JULIA_DEPOT_PATH:-${HOME}/.julia}"
-# LYA_EMULATOR: a directory that contains the lyaemu/ package.
-export PYTHONPATH="${LYA_EMULATOR:-/home/mfho/student_projects/lya_emulator_full}:${REPO}/src"
+# LYA_EMULATOR: the directory that contains the lyaemu/ package (REPRODUCE.md, Step 2b).
+LYA_EMULATOR=${LYA_EMULATOR:?LYA_EMULATOR must be set to the directory that contains lyaemu/}
+export PYTHONPATH="${LYA_EMULATOR}:${REPO}/src"
 
 cd "$REPO"
 "$PY" -m priya_forecast.rerun "$@"
